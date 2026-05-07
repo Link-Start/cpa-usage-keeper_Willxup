@@ -21,6 +21,7 @@ func TestDecodeRedisUsageMessageMapsPayloadToUsageEvent(t *testing.T) {
 		"failed":true,
 		"provider":"claude",
 		"model":"claude-sonnet-4-6",
+		"alias":"claude-sonnet-alias",
 		"endpoint":"/v1/messages",
 		"auth_type":"api_key",
 		"api_key":"raw-key",
@@ -35,6 +36,9 @@ func TestDecodeRedisUsageMessageMapsPayloadToUsageEvent(t *testing.T) {
 	}
 	if event.Provider != "claude" || event.Endpoint != "/v1/messages" || event.AuthType != "apikey" || event.RequestID != "req-123" {
 		t.Fatalf("unexpected redis identity fields: %+v", event)
+	}
+	if event.ModelAlias == nil || *event.ModelAlias != "claude-sonnet-alias" {
+		t.Fatalf("expected model alias to decode, got %+v", event.ModelAlias)
 	}
 	if event.InputTokens != 10 || event.OutputTokens != 20 || event.ReasoningTokens != 3 || event.CachedTokens != 4 || event.TotalTokens != 33 {
 		t.Fatalf("unexpected tokens: %+v", event)
@@ -59,6 +63,9 @@ func TestDecodeRedisUsageMessageFallsBackFieldsAndEventKey(t *testing.T) {
 	}
 	if event.Provider != "" || event.Endpoint != "/fallback" || event.AuthType != "" || event.RequestID != "" {
 		t.Fatalf("unexpected fallback redis identity fields: %+v", event)
+	}
+	if event.ModelAlias != nil {
+		t.Fatalf("expected missing alias to stay nil, got %+v", event.ModelAlias)
 	}
 	if !event.Timestamp.Equal(fetchedAt) {
 		t.Fatalf("expected fetchedAt timestamp, got %s", event.Timestamp)

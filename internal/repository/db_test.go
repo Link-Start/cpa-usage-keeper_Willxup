@@ -51,8 +51,8 @@ func TestOpenDatabaseCreatesFreshDatabaseFromCurrentSchemaWithoutRunningMigratio
 	if err := db.Table("schema_migrations").Count(&count).Error; err != nil {
 		t.Fatalf("count schema migrations: %v", err)
 	}
-	if count != 14 {
-		t.Fatalf("expected fresh database to mark 14 migrations applied, got %d", count)
+	if count != 15 {
+		t.Fatalf("expected fresh database to mark 15 migrations applied, got %d", count)
 	}
 	if strings.Contains(logs.String(), "schema migration started") {
 		t.Fatalf("expected fresh database creation not to run version migrations, got logs:\n%s", logs.String())
@@ -150,6 +150,37 @@ func TestInsertUsageEventsBatchesLargeInsertSet(t *testing.T) {
 	}
 	if count != int64(len(events)) {
 		t.Fatalf("expected %d persisted usage events, got %d", len(events), count)
+	}
+}
+
+func TestInsertUsageEventsPersistsModelAlias(t *testing.T) {
+	db := openTestDatabase(t)
+	modelAlias := "claude-sonnet-alias"
+	events := []models.UsageEvent{{
+		EventKey:    "event-alias",
+		APIGroupKey: "provider-a",
+		Model:       "claude-sonnet",
+		ModelAlias:  &modelAlias,
+		Timestamp:   time.Date(2026, 5, 7, 8, 0, 0, 0, time.UTC),
+		Source:      "source-a",
+		AuthIndex:   "auth-1",
+		TotalTokens: 10,
+	}}
+
+	inserted, deduped, err := InsertUsageEvents(db, events)
+	if err != nil {
+		t.Fatalf("InsertUsageEvents returned error: %v", err)
+	}
+	if inserted != 1 || deduped != 0 {
+		t.Fatalf("expected inserted=1 deduped=0, got inserted=%d deduped=%d", inserted, deduped)
+	}
+
+	var got models.UsageEvent
+	if err := db.Where("event_key = ?", "event-alias").First(&got).Error; err != nil {
+		t.Fatalf("load usage event: %v", err)
+	}
+	if got.ModelAlias == nil || *got.ModelAlias != "claude-sonnet-alias" {
+		t.Fatalf("expected model alias persisted, got %+v", got.ModelAlias)
 	}
 }
 

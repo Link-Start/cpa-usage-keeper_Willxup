@@ -11,6 +11,7 @@ type UsageEvent struct {
 	AuthType        string    `gorm:"column:auth_type;index:idx_usage_events_trim_auth_type,expression:TRIM(auth_type);index:idx_usage_events_auth_type_auth_index_id,priority:1;index:idx_usage_events_auth_type_source_id,priority:1"`
 	RequestID       string    `gorm:"column:request_id"`
 	Model           string    `gorm:"index:idx_usage_events_model;index:idx_usage_events_trim_model,expression:TRIM(model)"`
+	ModelAlias      *string   `gorm:"column:model_alias"`
 	Timestamp       time.Time `gorm:"index:idx_usage_events_timestamp_id,sort:desc,priority:1"`
 	Source          string    `gorm:"index:idx_usage_events_trim_source,expression:TRIM(source);index:idx_usage_events_auth_type_source_id,priority:2"`
 	AuthIndex       string    `gorm:"index:idx_usage_events_trim_auth_index,expression:TRIM(auth_index);index:idx_usage_events_auth_type_auth_index_id,priority:2"`

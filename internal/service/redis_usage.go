@@ -33,6 +33,7 @@ type queuedUsageDetail struct {
 	Failed    bool           `json:"failed"`
 	Provider  string         `json:"provider"`
 	Model     string         `json:"model"`
+	Alias     *string        `json:"alias"`
 	Endpoint  string         `json:"endpoint"`
 	AuthType  string         `json:"auth_type"`
 	APIKey    string         `json:"api_key"`
@@ -45,6 +46,17 @@ func normalizeRedisAuthType(value string) string {
 		return "apikey"
 	}
 	return trimmed
+}
+
+func trimRedisOptionalString(value *string) *string {
+	if value == nil {
+		return nil
+	}
+	trimmed := strings.TrimSpace(*value)
+	if trimmed == "" {
+		return nil
+	}
+	return &trimmed
 }
 
 func (d queuedUsageDetail) toUsageEvent(fetchedAt time.Time) models.UsageEvent {
@@ -69,6 +81,7 @@ func (d queuedUsageDetail) toUsageEvent(fetchedAt time.Time) models.UsageEvent {
 		AuthType:        normalizeRedisAuthType(d.AuthType),
 		RequestID:       strings.TrimSpace(d.RequestID),
 		Model:           model,
+		ModelAlias:      trimRedisOptionalString(d.Alias),
 		Timestamp:       timestamp,
 		Source:          source,
 		AuthIndex:       authIndex,

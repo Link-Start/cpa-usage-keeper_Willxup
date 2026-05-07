@@ -23,6 +23,7 @@ const (
 	migrationMigrateAIProviderIdentitiesToAuthIndex = "20260505_migrate_ai_provider_identities_to_auth_index"
 	migrationAddUsagePerformanceIndexes             = "20260506_add_usage_performance_indexes"
 	migrationAddUsageIdentityMetadataFields         = "20260507_add_usage_identity_metadata_fields"
+	migrationAddUsageEventModelAlias                = "20260508_add_usage_event_model_alias"
 )
 
 type schemaMigration struct {
@@ -90,6 +91,7 @@ func orderedMigrations() []databaseMigration {
 		{version: migrationMigrateAIProviderIdentitiesToAuthIndex, run: migrateAIProviderIdentitiesToAuthIndexMigration},
 		{version: migrationAddUsagePerformanceIndexes, run: addUsagePerformanceIndexesMigration},
 		{version: migrationAddUsageIdentityMetadataFields, run: addUsageIdentityMetadataFieldsMigration},
+		{version: migrationAddUsageEventModelAlias, run: addUsageEventModelAliasMigration},
 	}
 }
 

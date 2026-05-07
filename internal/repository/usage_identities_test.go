@@ -654,7 +654,7 @@ func TestUsageIdentityAggregateStatsForAuthFileUsesOAuthAuthIndex(t *testing.T) 
 	}
 }
 
-func TestUsageIdentityAggregateStatsForAIProviderUsesAPIKeySourceNotProvider(t *testing.T) {
+func TestUsageIdentityAggregateStatsForAIProviderUsesAPIKeyAuthIndexNotProvider(t *testing.T) {
 	db := openTestDatabase(t)
 	ctx := context.Background()
 	now := time.Date(2026, 5, 4, 13, 0, 0, 0, time.UTC)
@@ -665,10 +665,10 @@ func TestUsageIdentityAggregateStatsForAIProviderUsesAPIKeySourceNotProvider(t *
 	}
 
 	events := []models.UsageEvent{
-		{EventKey: "provider-source-1", APIGroupKey: "g1", Provider: "wrong-provider", AuthType: "apikey", Source: "provider-source", RequestID: "r1", Timestamp: now.Add(-2 * time.Hour), Failed: false, InputTokens: 11, OutputTokens: 12, ReasoningTokens: 13, CachedTokens: 14, TotalTokens: 50},
-		{EventKey: "provider-source-2", APIGroupKey: "g1", Provider: "Display Provider", AuthType: "apikey", Source: "provider-source", RequestID: "r2", Timestamp: now.Add(-time.Hour), Failed: true, InputTokens: 1, OutputTokens: 2, ReasoningTokens: 3, CachedTokens: 4, TotalTokens: 10},
-		{EventKey: "provider-ignore-provider", APIGroupKey: "g1", Provider: "provider-source", AuthType: "apikey", Source: "other-source", RequestID: "r3", Timestamp: now, Failed: false, InputTokens: 100, TotalTokens: 100},
-		{EventKey: "provider-ignore-auth-type", APIGroupKey: "g1", Provider: "wrong-provider", AuthType: "oauth", Source: "provider-source", RequestID: "r4", Timestamp: now, Failed: false, InputTokens: 100, TotalTokens: 100},
+		{EventKey: "provider-source-1", APIGroupKey: "g1", Provider: "wrong-provider", AuthType: "apikey", AuthIndex: "provider-source", RequestID: "r1", Timestamp: now.Add(-2 * time.Hour), Failed: false, InputTokens: 11, OutputTokens: 12, ReasoningTokens: 13, CachedTokens: 14, TotalTokens: 50},
+		{EventKey: "provider-source-2", APIGroupKey: "g1", Provider: "Display Provider", AuthType: "apikey", AuthIndex: "provider-source", RequestID: "r2", Timestamp: now.Add(-time.Hour), Failed: true, InputTokens: 1, OutputTokens: 2, ReasoningTokens: 3, CachedTokens: 4, TotalTokens: 10},
+		{EventKey: "provider-ignore-provider", APIGroupKey: "g1", Provider: "provider-source", AuthType: "apikey", AuthIndex: "other-source", RequestID: "r3", Timestamp: now, Failed: false, InputTokens: 100, TotalTokens: 100},
+		{EventKey: "provider-ignore-auth-type", APIGroupKey: "g1", Provider: "wrong-provider", AuthType: "oauth", AuthIndex: "provider-source", RequestID: "r4", Timestamp: now, Failed: false, InputTokens: 100, TotalTokens: 100},
 	}
 	if err := db.Create(&events).Error; err != nil {
 		t.Fatalf("seed usage events: %v", err)
@@ -683,7 +683,7 @@ func TestUsageIdentityAggregateStatsForAIProviderUsesAPIKeySourceNotProvider(t *
 		t.Fatalf("load usage identity: %v", err)
 	}
 	if got.TotalRequests != 2 || got.SuccessCount != 1 || got.FailureCount != 1 || got.InputTokens != 12 || got.OutputTokens != 14 || got.ReasoningTokens != 16 || got.CachedTokens != 18 || got.TotalTokens != 60 {
-		t.Fatalf("expected provider stats matched by source, got %+v", got)
+		t.Fatalf("expected provider stats matched by auth index, got %+v", got)
 	}
 	if got.LastAggregatedUsageEventID != events[1].ID {
 		t.Fatalf("expected cursor %d, got %d", events[1].ID, got.LastAggregatedUsageEventID)
@@ -811,7 +811,7 @@ func TestUsageIdentityAggregateStatsDeletedIdentityStillAggregates(t *testing.T)
 	if err := db.Create(&identity).Error; err != nil {
 		t.Fatalf("seed deleted usage identity: %v", err)
 	}
-	event := models.UsageEvent{EventKey: "deleted-1", APIGroupKey: "g1", AuthType: "apikey", Source: "deleted-source", RequestID: "r1", Timestamp: now, Failed: false, InputTokens: 10, OutputTokens: 5, TotalTokens: 15}
+	event := models.UsageEvent{EventKey: "deleted-1", APIGroupKey: "g1", AuthType: "apikey", AuthIndex: "deleted-source", RequestID: "r1", Timestamp: now, Failed: false, InputTokens: 10, OutputTokens: 5, TotalTokens: 15}
 	if err := db.Create(&event).Error; err != nil {
 		t.Fatalf("seed usage event: %v", err)
 	}
