@@ -122,6 +122,7 @@ func TestUsageIdentitiesRouteDoesNotReturnUnpublishedMetadataFields(t *testing.T
 	activeUntil := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
 	accountID := "acct_123"
 	planType := "team"
+	baseURL := "https://api.openai.com/v1"
 	limitReached := true
 	primaryUsed := 80
 	primaryLimit := 18000
@@ -140,6 +141,7 @@ func TestUsageIdentitiesRouteDoesNotReturnUnpublishedMetadataFields(t *testing.T
 		Type:                        "codex",
 		Provider:                    "Codex",
 		Prefix:                      "codex-prefix",
+		BaseURL:                     baseURL,
 		AccountID:                   &accountID,
 		ActiveStart:                 &activeStart,
 		ActiveUntil:                 &activeUntil,
@@ -165,6 +167,7 @@ func TestUsageIdentitiesRouteDoesNotReturnUnpublishedMetadataFields(t *testing.T
 	}
 	for _, forbidden := range []string{
 		`"prefix"`,
+		`"base_url"`,
 		`"account_id"`,
 		`"active_start"`,
 		`"active_until"`,

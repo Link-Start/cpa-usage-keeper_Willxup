@@ -124,6 +124,29 @@ func TestUsageIdentityDisplayNameFormatsProviderNameAndPrefix(t *testing.T) {
 	}
 }
 
+func TestUsageIdentityDisplayNameAddsProviderBaseURLQualifier(t *testing.T) {
+	withPrefix := entities.UsageIdentity{
+		Name:     "Provider Name",
+		Prefix:   "Team Prefix",
+		BaseURL:  "https://api.openai.com/v1/",
+		AuthType: entities.UsageIdentityAuthTypeAIProvider,
+		Identity: "provider-auth-index",
+	}
+	providerOnly := entities.UsageIdentity{
+		Name:     "codex",
+		BaseURL:  "https://chatgpt.com/backend-api/codex/",
+		AuthType: entities.UsageIdentityAuthTypeAIProvider,
+		Identity: "codex-auth-index",
+	}
+
+	if got := usageIdentityDisplayName(withPrefix); got != "Provider Name(Team Prefix @ api.openai.com/v1)" {
+		t.Fatalf("expected base URL to be an extra display qualifier, got %q", got)
+	}
+	if got := usageIdentityDisplayName(providerOnly); got != "codex(chatgpt.com/backend-api/codex)" {
+		t.Fatalf("expected provider displayName to include base URL qualifier, got %q", got)
+	}
+}
+
 func TestUsageIdentityDisplayNameUsesProviderWhenAuthFileNameIsMissing(t *testing.T) {
 	identity := entities.UsageIdentity{
 		AuthType: entities.UsageIdentityAuthTypeAuthFile,

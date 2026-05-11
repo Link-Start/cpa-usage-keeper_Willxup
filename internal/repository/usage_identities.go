@@ -241,6 +241,7 @@ func normalizeUsageIdentities(identities []entities.UsageIdentity, authType enti
 		identity.Provider = strings.TrimSpace(identity.Provider)
 		identity.LookupKey = strings.TrimSpace(identity.LookupKey)
 		identity.Prefix = strings.TrimSpace(identity.Prefix)
+		identity.BaseURL = strings.TrimSpace(identity.BaseURL)
 		identity.AccountID = trimOptionalString(identity.AccountID)
 		identity.PlanType = trimOptionalString(identity.PlanType)
 		identity.IsDeleted = false
@@ -331,6 +332,7 @@ func upsertUsageIdentities(tx *gorm.DB, identities []entities.UsageIdentity) err
 			"provider":       gorm.Expr("excluded.provider"),
 			"lookup_key":     gorm.Expr("excluded.lookup_key"),
 			"prefix":         gorm.Expr("excluded.prefix"),
+			"base_url":       gorm.Expr("excluded.base_url"),
 			"account_id":     gorm.Expr("excluded.account_id"),
 			"active_start":   gorm.Expr("excluded.active_start"),
 			"active_until":   gorm.Expr("excluded.active_until"),

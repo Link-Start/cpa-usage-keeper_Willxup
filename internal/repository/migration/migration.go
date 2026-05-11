@@ -24,6 +24,7 @@ const (
 	migrationAddUsagePerformanceIndexes             = "20260506_add_usage_performance_indexes"
 	migrationAddUsageIdentityMetadataFields         = "20260507_add_usage_identity_metadata_fields"
 	migrationAddUsageEventModelAlias                = "20260508_add_usage_event_model_alias"
+	migrationAddUsageIdentityBaseURL                = "20260509_add_usage_identity_base_url"
 )
 
 type schemaMigration struct {
@@ -92,6 +93,7 @@ func orderedMigrations() []databaseMigration {
 		{version: migrationAddUsagePerformanceIndexes, run: addUsagePerformanceIndexesMigration},
 		{version: migrationAddUsageIdentityMetadataFields, run: addUsageIdentityMetadataFieldsMigration},
 		{version: migrationAddUsageEventModelAlias, run: addUsageEventModelAliasMigration},
+		{version: migrationAddUsageIdentityBaseURL, run: addUsageIdentityBaseURLMigration},
 	}
 }
 

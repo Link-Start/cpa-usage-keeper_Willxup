@@ -787,16 +787,14 @@ func TestSyncMetadataWritesProviderMetadataToUsageIdentities(t *testing.T) {
 	assertTableNotExists(t, db, "provider_metadata")
 }
 
-// 多个 codex 上游 (CPA 不允许给 codex/claude/gemini 设 Name) 应当通过 base URL 区分，避免在 usage events 来源列里被合并成同一个 "codex"。
-func TestSyncMetadataUsesBaseURLAsDisplayNameWhenNameMissing(t *testing.T) {
+func TestSyncMetadataStoresProviderBaseURLWithoutOverwritingNameOrProvider(t *testing.T) {
 	db := openSyncTestDatabase(t)
 	service := NewSyncServiceWithOptions(db, SyncServiceOptions{
 		BaseURL: "https://cpa.example.com",
 		MetadataFetcher: stubMetadataFetcher{providerConfig: providerconfig.ProviderMetadataConfig{
 			CodexAPIKeys: []providerconfig.ProviderKeyConfig{
 				{APIKey: "codex-key-a", BaseURL: "https://api.openai.com/v1", AuthIndex: "codex-auth-a"},
-				{APIKey: "codex-key-b", BaseURL: "https://chatgpt.com/backend-api/codex/", AuthIndex: "codex-auth-b"},
-				{APIKey: "codex-key-c", AuthIndex: "codex-auth-c"},
+				{APIKey: "codex-key-b", Name: "Codex Team", BaseURL: "https://chatgpt.com/backend-api/codex/", AuthIndex: "codex-auth-b"},
 			},
 		}},
 	})
@@ -809,14 +807,13 @@ func TestSyncMetadataUsesBaseURLAsDisplayNameWhenNameMissing(t *testing.T) {
 		t.Fatalf("list usage identities: %v", err)
 	}
 	byIdentity := usageIdentitiesByIdentity(items)
-	if got := byIdentity["codex-auth-a"].Name; got != "api.openai.com/v1" {
-		t.Fatalf("codex-auth-a Name = %q, want %q", got, "api.openai.com/v1")
+	unnamed := byIdentity["codex-auth-a"]
+	if unnamed.Name != "codex" || unnamed.Provider != "codex" || unnamed.BaseURL != "https://api.openai.com/v1" {
+		t.Fatalf("expected unnamed codex to keep provider identity and store base URL separately, got %+v", unnamed)
 	}
-	if got := byIdentity["codex-auth-b"].Name; got != "chatgpt.com/backend-api/codex" {
-		t.Fatalf("codex-auth-b Name = %q, want %q", got, "chatgpt.com/backend-api/codex")
-	}
-	if got := byIdentity["codex-auth-c"].Name; got != "codex" {
-		t.Fatalf("codex-auth-c Name = %q, want %q", got, "codex")
+	named := byIdentity["codex-auth-b"]
+	if named.Name != "Codex Team" || named.Provider != "Codex Team" || named.BaseURL != "https://chatgpt.com/backend-api/codex/" {
+		t.Fatalf("expected named codex to keep name/provider and store base URL separately, got %+v", named)
 	}
 }
 
