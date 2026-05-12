@@ -32,6 +32,27 @@ describe('UsagePage toolbar styles', () => {
     expect(usagePageStyles).toMatch(/\.requestEventsPaginationFooter\s*\{[\s\S]*?padding:\s*0 #\{\$spacing-lg\};/)
   })
 
+  it('keeps Request Event Log headers visible while the table scrolls', () => {
+    expect(usagePageStyles).toMatch(/\.requestEventsTableWrapper\s*\{[\s\S]*?height:\s*clamp\(400px,\s*60vh,\s*600px\);/)
+    expect(usagePageStyles).toMatch(/\.requestEventsTableWrapper\s*\{[\s\S]*?overflow:\s*auto;/)
+    expect(usagePageStyles).toMatch(/\.requestEventsTableWrapper\s*\{[\s\S]*?thead\s+th\s*\{[\s\S]*?position:\s*sticky;/)
+    expect(usagePageStyles).toMatch(/\.requestEventsTableWrapper\s*\{[\s\S]*?thead\s+th\s*\{[\s\S]*?top:\s*0;/)
+    expect(usagePageStyles).toMatch(/\.requestEventsTableWrapper\s*\{[\s\S]*?thead\s+th\s*\{[\s\S]*?z-index:\s*2;/)
+    expect(usagePageStyles).toMatch(/\.requestEventsTableWrapper\s*\{[\s\S]*?\.table\s*\{[\s\S]*?border-collapse:\s*separate;/)
+  })
+
+  it('keeps the Request Event Log timestamp column compact', () => {
+    expect(usagePageStyles).toMatch(/\.requestEventsTimestamp\s*\{[\s\S]*?width:\s*136px;/)
+    expect(usagePageStyles).toMatch(/\.requestEventsTimestamp\s*\{[\s\S]*?min-width:\s*136px;/)
+    expect(usagePageStyles).toMatch(/\.requestEventsTimestamp\s*\{[\s\S]*?font-variant-numeric:\s*tabular-nums;/)
+  })
+
+  it('keeps the Request Event Log reasoning header on one line without fixing column width', () => {
+    expect(usagePageStyles).toMatch(/\.requestEventsReasoningHeader\s*\{[\s\S]*?white-space:\s*nowrap;/)
+    expect(usagePageStyles).not.toMatch(/\.requestEventsReasoningHeader\s*\{[^}]*width:/)
+    expect(requestEventsSource).toContain('<th className={styles.requestEventsReasoningHeader}>{t(\'usage_stats.reasoning_tokens\')}</th>')
+  })
+
   it('provides reusable pill controls for usage subpages', () => {
     expect(usagePageStyles).toMatch(/\.usagePillControl\s*\{[\s\S]*?border-radius:\s*999px;/)
     expect(usagePageStyles).toMatch(/\.usagePillAction\s*\{[\s\S]*?border-radius:\s*999px;/)
