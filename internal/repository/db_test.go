@@ -2,6 +2,7 @@ package repository
 
 import (
 	"bytes"
+	"context"
 	"cpa-usage-keeper/internal/repository/dto"
 	"fmt"
 	"path/filepath"
@@ -219,7 +220,7 @@ func TestDatabaseTimeFieldsUseProjectTimezoneRFC3339Nano(t *testing.T) {
 	}
 	activeStart := storageTime
 	activeUntil := storageTime.Add(time.Hour)
-	if err := ReplaceUsageIdentitiesForAuthType(t.Context(), db, []entities.UsageIdentity{{
+	if err := ReplaceUsageIdentitiesForAuthType(context.Background(), db, []entities.UsageIdentity{{
 		Name:        "Auth 1",
 		Identity:    "auth-1",
 		ActiveStart: &activeStart,
@@ -227,10 +228,10 @@ func TestDatabaseTimeFieldsUseProjectTimezoneRFC3339Nano(t *testing.T) {
 	}}, entities.UsageIdentityAuthTypeAuthFile, storageTime); err != nil {
 		t.Fatalf("ReplaceUsageIdentitiesForAuthType returned error: %v", err)
 	}
-	if err := AggregateUsageIdentityStats(t.Context(), db, storageTime); err != nil {
+	if err := AggregateUsageIdentityStats(context.Background(), db, storageTime); err != nil {
 		t.Fatalf("AggregateUsageIdentityStats returned error: %v", err)
 	}
-	if err := ReplaceUsageIdentitiesForAuthType(t.Context(), db, nil, entities.UsageIdentityAuthTypeAuthFile, storageTime); err != nil {
+	if err := ReplaceUsageIdentitiesForAuthType(context.Background(), db, nil, entities.UsageIdentityAuthTypeAuthFile, storageTime); err != nil {
 		t.Fatalf("ReplaceUsageIdentitiesForAuthType delete returned error: %v", err)
 	}
 
