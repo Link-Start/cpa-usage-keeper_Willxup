@@ -243,6 +243,33 @@ func TestBuildAnalysisWithFilterExcludesMissingAndDeletedCPAAPIKeys(t *testing.T
 	}
 }
 
+func TestBuildAnalysisWithFilterKeepsHeatmapPairsSeparateWhenValuesContainDelimiter(t *testing.T) {
+	db := openUsageTestDatabase(t)
+	bucket := time.Date(2026, 4, 20, 9, 0, 0, 0, time.UTC)
+	if err := db.Create([]entities.CPAAPIKey{
+		{APIKey: "sk-a\x00claude", DisplayKey: "sk-*********claude"},
+		{APIKey: "sk-a", DisplayKey: "sk-*********a"},
+	}).Error; err != nil {
+		t.Fatalf("insert CPA API keys: %v", err)
+	}
+	if err := db.Create([]entities.UsageOverviewHourlyStat{
+		{BucketStart: bucket, APIGroupKey: "sk-a\x00claude", Model: "sonnet", RequestCount: 1, TotalTokens: 10},
+		{BucketStart: bucket, APIGroupKey: "sk-a", Model: "claude\x00sonnet", RequestCount: 2, TotalTokens: 20},
+	}).Error; err != nil {
+		t.Fatalf("insert hourly stats: %v", err)
+	}
+	start := bucket
+	end := bucket.Add(time.Hour)
+
+	analysis, err := BuildAnalysisWithFilter(db, repodto.UsageQueryFilter{StartTime: &start, EndTime: &end})
+	if err != nil {
+		t.Fatalf("BuildAnalysisWithFilter returned error: %v", err)
+	}
+	if len(analysis.Heatmap) != 2 {
+		t.Fatalf("expected two distinct heatmap cells, got %+v", analysis.Heatmap)
+	}
+}
+
 func TestBuildAnalysisWithFilterFillsTodayAndYesterdayHourlyBucketsFromStats(t *testing.T) {
 	db := openUsageTestDatabase(t)
 	start := time.Date(2026, 5, 14, 0, 0, 0, 0, time.Local)

@@ -309,11 +309,16 @@ func analysisHourlyStatsEnd(filter dto.UsageQueryFilter, fullEnd time.Time) time
 	return fullEnd
 }
 
+type analysisHeatmapKey struct {
+	apiKey string
+	model  string
+}
+
 func applyAnalysisHourlyRows(record *dto.AnalysisRecord, rows []entities.UsageOverviewHourlyStat) {
 	bucketTotals := map[time.Time]*dto.AnalysisTokenUsageBucketRecord{}
 	apiTotals := map[string]*dto.AnalysisCompositionRecord{}
 	modelTotals := map[string]*dto.AnalysisCompositionRecord{}
-	heatmapTotals := map[string]*dto.AnalysisHeatmapRecord{}
+	heatmapTotals := map[analysisHeatmapKey]*dto.AnalysisHeatmapRecord{}
 	for _, row := range rows {
 		bucket := timeutil.NormalizeStorageTime(row.BucketStart).Truncate(time.Hour)
 		applyAnalysisRow(record, bucketTotals, apiTotals, modelTotals, heatmapTotals, bucket, row.APIGroupKey, row.Model, row.RequestCount, row.InputTokens, row.OutputTokens, row.CachedTokens, row.ReasoningTokens, row.TotalTokens)
@@ -325,7 +330,7 @@ func applyAnalysisDailyRows(record *dto.AnalysisRecord, rows []entities.UsageOve
 	bucketTotals := map[time.Time]*dto.AnalysisTokenUsageBucketRecord{}
 	apiTotals := map[string]*dto.AnalysisCompositionRecord{}
 	modelTotals := map[string]*dto.AnalysisCompositionRecord{}
-	heatmapTotals := map[string]*dto.AnalysisHeatmapRecord{}
+	heatmapTotals := map[analysisHeatmapKey]*dto.AnalysisHeatmapRecord{}
 	for _, row := range rows {
 		bucket := timeutil.NormalizeStorageTime(row.BucketStart)
 		applyAnalysisRow(record, bucketTotals, apiTotals, modelTotals, heatmapTotals, bucket, row.APIGroupKey, row.Model, row.RequestCount, row.InputTokens, row.OutputTokens, row.CachedTokens, row.ReasoningTokens, row.TotalTokens)
@@ -333,7 +338,7 @@ func applyAnalysisDailyRows(record *dto.AnalysisRecord, rows []entities.UsageOve
 	finalizeAnalysisRecord(record, bucketTotals, apiTotals, modelTotals, heatmapTotals)
 }
 
-func applyAnalysisRow(_ *dto.AnalysisRecord, bucketTotals map[time.Time]*dto.AnalysisTokenUsageBucketRecord, apiTotals, modelTotals map[string]*dto.AnalysisCompositionRecord, heatmapTotals map[string]*dto.AnalysisHeatmapRecord, bucket time.Time, apiGroupKey, model string, requests, inputTokens, outputTokens, cachedTokens, reasoningTokens, totalTokens int64) {
+func applyAnalysisRow(_ *dto.AnalysisRecord, bucketTotals map[time.Time]*dto.AnalysisTokenUsageBucketRecord, apiTotals, modelTotals map[string]*dto.AnalysisCompositionRecord, heatmapTotals map[analysisHeatmapKey]*dto.AnalysisHeatmapRecord, bucket time.Time, apiGroupKey, model string, requests, inputTokens, outputTokens, cachedTokens, reasoningTokens, totalTokens int64) {
 	apiKey := normalizeUsageOverviewDimension(apiGroupKey)
 	modelName := normalizeUsageOverviewDimension(model)
 	bucketTotal := bucketTotals[bucket]
@@ -362,7 +367,7 @@ func applyAnalysisRow(_ *dto.AnalysisRecord, bucketTotals map[time.Time]*dto.Ana
 	}
 	applyAnalysisCompositionTotals(modelTotal, requests, inputTokens, outputTokens, cachedTokens, reasoningTokens, totalTokens)
 
-	heatmapKey := apiKey + "\x00" + modelName
+	heatmapKey := analysisHeatmapKey{apiKey: apiKey, model: modelName}
 	heatmapTotal := heatmapTotals[heatmapKey]
 	if heatmapTotal == nil {
 		heatmapTotal = &dto.AnalysisHeatmapRecord{APIKey: apiKey, Model: modelName}
@@ -404,7 +409,7 @@ func fillAnalysisFullDayHourlyBuckets(record *dto.AnalysisRecord, filter dto.Usa
 	}
 }
 
-func finalizeAnalysisRecord(record *dto.AnalysisRecord, bucketTotals map[time.Time]*dto.AnalysisTokenUsageBucketRecord, apiTotals, modelTotals map[string]*dto.AnalysisCompositionRecord, heatmapTotals map[string]*dto.AnalysisHeatmapRecord) {
+func finalizeAnalysisRecord(record *dto.AnalysisRecord, bucketTotals map[time.Time]*dto.AnalysisTokenUsageBucketRecord, apiTotals, modelTotals map[string]*dto.AnalysisCompositionRecord, heatmapTotals map[analysisHeatmapKey]*dto.AnalysisHeatmapRecord) {
 	for _, bucket := range bucketTotals {
 		record.TokenUsage = append(record.TokenUsage, *bucket)
 	}

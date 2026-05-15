@@ -2,6 +2,7 @@ package api
 
 import (
 	"net/http"
+	"strconv"
 	"time"
 
 	"cpa-usage-keeper/internal/redact"
@@ -54,6 +55,11 @@ type analysisHeatmapCell struct {
 	Intensity   float64 `json:"intensity"`
 }
 
+type analysisAPIKeyInfo struct {
+	ID    int64
+	Label string
+}
+
 func registerUsageAnalysisRoute(router gin.IRoutes, usageProvider service.UsageProvider, cpaAPIKeyProvider service.CPAAPIKeyProvider) {
 	router.GET("/usage/analysis", func(c *gin.Context) {
 		if usageProvider == nil {
@@ -72,12 +78,12 @@ func registerUsageAnalysisRoute(router gin.IRoutes, usageProvider service.UsageP
 			writeInternalError(c, "get analysis failed", err)
 			return
 		}
-		apiKeyLabels, err := loadCPAAPIKeyLabels(c, cpaAPIKeyProvider)
+		apiKeyInfos, err := loadCPAAPIKeyInfos(c, cpaAPIKeyProvider)
 		if err != nil {
 			return
 		}
 
-		c.JSON(http.StatusOK, buildAnalysisPayload(analysis, apiKeyLabels))
+		c.JSON(http.StatusOK, buildAnalysisPayload(analysis, apiKeyInfos))
 	})
 }
 
@@ -92,23 +98,23 @@ func emptyAnalysisResponse() analysisResponse {
 	}
 }
 
-func loadCPAAPIKeyLabels(c *gin.Context, provider service.CPAAPIKeyProvider) (map[string]string, error) {
+func loadCPAAPIKeyInfos(c *gin.Context, provider service.CPAAPIKeyProvider) (map[string]analysisAPIKeyInfo, error) {
 	if provider == nil {
-		return map[string]string{}, nil
+		return map[string]analysisAPIKeyInfo{}, nil
 	}
 	rows, err := provider.ListCPAAPIKeys(c.Request.Context())
 	if err != nil {
 		writeInternalError(c, "list api key options failed", err)
 		return nil, err
 	}
-	labels := make(map[string]string, len(rows))
+	infos := make(map[string]analysisAPIKeyInfo, len(rows))
 	for _, row := range rows {
-		labels[row.APIKey] = cpaAPIKeyDisplayLabel(row)
+		infos[row.APIKey] = analysisAPIKeyInfo{ID: row.ID, Label: cpaAPIKeyDisplayLabel(row)}
 	}
-	return labels, nil
+	return infos, nil
 }
 
-func buildAnalysisPayload(snapshot *servicedto.AnalysisSnapshot, apiKeyLabels map[string]string) analysisResponse {
+func buildAnalysisPayload(snapshot *servicedto.AnalysisSnapshot, apiKeyInfos map[string]analysisAPIKeyInfo) analysisResponse {
 	if snapshot == nil {
 		return emptyAnalysisResponse()
 	}
@@ -124,7 +130,7 @@ func buildAnalysisPayload(snapshot *servicedto.AnalysisSnapshot, apiKeyLabels ma
 			Requests:        bucket.Requests,
 		})
 	}
-	apiComposition := buildAnalysisCompositionPayload(snapshot.APIKeyComposition, apiKeyLabels)
+	apiComposition := buildAnalysisCompositionPayload(snapshot.APIKeyComposition, apiKeyInfos)
 	modelComposition := buildAnalysisCompositionPayload(snapshot.ModelComposition, nil)
 	return analysisResponse{
 		Granularity:       string(snapshot.Granularity),
@@ -134,22 +140,21 @@ func buildAnalysisPayload(snapshot *servicedto.AnalysisSnapshot, apiKeyLabels ma
 		TokenUsage:        tokenUsage,
 		APIKeyComposition: apiComposition,
 		ModelComposition:  modelComposition,
-		Heatmap:           buildAnalysisHeatmapPayload(snapshot.Heatmap, apiKeyLabels),
+		Heatmap:           buildAnalysisHeatmapPayload(snapshot.Heatmap, apiKeyInfos),
 	}
 }
 
-func buildAnalysisCompositionPayload(items []servicedto.AnalysisCompositionItem, apiKeyLabels map[string]string) []analysisCompositionItem {
+func buildAnalysisCompositionPayload(items []servicedto.AnalysisCompositionItem, apiKeyInfos map[string]analysisAPIKeyInfo) []analysisCompositionItem {
 	total := int64(0)
 	for _, item := range items {
 		total += item.TotalTokens
 	}
 	payload := make([]analysisCompositionItem, 0, len(items))
 	for _, item := range items {
-		key := item.Key
+		key := analysisAPIKeyResponseKey(item.Key, apiKeyInfos)
 		label := item.Key
-		if apiKeyLabels != nil {
-			label = analysisAPIKeyLabel(item.Key, apiKeyLabels)
-			key = label
+		if apiKeyInfos != nil {
+			label = analysisAPIKeyLabel(item.Key, apiKeyInfos)
 		}
 		percent := 0.0
 		if total > 0 {
@@ -160,21 +165,28 @@ func buildAnalysisCompositionPayload(items []servicedto.AnalysisCompositionItem,
 	return payload
 }
 
-func analysisAPIKeyLabel(apiKey string, apiKeyLabels map[string]string) string {
-	if label, ok := apiKeyLabels[apiKey]; ok && label != "" {
-		return label
+func analysisAPIKeyResponseKey(apiKey string, apiKeyInfos map[string]analysisAPIKeyInfo) string {
+	if info, ok := apiKeyInfos[apiKey]; ok && info.ID > 0 {
+		return strconv.FormatInt(info.ID, 10)
 	}
 	return redact.APIKeyDisplayName(apiKey)
 }
 
-func buildAnalysisHeatmapPayload(cells []servicedto.AnalysisHeatmapCell, apiKeyLabels map[string]string) analysisHeatmap {
+func analysisAPIKeyLabel(apiKey string, apiKeyInfos map[string]analysisAPIKeyInfo) string {
+	if info, ok := apiKeyInfos[apiKey]; ok && info.Label != "" {
+		return info.Label
+	}
+	return redact.APIKeyDisplayName(apiKey)
+}
+
+func buildAnalysisHeatmapPayload(cells []servicedto.AnalysisHeatmapCell, apiKeyInfos map[string]analysisAPIKeyInfo) analysisHeatmap {
 	apiSeen := map[string]struct{}{}
 	modelSeen := map[string]struct{}{}
 	apiKeys := make([]string, 0)
 	models := make([]string, 0)
 	maxTokens := int64(0)
 	for _, cell := range cells {
-		apiKey := analysisAPIKeyLabel(cell.APIKey, apiKeyLabels)
+		apiKey := analysisAPIKeyLabel(cell.APIKey, apiKeyInfos)
 		if _, ok := apiSeen[apiKey]; !ok {
 			apiSeen[apiKey] = struct{}{}
 			apiKeys = append(apiKeys, apiKey)
@@ -194,7 +206,7 @@ func buildAnalysisHeatmapPayload(cells []servicedto.AnalysisHeatmapCell, apiKeyL
 			intensity = float64(cell.TotalTokens) / float64(maxTokens)
 		}
 		payloadCells = append(payloadCells, analysisHeatmapCell{
-			APIKey:      analysisAPIKeyLabel(cell.APIKey, apiKeyLabels),
+			APIKey:      analysisAPIKeyLabel(cell.APIKey, apiKeyInfos),
 			Model:       cell.Model,
 			TotalTokens: cell.TotalTokens,
 			Requests:    cell.Requests,

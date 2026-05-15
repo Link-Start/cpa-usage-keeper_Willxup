@@ -124,7 +124,7 @@ func TestUsageAnalysisUsesCPAAPIKeyOptionLabels(t *testing.T) {
 	lastSyncedAt := time.Date(2026, 5, 13, 10, 0, 0, 0, time.Local)
 	provider := &usageAnalysisStub{analysis: &servicedto.AnalysisSnapshot{
 		Granularity: servicedto.AnalysisGranularityHourly,
-		TokenUsage: []servicedto.AnalysisTokenUsageBucket{{Bucket: bucket, TotalTokens: 42, Requests: 2}},
+		TokenUsage:  []servicedto.AnalysisTokenUsageBucket{{Bucket: bucket, TotalTokens: 42, Requests: 2}},
 		APIKeyComposition: []servicedto.AnalysisCompositionItem{{
 			Key:         "sk-alpha123456",
 			TotalTokens: 42,
@@ -154,8 +154,8 @@ func TestUsageAnalysisUsesCPAAPIKeyOptionLabels(t *testing.T) {
 		t.Fatalf("expected status 200, got %d", resp.Code)
 	}
 	body := resp.Body.String()
-	if !contains(body, `"label":"Primary Key"`) || !contains(body, `"api_key":"Primary Key"`) {
-		t.Fatalf("expected analysis payload to reuse CPA API key option labels, got %s", body)
+	if !contains(body, `"key":"1"`) || !contains(body, `"label":"Primary Key"`) || !contains(body, `"api_key":"Primary Key"`) {
+		t.Fatalf("expected analysis payload to use CPA API key id and display label, got %s", body)
 	}
 	if contains(body, "sk-alpha123456") || contains(body, redact.APIAlias("sk-alpha123456")) {
 		t.Fatalf("expected raw and alias key values to stay hidden when a CPA key label exists, got %s", body)
