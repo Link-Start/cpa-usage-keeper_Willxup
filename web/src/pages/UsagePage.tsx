@@ -428,9 +428,12 @@ const toTimestampMs = (value: string | undefined): number | undefined => {
   return Number.isFinite(timestamp) ? timestamp : undefined;
 };
 
-export const getOverviewChartEndMs = ({ timeRange, filterWindow, fallbackEndMs, resolvedRangeEndMs }: { timeRange: UsageTimeRange; filterWindow: UsageFilterWindow; fallbackEndMs: number; resolvedRangeEndMs?: number }) => {
-  if (isTodayTimeRange(timeRange) && filterWindow.startMs !== undefined) {
-    return filterWindow.startMs + 24 * 60 * 60 * 1000;
+export const getOverviewChartEndMs = ({ timeRange, filterWindow, fallbackEndMs, resolvedRangeStartMs, resolvedRangeEndMs }: { timeRange: UsageTimeRange; filterWindow: UsageFilterWindow; fallbackEndMs: number; resolvedRangeStartMs?: number; resolvedRangeEndMs?: number }) => {
+  if (isTodayTimeRange(timeRange)) {
+    const startMs = resolvedRangeStartMs ?? filterWindow.startMs;
+    if (startMs !== undefined) {
+      return startMs + 24 * 60 * 60 * 1000;
+    }
   }
   if (isYesterdayTimeRange(timeRange) && resolvedRangeEndMs !== undefined) {
     return Math.ceil((resolvedRangeEndMs + 1) / (60 * 60 * 1000)) * 60 * 60 * 1000;
@@ -719,6 +722,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     timeRange,
     filterWindow,
     fallbackEndMs: lastRefreshedAt?.getTime() ?? Date.now(),
+    resolvedRangeStartMs,
     resolvedRangeEndMs,
   });
   const includeFinalHourBucket = isTodayTimeRange(timeRange) || isYesterdayTimeRange(timeRange);

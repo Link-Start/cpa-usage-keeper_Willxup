@@ -388,7 +388,7 @@ describe('UsagePage custom date query', () => {
 });
 
 describe('UsagePage Overview chart window', () => {
-  it('uses Today hourly chart buckets through the next day boundary', () => {
+  it('uses backend Today range start instead of browser-local midnight for chart buckets', () => {
     const filterWindow: UsageFilterWindow = {
       startMs: Date.parse('2026-04-23T00:00:00.000Z'),
       endMs: Date.parse('2026-04-23T12:34:56.000Z'),
@@ -400,8 +400,9 @@ describe('UsagePage Overview chart window', () => {
       timeRange: 'today',
       filterWindow,
       fallbackEndMs: filterWindow.endMs ?? 0,
+      resolvedRangeStartMs: Date.parse('2026-04-22T16:00:00.000Z'),
       resolvedRangeEndMs: Date.parse('2026-04-23T15:59:59.999Z'),
-    })).toBe(Date.parse('2026-04-24T00:00:00.000Z'));
+    })).toBe(Date.parse('2026-04-23T16:00:00.000Z'));
   });
 
   it('uses Yesterday hourly chart buckets through the next day boundary', () => {
