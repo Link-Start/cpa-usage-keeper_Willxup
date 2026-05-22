@@ -123,12 +123,10 @@ docker run -d \
   --name cpa-usage-keeper \
   --add-host=host.docker.internal:host-gateway \
   -p 8080:8080 \
-  -v "$(pwd)/keeper/data:/data" \
+  -v "$(pwd)/keeper:/data" \
   --env-file .env \
   ghcr.io/willxup/cpa-usage-keeper:latest
 ```
-
-`/data` 用于保存 SQLite 数据库、备份文件和日志文件，请挂载到持久化目录。
 
 ### Linux 二进制
 
@@ -229,7 +227,7 @@ cp .env.example .env
 | --- | --- | --- | --- |
 | `REDIS_QUEUE_ADDR` | 否 | `CPA_BASE_URL` 主机名 + `8317` | CPA Redis/RESP TCP 地址；一般保持空即可。非默认端口或单独暴露 Redis stream 时填写 `host:port` |
 | `REDIS_QUEUE_TLS` | 否 | `false` | 是否使用 TLS 连接 Redis 队列；显式设置 `REDIS_QUEUE_ADDR` 且需要 TLS 时设为 `true` |
-| `REDIS_QUEUE_BATCH_SIZE` | 否 | `1000` | 每次最多拉取的队列记录数 |
+| `REDIS_QUEUE_BATCH_SIZE` | 否 | `10000` | 每次最多拉取的队列记录数 |
 | `REDIS_QUEUE_IDLE_INTERVAL` | 否 | `1s` | 队列为空时的检查间隔 |
 
 ### 存储、日志与备份
@@ -320,10 +318,11 @@ web/                     React + TypeScript 前端
 
 ### 本地启动
 
-1. 复制本地配置：
+1. 复制并编辑本地配置，至少设置 `CPA_BASE_URL` 和 `CPA_MANAGEMENT_KEY`。如果 CPA 的 Redis/RESP 端口不是默认 `8317`，同时设置 `REDIS_QUEUE_ADDR`：
 
 ```bash
 cp .env.example .env
+vim .env
 ```
 
 2. 启动后端：
@@ -337,6 +336,12 @@ go run ./cmd/server/main.go
 ```bash
 npm --prefix ./web ci
 npm --prefix ./web run dev -- --host 127.0.0.1
+```
+
+前端开发服务器默认把 `/api` 代理到 `http://127.0.0.1:8080`，访问 `http://127.0.0.1:5173` 即可联调。如果后端使用了其他端口：
+
+```bash
+VITE_API_PROXY_TARGET=http://127.0.0.1:9090 npm --prefix ./web run dev -- --host 127.0.0.1
 ```
 
 ### 测试

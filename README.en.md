@@ -123,12 +123,10 @@ docker run -d \
   --name cpa-usage-keeper \
   --add-host=host.docker.internal:host-gateway \
   -p 8080:8080 \
-  -v "$(pwd)/keeper/data:/data" \
+  -v "$(pwd)/keeper:/data" \
   --env-file .env \
   ghcr.io/willxup/cpa-usage-keeper:latest
 ```
-
-`/data` stores the SQLite database, backups, and log files. Mount it to persistent storage.
 
 ### Linux Binary
 
@@ -229,7 +227,7 @@ For first-time deployments, start with "Minimum required" and "Web access and re
 | --- | --- | --- | --- |
 | `REDIS_QUEUE_ADDR` | No | `CPA_BASE_URL` hostname + `8317` | CPA Redis/RESP TCP address; normally leave empty. Set `host:port` for non-default ports or separately exposed Redis streams |
 | `REDIS_QUEUE_TLS` | No | `false` | Use TLS for Redis queue connection; set `true` when `REDIS_QUEUE_ADDR` is explicit and requires TLS |
-| `REDIS_QUEUE_BATCH_SIZE` | No | `1000` | Maximum queue records per pull |
+| `REDIS_QUEUE_BATCH_SIZE` | No | `10000` | Maximum queue records per pull |
 | `REDIS_QUEUE_IDLE_INTERVAL` | No | `1s` | Empty queue check interval |
 
 ### Storage, Logs, And Backups
@@ -320,10 +318,11 @@ web/                     React + TypeScript frontend
 
 ### Run locally
 
-1. Create your local config:
+1. Create and edit your local config. At minimum, set `CPA_BASE_URL` and `CPA_MANAGEMENT_KEY`. If the CPA Redis/RESP port is not the default `8317`, also set `REDIS_QUEUE_ADDR`:
 
 ```bash
 cp .env.example .env
+vim .env
 ```
 
 2. Start the backend:
@@ -337,6 +336,12 @@ go run ./cmd/server/main.go
 ```bash
 npm --prefix ./web ci
 npm --prefix ./web run dev -- --host 127.0.0.1
+```
+
+The frontend dev server proxies `/api` to `http://127.0.0.1:8080` by default. Open `http://127.0.0.1:5173` for local development. If the backend uses another port:
+
+```bash
+VITE_API_PROXY_TARGET=http://127.0.0.1:9090 npm --prefix ./web run dev -- --host 127.0.0.1
 ```
 
 ### Tests
