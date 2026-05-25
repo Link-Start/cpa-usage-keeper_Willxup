@@ -23,6 +23,7 @@ type Service struct {
 	refreshWorkerTokens chan struct{}
 	refreshTaskTTL      time.Duration
 	refreshCooldown     func(time.Duration)
+	refreshContext      context.Context
 }
 
 type CheckRequest struct {
@@ -46,7 +47,15 @@ func NewServiceWithRegistry(db *gorm.DB, registry ProviderRegistry) *Service {
 		refreshWorkerTokens: make(chan struct{}, RefreshWorkerLimit),
 		refreshTaskTTL:      RefreshTransientTaskTTL,
 		refreshCooldown:     time.Sleep,
+		refreshContext:      context.Background(),
 	}
+}
+
+func (s *Service) SetRefreshContext(ctx context.Context) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	s.refreshContext = ctx
 }
 
 func (s *Service) Check(ctx context.Context, request CheckRequest) (CheckResponse, error) {

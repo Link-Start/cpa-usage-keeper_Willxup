@@ -31,7 +31,7 @@ func SumUsageWindowStatsByAuthIndex(db *gorm.DB, authIndex string, start time.Ti
 	}
 	query := db.Model(&entities.UsageEvent{}).
 		Select(usageEventProjectionColumns).
-		Where("auth_index = ? AND timestamp >= ?", authIndex, timeutil.FormatStorageTime(start)).
+		Where("auth_type = ? AND auth_index = ? AND timestamp >= ?", "oauth", authIndex, timeutil.FormatStorageTime(start)).
 		Order("timestamp asc")
 	if end != nil {
 		// 过期 quota 窗口必须使用半开结束时间，避免把新窗口事件累计进旧窗口缓存。

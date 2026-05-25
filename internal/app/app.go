@@ -246,6 +246,7 @@ func (a *App) Run() error {
 		})
 	}
 	if a.QuotaAutoRefresh != nil {
+		a.QuotaAutoRefresh.SetRefreshContext(ctx)
 		a.startBackgroundTask(func() {
 			// quota 自动刷新和手动刷新共用队列，但作为独立后台任务跟随 App 生命周期启动和停止。
 			if err := a.QuotaAutoRefresh.StartAutoRefresh(ctx); err != nil {

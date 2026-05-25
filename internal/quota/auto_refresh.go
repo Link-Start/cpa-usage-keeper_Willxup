@@ -2,6 +2,7 @@ package quota
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	"cpa-usage-keeper/internal/entities"
@@ -24,7 +25,7 @@ func (s *Service) RunAutoRefresh(ctx context.Context) error {
 	skippedCachedError := 0
 	skippedRunning := 0
 	for _, identity := range identities {
-		authIndex := identity.Identity
+		authIndex := strings.TrimSpace(identity.Identity)
 		if authIndex == "" {
 			continue
 		}
@@ -90,7 +91,7 @@ func (s *Service) shouldSkipAutoRefreshForCachedHTTPError(authIndex string, now 
 	if !ok || task.Status != RefreshTaskStatusFailed || task.HTTPStatusCode == nil {
 		return false
 	}
-	if _, ok := AutoRefreshHTTPStatusSkipCodes[*task.HTTPStatusCode]; !ok {
+	if _, ok := RefreshCacheableHTTPStatusCodes[*task.HTTPStatusCode]; !ok {
 		return false
 	}
 	// 只有未过期的 401/402 等配置错误会拦截自动刷新；过期后下一轮可以重新尝试并覆盖旧错误。

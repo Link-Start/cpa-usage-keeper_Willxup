@@ -180,6 +180,29 @@ func TestRefreshTaskWaitsForCooldownBeforeReleasingWorker(t *testing.T) {
 	}
 }
 
+func TestRefreshTaskUsesParentContextCancellation(t *testing.T) {
+	db := openQuotaTestDatabase(t)
+	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "auth-1", Provider: "claude", Type: "auth-file", AuthType: entities.UsageIdentityAuthTypeAuthFile})
+	block := make(chan struct{})
+	handler := &refreshHandlerStub{block: block}
+	service := NewServiceWithRegistry(db, NewProviderRegistry(map[string]ProviderHandler{"claude": handler}))
+	service.refreshCooldown = func(time.Duration) {}
+	ctx, cancel := context.WithCancel(context.Background())
+	service.SetRefreshContext(ctx)
+
+	response, err := service.Refresh(context.Background(), RefreshRequest{AuthIndexes: []string{"auth-1"}, Source: RefreshSourceManual})
+	if err != nil {
+		t.Fatalf("Refresh returned error: %v", err)
+	}
+	waitForRefreshTask(t, service, response.Tasks[0].AuthIndex, RefreshTaskStatusRunning)
+	cancel()
+	task := waitForRefreshTask(t, service, response.Tasks[0].AuthIndex, RefreshTaskStatusFailed)
+	if task.Error != "Quota refresh timed out. Please try again later." {
+		t.Fatalf("expected canceled task to fail with timeout message, got %+v", task)
+	}
+	close(block)
+}
+
 func TestRefreshTaskFailureReturnsFriendlyMessage(t *testing.T) {
 	db := openQuotaTestDatabase(t)
 	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "auth-1", Provider: "claude", Type: "auth-file", AuthType: entities.UsageIdentityAuthTypeAuthFile})

@@ -22,9 +22,10 @@ func TestSumUsageWindowStatsByAuthIndexUsesAuthIndexAndWindow(t *testing.T) {
 	start := time.Date(2026, 5, 25, 10, 0, 0, 0, time.UTC)
 	end := start.Add(time.Hour)
 	events := []entities.UsageEvent{
-		{AuthIndex: "auth-1", Model: "priced", Timestamp: start.Add(10 * time.Minute), InputTokens: 1_000_000, OutputTokens: 500_000, CachedTokens: 200_000, TotalTokens: 1_500_000},
-		{AuthIndex: "auth-2", Model: "priced", Timestamp: start.Add(20 * time.Minute), TotalTokens: 9_000_000},
-		{AuthIndex: "auth-1", Model: "priced", Timestamp: end.Add(time.Minute), TotalTokens: 8_000_000},
+		{AuthType: "oauth", AuthIndex: "auth-1", Model: "priced", Timestamp: start.Add(10 * time.Minute), InputTokens: 1_000_000, OutputTokens: 500_000, CachedTokens: 200_000, TotalTokens: 1_500_000},
+		{AuthType: "apikey", AuthIndex: "auth-1", Model: "priced", Timestamp: start.Add(15 * time.Minute), TotalTokens: 7_000_000},
+		{AuthType: "oauth", AuthIndex: "auth-2", Model: "priced", Timestamp: start.Add(20 * time.Minute), TotalTokens: 9_000_000},
+		{AuthType: "oauth", AuthIndex: "auth-1", Model: "priced", Timestamp: end.Add(time.Minute), TotalTokens: 8_000_000},
 	}
 	if err := db.Create(&events).Error; err != nil {
 		t.Fatalf("seed usage events: %v", err)
@@ -50,7 +51,7 @@ func TestSumUsageWindowStatsByAuthIndexTreatsMissingPriceAsZeroCost(t *testing.T
 	}
 	closeTestDatabase(t, db)
 	start := time.Date(2026, 5, 25, 10, 0, 0, 0, time.UTC)
-	if err := db.Create(&entities.UsageEvent{AuthIndex: "auth-1", Model: "missing", Timestamp: start, InputTokens: 1_000_000, TotalTokens: 1_000_000}).Error; err != nil {
+	if err := db.Create(&entities.UsageEvent{AuthType: "oauth", AuthIndex: "auth-1", Model: "missing", Timestamp: start, InputTokens: 1_000_000, TotalTokens: 1_000_000}).Error; err != nil {
 		t.Fatalf("seed usage event: %v", err)
 	}
 	stats, err := SumUsageWindowStatsByAuthIndex(db, "auth-1", start.Add(-time.Minute), nil)

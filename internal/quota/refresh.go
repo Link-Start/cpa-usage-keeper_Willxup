@@ -252,7 +252,7 @@ func (s *Service) runRefreshTask(authIndex string) {
 		return
 	}
 	// 每个任务独立设置超时；超时或 provider 错误都会沉淀到任务状态里给前端展示。
-	ctx, cancel := context.WithTimeout(context.Background(), RefreshTaskTimeout)
+	ctx, cancel := context.WithTimeout(s.refreshContext, RefreshTaskTimeout)
 	defer cancel()
 	response, err := s.Check(ctx, CheckRequest{AuthIndex: authIndex})
 	if err != nil {

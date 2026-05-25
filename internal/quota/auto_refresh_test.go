@@ -13,6 +13,7 @@ func TestRunAutoRefreshQueuesOnlyActiveAuthFiles(t *testing.T) {
 	db := openQuotaTestDatabase(t)
 	disabled := true
 	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "auth-1", Provider: "claude", Type: "auth-file", AuthType: entities.UsageIdentityAuthTypeAuthFile})
+	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "  ", Provider: "claude", Type: "auth-file", AuthType: entities.UsageIdentityAuthTypeAuthFile})
 	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "disabled-1", Provider: "claude", Type: "auth-file", AuthType: entities.UsageIdentityAuthTypeAuthFile, Disabled: &disabled})
 	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "deleted-1", Provider: "claude", Type: "auth-file", AuthType: entities.UsageIdentityAuthTypeAuthFile, IsDeleted: true})
 	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "provider-1", Provider: "openai", Type: "openai", AuthType: entities.UsageIdentityAuthTypeAIProvider})
@@ -31,6 +32,12 @@ func TestRunAutoRefreshQueuesOnlyActiveAuthFiles(t *testing.T) {
 		if _, err := service.GetRefreshTaskByAuthIndex(context.Background(), authIndex); !errors.Is(err, ErrTaskNotFound) {
 			t.Fatalf("expected %s to stay out of auto refresh queue, got %v", authIndex, err)
 		}
+	}
+	service.refreshMu.Lock()
+	_, hasBlankTask := service.refreshTasks["  "]
+	service.refreshMu.Unlock()
+	if hasBlankTask {
+		t.Fatal("expected blank identity to stay out of auto refresh queue")
 	}
 }
 
@@ -54,5 +61,11 @@ func TestRunAutoRefreshSkipsCachedHTTPFailures(t *testing.T) {
 	}
 	if handler.callCount() != 1 {
 		t.Fatalf("expected auto refresh to skip cached 401, got %d calls", handler.callCount())
+	}
+}
+
+func TestRefreshCacheableHTTPStatusCodesAlsoControlAutoRefreshSkip(t *testing.T) {
+	if _, ok := RefreshCacheableHTTPStatusCodes[401]; !ok {
+		t.Fatal("expected 401 to be configured as cacheable and auto-refresh-skipped")
 	}
 }

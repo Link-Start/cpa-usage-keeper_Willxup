@@ -28,9 +28,6 @@ var RefreshCacheableHTTPStatusCodes = map[int]struct{}{
 	402: {},
 }
 
-// AutoRefreshHTTPStatusSkipCodes 复用可缓存错误码配置，后续新增自动跳过状态码只需要改一处。
-var AutoRefreshHTTPStatusSkipCodes = RefreshCacheableHTTPStatusCodes
-
 type APICallConfig struct {
 	Method  string
 	URL     string
