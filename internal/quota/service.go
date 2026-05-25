@@ -14,6 +14,11 @@ import (
 	"gorm.io/gorm"
 )
 
+type ServiceOptions struct {
+	RefreshWorkerLimit  int
+	AutoRefreshInterval time.Duration
+}
+
 type Service struct {
 	db       *gorm.DB
 	registry ProviderRegistry
@@ -24,6 +29,7 @@ type Service struct {
 	refreshTaskTTL      time.Duration
 	refreshCooldown     func(time.Duration)
 	refreshContext      context.Context
+	autoRefreshInterval time.Duration
 }
 
 type CheckRequest struct {
@@ -36,18 +42,38 @@ type CheckResponse struct {
 }
 
 func NewService(db *gorm.DB, caller ManagementAPICaller) *Service {
-	return NewServiceWithRegistry(db, NewDefaultProviderRegistry(caller, DefaultProviderConfigs()))
+	return NewServiceWithOptions(db, caller, ServiceOptions{})
+}
+
+func NewServiceWithOptions(db *gorm.DB, caller ManagementAPICaller, options ServiceOptions) *Service {
+	return NewServiceWithRegistryAndOptions(db, NewDefaultProviderRegistry(caller, DefaultProviderConfigs()), options)
 }
 
 func NewServiceWithRegistry(db *gorm.DB, registry ProviderRegistry) *Service {
+	return NewServiceWithRegistryAndOptions(db, registry, ServiceOptions{})
+}
+
+func NewServiceWithRegistryAndOptions(db *gorm.DB, registry ProviderRegistry, options ServiceOptions) *Service {
+	workerLimit := options.RefreshWorkerLimit
+	if workerLimit <= 0 {
+		workerLimit = RefreshWorkerLimit
+	}
+	if workerLimit > 100 {
+		workerLimit = 100
+	}
+	autoRefreshInterval := options.AutoRefreshInterval
+	if autoRefreshInterval <= 0 {
+		autoRefreshInterval = AutoRefreshInterval
+	}
 	return &Service{
 		db:                  db,
 		registry:            registry,
 		refreshTasks:        make(map[string]*RefreshTaskRecord),
-		refreshWorkerTokens: make(chan struct{}, RefreshWorkerLimit),
+		refreshWorkerTokens: make(chan struct{}, workerLimit),
 		refreshTaskTTL:      RefreshTransientTaskTTL,
 		refreshCooldown:     time.Sleep,
 		refreshContext:      context.Background(),
+		autoRefreshInterval: autoRefreshInterval,
 	}
 }
 

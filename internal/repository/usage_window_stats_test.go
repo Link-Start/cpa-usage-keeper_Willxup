@@ -23,7 +23,7 @@ func TestSumUsageWindowStatsByAuthIndexUsesAuthIndexAndWindow(t *testing.T) {
 	end := start.Add(time.Hour)
 	events := []entities.UsageEvent{
 		{AuthType: "oauth", AuthIndex: "auth-1", Model: "priced", Timestamp: start.Add(10 * time.Minute), InputTokens: 1_000_000, OutputTokens: 500_000, CachedTokens: 200_000, TotalTokens: 1_500_000},
-		{AuthType: "apikey", AuthIndex: "auth-1", Model: "priced", Timestamp: start.Add(15 * time.Minute), TotalTokens: 7_000_000},
+		{AuthType: "apikey", AuthIndex: "auth-1", Model: "priced", Timestamp: start.Add(15 * time.Minute), InputTokens: 700_000, TotalTokens: 700_000},
 		{AuthType: "oauth", AuthIndex: "auth-2", Model: "priced", Timestamp: start.Add(20 * time.Minute), TotalTokens: 9_000_000},
 		{AuthType: "oauth", AuthIndex: "auth-1", Model: "priced", Timestamp: end.Add(time.Minute), TotalTokens: 8_000_000},
 	}
@@ -35,10 +35,55 @@ func TestSumUsageWindowStatsByAuthIndexUsesAuthIndexAndWindow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SumUsageWindowStatsByAuthIndex returned error: %v", err)
 	}
-	if stats.Tokens != 1_500_000 {
-		t.Fatalf("expected 1500000 tokens, got %d", stats.Tokens)
+	if stats.Tokens != 2_200_000 {
+		t.Fatalf("expected 2200000 tokens, got %d", stats.Tokens)
 	}
-	wantCost := 0.8*10 + 0.5*20 + 0.2*1
+	wantCost := 1.5*10 + 0.5*20 + 0.2*1
+	if stats.Cost != wantCost {
+		t.Fatalf("expected cost %.2f, got %.2f", wantCost, stats.Cost)
+	}
+}
+
+func TestSumUsageWindowStatsByAuthIndexUsesHourlyStatsForLongWindow(t *testing.T) {
+	db, err := OpenDatabase(config.Config{SQLitePath: filepath.Join(t.TempDir(), "usage-window-stats-hourly.db")})
+	if err != nil {
+		t.Fatalf("OpenDatabase returned error: %v", err)
+	}
+	closeTestDatabase(t, db)
+	if _, err := UpsertModelPriceSetting(db, dto.ModelPriceSettingInput{Model: "priced", PromptPricePer1M: 10, CompletionPricePer1M: 20, CachePricePer1M: 1}); err != nil {
+		t.Fatalf("UpsertModelPriceSetting returned error: %v", err)
+	}
+	start := time.Date(2026, 5, 18, 14, 30, 0, 0, time.UTC)
+	end := time.Date(2026, 5, 25, 19, 20, 0, 0, time.UTC)
+	now := time.Date(2026, 5, 25, 12, 0, 0, 0, time.UTC)
+	events := []entities.UsageEvent{
+		{AuthIndex: "auth-1", Model: "priced", Timestamp: start.Add(10 * time.Minute), InputTokens: 1_000_000, TotalTokens: 1_000_000},
+		{AuthIndex: "auth-1", Model: "priced", Timestamp: end.Add(-50 * time.Minute), InputTokens: 400_000, TotalTokens: 400_000},
+		{AuthIndex: "auth-1", Model: "priced", Timestamp: end.Add(-10 * time.Minute), OutputTokens: 500_000, TotalTokens: 500_000},
+		{AuthIndex: "auth-1", Model: "priced", Timestamp: time.Date(2026, 5, 20, 10, 0, 0, 0, time.UTC), InputTokens: 9_000_000, TotalTokens: 9_000_000},
+	}
+	if err := db.Create(&events).Error; err != nil {
+		t.Fatalf("seed usage events: %v", err)
+	}
+	hourly := entities.UsageOverviewHourlyStat{BucketStart: time.Date(2026, 5, 20, 10, 0, 0, 0, time.UTC), AuthIndex: "auth-1", Model: "priced", InputTokens: 2_000_000, CachedTokens: 300_000, TotalTokens: 2_000_000, CreatedAt: now, UpdatedAt: now}
+	if err := db.Create(&hourly).Error; err != nil {
+		t.Fatalf("seed hourly stat: %v", err)
+	}
+	if err := db.Create(&entities.UsageOverviewAggregationCheckpoint{Name: usageOverviewAggregationCheckpointName, LastAggregatedUsageEventID: 4, CreatedAt: now, UpdatedAt: now}).Error; err != nil {
+		t.Fatalf("seed overview checkpoint: %v", err)
+	}
+	if err := db.Where("total_tokens = ?", int64(9_000_000)).Delete(&entities.UsageEvent{}).Error; err != nil {
+		t.Fatalf("delete full-hour raw events: %v", err)
+	}
+
+	stats, err := SumUsageWindowStatsByAuthIndex(db, "auth-1", start, &end)
+	if err != nil {
+		t.Fatalf("SumUsageWindowStatsByAuthIndex returned error: %v", err)
+	}
+	if stats.Tokens != 3_900_000 {
+		t.Fatalf("expected hourly plus boundary tokens, got %d", stats.Tokens)
+	}
+	wantCost := 3.1*10 + 0.5*20 + 0.3*1
 	if stats.Cost != wantCost {
 		t.Fatalf("expected cost %.2f, got %.2f", wantCost, stats.Cost)
 	}

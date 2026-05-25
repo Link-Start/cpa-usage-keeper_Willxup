@@ -221,6 +221,13 @@ For first-time deployments, start with "Minimum required" and "Web access and re
 | `REQUEST_TIMEOUT` | No | `30s` | Timeout for CPA HTTP requests and Redis queue operations |
 | `TLS_SKIP_VERIFY` | No | `false` | Skip TLS certificate verification for CPA HTTPS and Redis queue TLS; enable only with self-signed certificates |
 
+### Auth Files Quota Refresh
+
+| Variable | Required | Default | Description |
+| --- | --- | --- | --- |
+| `QUOTA_REFRESH_WORKER_LIMIT` | No | `10` | Maximum concurrency for Auth Files quota refresh, capped at `100`. Increase manually for many accounts, but it may raise upstream rate-limit and local SQLite read pressure |
+| `QUOTA_AUTO_REFRESH_INTERVAL` | No | `5m` | Scheduled Auth Files quota auto-refresh interval, minimum `60s` |
+
 ### Redis Queue Advanced Settings
 
 | Variable | Required | Default | Description |

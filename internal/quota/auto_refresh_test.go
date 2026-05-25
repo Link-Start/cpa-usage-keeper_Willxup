@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"cpa-usage-keeper/internal/entities"
+	"github.com/sirupsen/logrus"
+	logrustest "github.com/sirupsen/logrus/hooks/test"
 )
 
 func TestRunAutoRefreshQueuesOnlyActiveAuthFiles(t *testing.T) {
@@ -61,6 +63,74 @@ func TestRunAutoRefreshSkipsCachedHTTPFailures(t *testing.T) {
 	}
 	if handler.callCount() != 1 {
 		t.Fatalf("expected auto refresh to skip cached 401, got %d calls", handler.callCount())
+	}
+}
+
+func TestRunAutoRefreshLogsRoundStartAndEndOnce(t *testing.T) {
+	db := openQuotaTestDatabase(t)
+	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "auth-1", Provider: "claude", Type: "auth-file", AuthType: entities.UsageIdentityAuthTypeAuthFile})
+	handler := &refreshHandlerStub{output: ProviderOutput{Result: ClaudeResult{Usage: &ClaudeUsagePayload{FiveHour: &ClaudeUsageWindow{Utilization: 25}}}}}
+	service := NewServiceWithRegistry(db, NewProviderRegistry(map[string]ProviderHandler{"claude": handler}))
+	service.refreshCooldown = func(time.Duration) {}
+	hook := logrustest.NewGlobal()
+	t.Cleanup(func() {
+		hook.Reset()
+	})
+
+	if err := service.RunAutoRefresh(context.Background()); err != nil {
+		t.Fatalf("RunAutoRefresh returned error: %v", err)
+	}
+
+	assertAutoRefreshRoundLogs(t, hook, 1, 1)
+}
+
+func TestRunAutoRefreshLogsRoundEndWhenIdentityScanFails(t *testing.T) {
+	db := openQuotaTestDatabase(t)
+	sqlDB, err := db.DB()
+	if err != nil {
+		t.Fatalf("db.DB returned error: %v", err)
+	}
+	if err := sqlDB.Close(); err != nil {
+		t.Fatalf("close db returned error: %v", err)
+	}
+	service := NewServiceWithRegistry(db, NewProviderRegistry(nil))
+	hook := logrustest.NewGlobal()
+	t.Cleanup(func() {
+		hook.Reset()
+	})
+
+	if err := service.RunAutoRefresh(context.Background()); err == nil {
+		t.Fatal("expected RunAutoRefresh to return scan error")
+	}
+
+	assertAutoRefreshRoundLogs(t, hook, 1, 1)
+}
+
+func assertAutoRefreshRoundLogs(t *testing.T, hook *logrustest.Hook, wantStart int, wantEnd int) {
+	t.Helper()
+	startLogs := 0
+	endLogs := 0
+	for _, entry := range hook.AllEntries() {
+		if entry.Level != logrus.InfoLevel {
+			continue
+		}
+		switch entry.Message {
+		case "quota auto refresh round started":
+			startLogs++
+		case "quota auto refresh round completed":
+			endLogs++
+		}
+	}
+	if startLogs != wantStart || endLogs != wantEnd {
+		t.Fatalf("expected start=%d end=%d info logs, got start=%d end=%d entries=%+v", wantStart, wantEnd, startLogs, endLogs, hook.AllEntries())
+	}
+}
+
+func TestNewServiceWithRegistryAndOptionsUsesConfiguredAutoRefreshInterval(t *testing.T) {
+	db := openQuotaTestDatabase(t)
+	service := NewServiceWithRegistryAndOptions(db, NewProviderRegistry(nil), ServiceOptions{AutoRefreshInterval: 2 * time.Minute})
+	if service.autoRefreshInterval != 2*time.Minute {
+		t.Fatalf("expected configured auto refresh interval 2m, got %s", service.autoRefreshInterval)
 	}
 }
 

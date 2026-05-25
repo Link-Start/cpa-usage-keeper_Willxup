@@ -136,7 +136,7 @@ func NewWithConfig(cfg config.Config) (*App, error) {
 		logrus.WithField("cpa_base_url", cfg.CPABaseURL).Warn("TLS certificate verification is disabled for CPA and Redis queue connections")
 	}
 	pricingService := service.NewPricingService(db, cpaClient)
-	quotaService := quota.NewService(db, cpaClient)
+	quotaService := quota.NewServiceWithOptions(db, cpaClient, quota.ServiceOptions{RefreshWorkerLimit: cfg.QuotaRefreshWorkerLimit, AutoRefreshInterval: cfg.QuotaAutoRefreshInterval})
 	sessionManager := auth.NewSessionManager(cfg.AuthSessionTTL)
 	authHandler := api.NewAuthHandler(api.AuthConfig{
 		Enabled:       cfg.AuthEnabled,

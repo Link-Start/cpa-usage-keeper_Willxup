@@ -154,6 +154,22 @@ func TestRefreshQueueUsesConfiguredWorkersTimeoutAndCooldown(t *testing.T) {
 	}
 }
 
+func TestNewServiceWithRegistryAndOptionsUsesConfiguredWorkerLimit(t *testing.T) {
+	db := openQuotaTestDatabase(t)
+	service := NewServiceWithRegistryAndOptions(db, NewProviderRegistry(nil), ServiceOptions{RefreshWorkerLimit: 7})
+	if cap(service.refreshWorkerTokens) != 7 {
+		t.Fatalf("expected configured worker limit 7, got %d", cap(service.refreshWorkerTokens))
+	}
+}
+
+func TestNewServiceWithRegistryAndOptionsCapsConfiguredWorkerLimit(t *testing.T) {
+	db := openQuotaTestDatabase(t)
+	service := NewServiceWithRegistryAndOptions(db, NewProviderRegistry(nil), ServiceOptions{RefreshWorkerLimit: 101})
+	if cap(service.refreshWorkerTokens) != 100 {
+		t.Fatalf("expected configured worker limit to be capped at 100, got %d", cap(service.refreshWorkerTokens))
+	}
+}
+
 func TestRefreshTaskWaitsForCooldownBeforeReleasingWorker(t *testing.T) {
 	db := openQuotaTestDatabase(t)
 	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "auth-1", Provider: "claude", Type: "auth-file", AuthType: entities.UsageIdentityAuthTypeAuthFile})
@@ -177,6 +193,56 @@ func TestRefreshTaskWaitsForCooldownBeforeReleasingWorker(t *testing.T) {
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("expected refresh task to call cooldown")
+	}
+}
+
+func TestQueuedRefreshTaskFailsWhenParentContextCancelsBeforeWorkerSlot(t *testing.T) {
+	db := openQuotaTestDatabase(t)
+	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "auth-1", Provider: "claude", Type: "auth-file", AuthType: entities.UsageIdentityAuthTypeAuthFile})
+	handler := &refreshHandlerStub{output: ProviderOutput{Result: ClaudeResult{Usage: &ClaudeUsagePayload{FiveHour: &ClaudeUsageWindow{Utilization: 25}}}}}
+	service := NewServiceWithRegistryAndOptions(db, NewProviderRegistry(map[string]ProviderHandler{"claude": handler}), ServiceOptions{RefreshWorkerLimit: 1})
+	service.refreshWorkerTokens <- struct{}{}
+	ctx, cancel := context.WithCancel(context.Background())
+	service.SetRefreshContext(ctx)
+
+	response, err := service.Refresh(context.Background(), RefreshRequest{AuthIndexes: []string{"auth-1"}, Source: RefreshSourceManual})
+	if err != nil {
+		t.Fatalf("Refresh returned error: %v", err)
+	}
+	cancel()
+	defer func() { <-service.refreshWorkerTokens }()
+	task := waitForRefreshTask(t, service, response.Tasks[0].AuthIndex, RefreshTaskStatusFailed)
+	if task.Error != "Quota refresh timed out. Please try again later." {
+		t.Fatalf("expected canceled queued task to fail with timeout message, got %+v", task)
+	}
+	if handler.callCount() != 0 {
+		t.Fatalf("expected canceled queued task not to call provider, got %d", handler.callCount())
+	}
+}
+
+func TestQueuedRefreshDispatcherFailsRemainingTasksOnParentContextCancel(t *testing.T) {
+	db := openQuotaTestDatabase(t)
+	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "auth-1", Provider: "claude", Type: "auth-file", AuthType: entities.UsageIdentityAuthTypeAuthFile})
+	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "auth-2", Provider: "claude", Type: "auth-file", AuthType: entities.UsageIdentityAuthTypeAuthFile})
+	handler := &refreshHandlerStub{output: ProviderOutput{Result: ClaudeResult{Usage: &ClaudeUsagePayload{FiveHour: &ClaudeUsageWindow{Utilization: 25}}}}}
+	service := NewServiceWithRegistryAndOptions(db, NewProviderRegistry(map[string]ProviderHandler{"claude": handler}), ServiceOptions{RefreshWorkerLimit: 1})
+	service.refreshWorkerTokens <- struct{}{}
+	ctx, cancel := context.WithCancel(context.Background())
+	service.SetRefreshContext(ctx)
+
+	response, err := service.Refresh(context.Background(), RefreshRequest{AuthIndexes: []string{"auth-1", "auth-2"}, Source: RefreshSourceManual})
+	if err != nil {
+		t.Fatalf("Refresh returned error: %v", err)
+	}
+	cancel()
+	defer func() { <-service.refreshWorkerTokens }()
+	first := waitForRefreshTask(t, service, response.Tasks[0].AuthIndex, RefreshTaskStatusFailed)
+	second := waitForRefreshTask(t, service, response.Tasks[1].AuthIndex, RefreshTaskStatusFailed)
+	if first.ExpiresAt == nil || second.ExpiresAt == nil {
+		t.Fatalf("expected canceled queued tasks to get expiry, got first=%+v second=%+v", first, second)
+	}
+	if handler.callCount() != 0 {
+		t.Fatalf("expected canceled queued tasks not to call provider, got %d", handler.callCount())
 	}
 }
 

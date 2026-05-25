@@ -15,6 +15,11 @@ func (s *Service) RunAutoRefresh(ctx context.Context) error {
 	if s == nil || s.db == nil {
 		return nil
 	}
+	logrus.Info("quota auto refresh round started")
+	// 每轮结束日志用 defer 兜底，确保扫描失败、入队失败或正常完成都只有一条 completed 记录。
+	defer func() {
+		logrus.Info("quota auto refresh round completed")
+	}()
 	// 自动刷新每轮开始先清理过期任务，确保 401/402 过期后能重新进入队列，而不是被旧缓存一直拦住。
 	s.cleanupExpiredRefreshTasks(time.Now())
 	identities, err := s.listAutoRefreshAuthFiles(ctx)
@@ -24,6 +29,7 @@ func (s *Service) RunAutoRefresh(ctx context.Context) error {
 	queued := 0
 	skippedCachedError := 0
 	skippedRunning := 0
+	queuedAuthIndexes := make([]string, 0, len(identities))
 	for _, identity := range identities {
 		authIndex := strings.TrimSpace(identity.Identity)
 		if authIndex == "" {
@@ -36,18 +42,21 @@ func (s *Service) RunAutoRefresh(ctx context.Context) error {
 		}
 		if task, created := s.ensureRefreshTask(authIndex, RefreshSourceAuto); created {
 			queued++
-			go s.runRefreshTask(task.AuthIndex)
+			queuedAuthIndexes = append(queuedAuthIndexes, task.AuthIndex)
 		} else if task != nil && task.isActive() {
 			// queued/running 已经代表这个 auth_index 在队列里，自动刷新不能重复入队。
 			skippedRunning++
 		}
+	}
+	if len(queuedAuthIndexes) > 0 {
+		go s.dispatchRefreshTasks(queuedAuthIndexes)
 	}
 	logrus.WithFields(logrus.Fields{
 		"scanned":              len(identities),
 		"queued":               queued,
 		"skipped_cached_error": skippedCachedError,
 		"skipped_running":      skippedRunning,
-	}).Info("quota auto refresh round completed")
+	}).Debug("quota auto refresh round summary")
 	return nil
 }
 
@@ -56,7 +65,7 @@ func (s *Service) StartAutoRefresh(ctx context.Context) error {
 	if err := s.RunAutoRefresh(ctx); err != nil {
 		logrus.Errorf("quota auto refresh failed: %v", err)
 	}
-	ticker := time.NewTicker(AutoRefreshInterval)
+	ticker := time.NewTicker(s.autoRefreshInterval)
 	defer ticker.Stop()
 	for {
 		select {
