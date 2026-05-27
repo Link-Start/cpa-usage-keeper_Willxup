@@ -12,7 +12,8 @@ import type { UsageIdentityPageSort } from '@/lib/api'
 import { quotaRefreshDisplayError, useQuotaRefreshTasks } from './useQuotaRefreshTasks'
 
 interface UseCredentialsTabDataOptions {
-  enabled: boolean
+  enabledAuthFiles: boolean
+  enabledAiProviders: boolean
   onAuthRequired?: () => void
 }
 
@@ -46,21 +47,21 @@ export interface CredentialsTabData {
   refreshQuotaForAuthIndex: (authIndex: string) => Promise<void>
 }
 
-export function useCredentialsTabData({ enabled, onAuthRequired }: UseCredentialsTabDataOptions): CredentialsTabData {
+export function useCredentialsTabData({ enabledAuthFiles, enabledAiProviders, onAuthRequired }: UseCredentialsTabDataOptions): CredentialsTabData {
   // 页面 hook 只编排分页、缓存和刷新任务三层数据，不直接发散 API 调用。
-  const credentialPages = useCredentialPages({ enabled, onAuthRequired })
+  const credentialPages = useCredentialPages({ enabledAuthFiles, enabledAiProviders, onAuthRequired })
   const currentAuthIndexes = useMemo(
     // quota 只对当前 Auth Files 页生效，AI Provider 不参与缓存读取和刷新。
     () => selectQuotaEligibleAuthIndexes(credentialPages.authFileIdentities),
     [credentialPages.authFileIdentities],
   )
   const { quotaByAuthIndex, cachedQuotaStateByAuthIndex, setQuotaByAuthIndex } = useQuotaCache({
-    enabled,
+    enabled: enabledAuthFiles,
     authIndexes: currentAuthIndexes,
     onAuthRequired,
   })
   const quotaRefreshTasks = useQuotaRefreshTasks({
-    enabled,
+    enabled: enabledAuthFiles,
     currentAuthIndexes,
     setQuotaByAuthIndex,
     onAuthRequired,

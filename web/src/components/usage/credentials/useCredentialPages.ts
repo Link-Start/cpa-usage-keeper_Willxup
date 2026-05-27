@@ -4,11 +4,12 @@ import type { UsageIdentity } from '@/lib/types'
 import { CREDENTIALS_PAGE_SIZE } from './credentialViewModels'
 
 interface UseCredentialPagesOptions {
-  enabled: boolean
+  enabledAuthFiles: boolean
+  enabledAiProviders: boolean
   onAuthRequired?: () => void
 }
 
-export const CREDENTIAL_PAGES_REFRESH_INTERVAL_MS = 5 * 60 * 1000
+export const CREDENTIAL_PAGES_REFRESH_INTERVAL_MS = 60 * 1000
 
 const AUTH_FILE_ACTIVE_ONLY_STORAGE_KEY = 'cpa-usage-keeper-auth-files-active-only'
 
@@ -43,14 +44,15 @@ export interface CredentialPagesState {
   refresh: () => Promise<void>
 }
 
-export function useCredentialPages({ enabled, onAuthRequired }: UseCredentialPagesOptions): CredentialPagesState {
+export function useCredentialPages({ enabledAuthFiles, enabledAiProviders, onAuthRequired }: UseCredentialPagesOptions): CredentialPagesState {
   const [authFileIdentities, setAuthFileIdentities] = useState<UsageIdentity[]>([])
   const [aiProviderIdentities, setAiProviderIdentities] = useState<UsageIdentity[]>([])
   const [authFileTotal, setAuthFileTotal] = useState(0)
   const [aiProviderTotal, setAiProviderTotal] = useState(0)
   const [authFileTotalPages, setAuthFileTotalPages] = useState(0)
   const [aiProviderTotalPages, setAiProviderTotalPages] = useState(0)
-  const [error, setError] = useState('')
+  const [authFilesError, setAuthFilesError] = useState('')
+  const [aiProvidersError, setAiProvidersError] = useState('')
   const [authFilePage, setAuthFilePage] = useState(1)
   const [aiProviderPage, setAiProviderPage] = useState(1)
   const [authFilePageSize, setAuthFilePageSizeState] = useState(CREDENTIALS_PAGE_SIZE)
@@ -93,7 +95,7 @@ export function useCredentialPages({ enabled, onAuthRequired }: UseCredentialPag
     authFilesRequestControllerRef.current = controller
 
     setAuthFilesLoading(true)
-    setError('')
+    setAuthFilesError('')
     try {
       const response = await fetchUsageIdentitiesPage(controller.signal, { authType: 1, activeOnly: authFileActiveOnly ? true : undefined, sort: authFileSort, page: authFilePage, pageSize: authFilePageSize })
       if (authFilesRequestControllerRef.current !== controller) {
@@ -115,7 +117,7 @@ export function useCredentialPages({ enabled, onAuthRequired }: UseCredentialPag
         setAuthFileTotal(0)
         setAuthFileTotalPages(0)
       }
-      setError(nextError instanceof Error ? nextError.message : 'Failed to load usage identities')
+      setAuthFilesError(nextError instanceof Error ? nextError.message : 'Failed to load usage identities')
     } finally {
       if (authFilesRequestControllerRef.current === controller) {
         setAuthFilesLoading(false)
@@ -130,7 +132,7 @@ export function useCredentialPages({ enabled, onAuthRequired }: UseCredentialPag
     aiProvidersRequestControllerRef.current = controller
 
     setAiProvidersLoading(true)
-    setError('')
+    setAiProvidersError('')
     try {
       const response = await fetchUsageIdentitiesPage(controller.signal, { authType: 2, sort: aiProviderSort, page: aiProviderPage, pageSize: aiProviderPageSize })
       if (aiProvidersRequestControllerRef.current !== controller) {
@@ -152,7 +154,7 @@ export function useCredentialPages({ enabled, onAuthRequired }: UseCredentialPag
         setAiProviderTotal(0)
         setAiProviderTotalPages(0)
       }
-      setError(nextError instanceof Error ? nextError.message : 'Failed to load usage identities')
+      setAiProvidersError(nextError instanceof Error ? nextError.message : 'Failed to load usage identities')
     } finally {
       if (aiProvidersRequestControllerRef.current === controller) {
         setAiProvidersLoading(false)
@@ -162,11 +164,15 @@ export function useCredentialPages({ enabled, onAuthRequired }: UseCredentialPag
   }, [aiProviderPage, aiProviderPageSize, aiProviderSort, onAuthRequired])
 
   const refresh = useCallback(async () => {
-    await Promise.all([refreshAuthFiles(), refreshAiProviders()])
-  }, [refreshAiProviders, refreshAuthFiles])
+    // 两个凭证页已经拆成独立 tab，手动刷新只触发当前可见列表。
+    const tasks = []
+    if (enabledAuthFiles) tasks.push(refreshAuthFiles())
+    if (enabledAiProviders) tasks.push(refreshAiProviders())
+    await Promise.all(tasks)
+  }, [enabledAiProviders, enabledAuthFiles, refreshAiProviders, refreshAuthFiles])
 
   useEffect(() => {
-    if (!enabled) {
+    if (!enabledAuthFiles) {
       authFilesRequestControllerRef.current?.abort()
       authFilesRequestControllerRef.current = null
       setAuthFilesLoading(false)
@@ -181,10 +187,10 @@ export function useCredentialPages({ enabled, onAuthRequired }: UseCredentialPag
       authFilesRequestControllerRef.current?.abort()
       authFilesRequestControllerRef.current = null
     }
-  }, [enabled, refreshAuthFiles])
+  }, [enabledAuthFiles, refreshAuthFiles])
 
   useEffect(() => {
-    if (!enabled) {
+    if (!enabledAiProviders) {
       aiProvidersRequestControllerRef.current?.abort()
       aiProvidersRequestControllerRef.current = null
       setAiProvidersLoading(false)
@@ -199,7 +205,7 @@ export function useCredentialPages({ enabled, onAuthRequired }: UseCredentialPag
       aiProvidersRequestControllerRef.current?.abort()
       aiProvidersRequestControllerRef.current = null
     }
-  }, [enabled, refreshAiProviders])
+  }, [enabledAiProviders, refreshAiProviders])
 
   return {
     authFileIdentities,
@@ -222,8 +228,8 @@ export function useCredentialPages({ enabled, onAuthRequired }: UseCredentialPag
     setAuthFileActiveOnly,
     setAuthFileSort,
     setAiProviderSort,
-    loading: authFilesLoading || aiProvidersLoading,
-    error,
+    loading: (enabledAuthFiles && authFilesLoading) || (enabledAiProviders && aiProvidersLoading),
+    error: enabledAuthFiles ? authFilesError : enabledAiProviders ? aiProvidersError : '',
     refresh,
   }
 }
