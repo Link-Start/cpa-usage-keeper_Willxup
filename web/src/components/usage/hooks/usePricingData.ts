@@ -41,6 +41,11 @@ export function usePricingData(options: UsePricingDataOptions = {}): UsePricingD
   const [error, setError] = useState('');
   const [lastRefreshedAt, setLastRefreshedAt] = useState<Date | null>(null);
   const requestControllerRef = useRef<AbortController | null>(null);
+  const onAuthRequiredRef = useRef(onAuthRequired);
+
+  useEffect(() => {
+    onAuthRequiredRef.current = onAuthRequired;
+  }, [onAuthRequired]);
 
   const applyPricingResponse = useCallback((pricingResponse: Awaited<ReturnType<typeof fetchPricing>>) => {
     const prices = Object.fromEntries(
@@ -70,7 +75,7 @@ export function usePricingData(options: UsePricingDataOptions = {}): UsePricingD
         return;
       }
       if (error instanceof ApiError && error.status === 401) {
-        onAuthRequired?.();
+        onAuthRequiredRef.current?.();
         return;
       }
       setModelPricesState(loadModelPricesFromStorage());
@@ -81,7 +86,7 @@ export function usePricingData(options: UsePricingDataOptions = {}): UsePricingD
         requestControllerRef.current = null;
       }
     }
-  }, [applyPricingResponse, onAuthRequired]);
+  }, [applyPricingResponse]);
 
   const loadPricing = useCallback(async () => {
     requestControllerRef.current?.abort();
@@ -106,7 +111,7 @@ export function usePricingData(options: UsePricingDataOptions = {}): UsePricingD
         return;
       }
       if (error instanceof ApiError && error.status === 401) {
-        onAuthRequired?.();
+        onAuthRequiredRef.current?.();
         return;
       }
       setModelPricesState(loadModelPricesFromStorage());
@@ -117,7 +122,7 @@ export function usePricingData(options: UsePricingDataOptions = {}): UsePricingD
         requestControllerRef.current = null;
       }
     }
-  }, [applyPricingResponse, onAuthRequired]);
+  }, [applyPricingResponse]);
 
   useEffect(() => {
     if (!enabled) {
@@ -158,7 +163,7 @@ export function usePricingData(options: UsePricingDataOptions = {}): UsePricingD
       setModelPricesState(previousPrices);
       saveModelPrices(previousPrices);
       if (error instanceof ApiError && error.status === 401) {
-        onAuthRequired?.();
+        onAuthRequiredRef.current?.();
         return;
       }
       const message = error instanceof Error ? error.message : '';
@@ -167,7 +172,7 @@ export function usePricingData(options: UsePricingDataOptions = {}): UsePricingD
         'error'
       );
     }
-  }, [modelPrices, onAuthRequired, showNotification, t]);
+  }, [modelPrices, showNotification, t]);
 
   return {
     modelNames,
