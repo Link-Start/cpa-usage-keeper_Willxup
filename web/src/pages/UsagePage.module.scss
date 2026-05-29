@@ -1640,6 +1640,7 @@
 
 .modelCell {
   font-weight: 500;
+  min-width: 110px;
   max-width: 240px;
   word-break: break-all;
 }
@@ -2166,7 +2167,21 @@
 }
 
 .requestEventsCard:global(.card) {
-  padding-bottom: 0;
+  padding: 0;
+  overflow: hidden;
+
+  :global(.card-header) {
+    align-items: stretch;
+    margin-bottom: 0;
+    padding: 20px 22px 16px;
+    border-bottom: 1px solid var(--border-color);
+  }
+
+  @include mobile {
+    :global(.card-header) {
+      padding: 18px;
+    }
+  }
 }
 
 .requestEventsTitleRow {
@@ -2201,9 +2216,13 @@
   justify-content: space-between;
   gap: $spacing-sm;
   flex-wrap: wrap;
-  margin: 0 calc(-1 * #{$spacing-lg}) $spacing-sm;
-  padding: 0 $spacing-lg $spacing-sm;
+  margin: 0;
+  padding: 16px 22px;
   border-bottom: 1px solid var(--border-color);
+
+  @include mobile {
+    padding: 16px 18px;
+  }
 }
 
 .requestEventsFiltersGroup {
@@ -2250,9 +2269,13 @@
   gap: $spacing-md;
   height: var(--usage-pagination-bar-height);
   box-sizing: border-box;
-  margin: $spacing-sm calc(-1 * #{$spacing-lg}) 0;
-  padding: 0 #{$spacing-lg};
+  margin: 0;
+  padding: 0 22px;
   border-top: 1px solid var(--border-color);
+
+  @include mobile {
+    padding: 0 18px;
+  }
 }
 
 .requestEventsPaginationControls {
@@ -2315,9 +2338,9 @@
 
 .requestEventsTableWrapper {
   overflow: auto;
-  height: clamp(400px, 60vh, 600px);
-  border: 1px solid var(--border-color);
-  border-radius: $radius-md;
+  height: clamp(520px, 68vh, 760px);
+  border: 0;
+  border-radius: 0;
 
   .table {
     border-collapse: separate;
@@ -2343,17 +2366,29 @@
 }
 
 .requestEventsSourceCell,
+.requestEventsAPIKeyCell,
 .requestEventsAuthIndex {
   font-family:
     ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New',
     monospace;
   font-size: 11px;
-  max-width: 180px;
+  max-width: 280px;
   word-break: break-all;
 }
 
 .requestEventsSourceCell {
-  min-width: 150px;
+  min-width: 165px;
+}
+
+.requestEventsAPIKeyCell {
+  min-width: 135px;
+  max-width: 240px;
+}
+
+.requestEventsEndpointCell {
+  min-width: 100px;
+  max-width: 180px;
+  word-break: break-all;
 }
 
 .requestEventsSourceStack {

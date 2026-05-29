@@ -45,7 +45,7 @@ import {
 } from '@/components/usage';
 import { buildUsageRangeQuery } from '@/utils/usage/rangeQuery';
 import {
-  getModelNamesFromUsage,
+  getOverviewModelNames,
   resolveUsageFilterWindow,
   sanitizeChartLines,
   type UsageFilterWindow,
@@ -196,6 +196,8 @@ export const shouldAutoRefreshUsageTab = ({
   if (activeTab === 'events') return eventsPage === 1;
   return false;
 };
+
+export const shouldLoadPricingOnUsageTabEntry = (activeTab: UsageTab) => activeTab === 'events';
 
 type RequestEventFilterState = {
   model: string;
@@ -652,6 +654,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     loading: pricingLoading,
     error: pricingError,
     loadPricing,
+    loadModelPrices,
     setModelPrices,
   } = usePricingData({
     onAuthRequired,
@@ -1255,6 +1258,13 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   useHeaderRefresh(refreshActiveTab);
 
   useEffect(() => {
+    if (!shouldLoadPricingOnUsageTabEntry(activeTab)) {
+      return;
+    }
+    void loadModelPrices();
+  }, [activeTab, loadModelPrices]);
+
+  useEffect(() => {
     if (activeTab !== 'events') {
       eventsRequestControllerRef.current?.abort();
       eventsRequestControllerRef.current = null;
@@ -1363,7 +1373,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   });
 
   const overviewModelNames = useMemo(
-    () => getModelNamesFromUsage(usage?.usage ?? null),
+    () => getOverviewModelNames(usage),
     [usage]
   );
 

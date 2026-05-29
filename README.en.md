@@ -321,11 +321,10 @@ internal/benchmark/      Aggregation benchmark helpers
 internal/config/         Environment config loading
 internal/cpa/            CPA client and types
 internal/entities/       GORM data models
-internal/helper/         Shared backend helpers
+internal/helper/         Shared backend helpers and browser-facing redaction
 internal/logging/        Logging setup and retention
 internal/poller/         Background queue consumption and metadata sync
 internal/quota/          Quota cache, refresh, and query services
-internal/redact/         Browser-facing field redaction
 internal/repository/     SQLite access and aggregations
 internal/service/        Usage, pricing, and identity services
 internal/timeutil/       Project timezone and time helpers

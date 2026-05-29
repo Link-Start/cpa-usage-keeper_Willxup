@@ -321,11 +321,10 @@ internal/benchmark/      聚合性能基准测试辅助
 internal/config/         环境配置加载
 internal/cpa/            CPA 客户端与类型定义
 internal/entities/       GORM 数据模型
-internal/helper/         后端通用辅助方法
+internal/helper/         后端通用辅助方法与前端展示字段脱敏
 internal/logging/        日志初始化与保留策略
 internal/poller/         后台队列消费与 metadata 同步
 internal/quota/          quota 缓存、刷新与查询服务
-internal/redact/         前端展示字段脱敏
 internal/repository/     SQLite 访问与聚合逻辑
 internal/service/        usage、pricing 与身份数据服务
 internal/timeutil/       项目时区与时间工具

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ApiError, deletePricing, fetchPricing, fetchUsedModels, updatePricing } from '@/lib/api';
 import { useNotificationStore } from '@/stores';
-import { loadModelPrices, saveModelPrices, type ModelPrice } from '@/utils/usage';
+import { loadModelPrices as loadModelPricesFromStorage, saveModelPrices, type ModelPrice } from '@/utils/usage';
 
 export interface UsePricingDataOptions {
   onAuthRequired?: () => void;
@@ -16,6 +16,7 @@ export interface UsePricingDataReturn {
   error: string;
   lastRefreshedAt: Date | null;
   loadPricing: () => Promise<void>;
+  loadModelPrices: () => Promise<void>;
   setModelPrices: (prices: Record<string, ModelPrice>) => Promise<void>;
 }
 
@@ -35,11 +36,57 @@ export function usePricingData(options: UsePricingDataOptions = {}): UsePricingD
   const { t } = useTranslation();
   const { showNotification } = useNotificationStore();
   const [modelNames, setModelNames] = useState<string[]>([]);
-  const [modelPrices, setModelPricesState] = useState<Record<string, ModelPrice>>(() => loadModelPrices());
+  const [modelPrices, setModelPricesState] = useState<Record<string, ModelPrice>>(() => loadModelPricesFromStorage());
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [lastRefreshedAt, setLastRefreshedAt] = useState<Date | null>(null);
   const requestControllerRef = useRef<AbortController | null>(null);
+  const onAuthRequiredRef = useRef(onAuthRequired);
+
+  useEffect(() => {
+    onAuthRequiredRef.current = onAuthRequired;
+  }, [onAuthRequired]);
+
+  const applyPricingResponse = useCallback((pricingResponse: Awaited<ReturnType<typeof fetchPricing>>) => {
+    const prices = Object.fromEntries(
+      pricingResponse.pricing.map((entry) => [entry.model, pricingToModelPrice(entry)])
+    );
+    saveModelPrices(prices);
+    setModelPricesState(prices);
+    setLastRefreshedAt(new Date());
+  }, []);
+
+  const loadModelPrices = useCallback(async () => {
+    requestControllerRef.current?.abort();
+    const controller = new AbortController();
+    requestControllerRef.current = controller;
+
+    setLoading(true);
+    setError('');
+
+    try {
+      const pricingResponse = await fetchPricing(controller.signal);
+      if (requestControllerRef.current !== controller) {
+        return;
+      }
+      applyPricingResponse(pricingResponse);
+    } catch (error) {
+      if (controller.signal.aborted) {
+        return;
+      }
+      if (error instanceof ApiError && error.status === 401) {
+        onAuthRequiredRef.current?.();
+        return;
+      }
+      setModelPricesState(loadModelPricesFromStorage());
+      setError(error instanceof Error ? error.message : 'Failed to load pricing');
+    } finally {
+      if (requestControllerRef.current === controller) {
+        setLoading(false);
+        requestControllerRef.current = null;
+      }
+    }
+  }, [applyPricingResponse]);
 
   const loadPricing = useCallback(async () => {
     requestControllerRef.current?.abort();
@@ -57,22 +104,17 @@ export function usePricingData(options: UsePricingDataOptions = {}): UsePricingD
       if (requestControllerRef.current !== controller) {
         return;
       }
-      const prices = Object.fromEntries(
-        pricingResponse.pricing.map((entry) => [entry.model, pricingToModelPrice(entry)])
-      );
-      saveModelPrices(prices);
-      setModelPricesState(prices);
+      applyPricingResponse(pricingResponse);
       setModelNames(usedModelsResponse.models);
-      setLastRefreshedAt(new Date());
     } catch (error) {
       if (controller.signal.aborted) {
         return;
       }
       if (error instanceof ApiError && error.status === 401) {
-        onAuthRequired?.();
+        onAuthRequiredRef.current?.();
         return;
       }
-      setModelPricesState(loadModelPrices());
+      setModelPricesState(loadModelPricesFromStorage());
       setError(error instanceof Error ? error.message : 'Failed to load pricing');
     } finally {
       if (requestControllerRef.current === controller) {
@@ -80,7 +122,7 @@ export function usePricingData(options: UsePricingDataOptions = {}): UsePricingD
         requestControllerRef.current = null;
       }
     }
-  }, [onAuthRequired]);
+  }, [applyPricingResponse]);
 
   useEffect(() => {
     if (!enabled) {
@@ -121,7 +163,7 @@ export function usePricingData(options: UsePricingDataOptions = {}): UsePricingD
       setModelPricesState(previousPrices);
       saveModelPrices(previousPrices);
       if (error instanceof ApiError && error.status === 401) {
-        onAuthRequired?.();
+        onAuthRequiredRef.current?.();
         return;
       }
       const message = error instanceof Error ? error.message : '';
@@ -130,7 +172,7 @@ export function usePricingData(options: UsePricingDataOptions = {}): UsePricingD
         'error'
       );
     }
-  }, [modelPrices, onAuthRequired, showNotification, t]);
+  }, [modelPrices, showNotification, t]);
 
   return {
     modelNames,
@@ -139,6 +181,7 @@ export function usePricingData(options: UsePricingDataOptions = {}): UsePricingD
     error,
     lastRefreshedAt,
     loadPricing,
+    loadModelPrices,
     setModelPrices,
   };
 }
