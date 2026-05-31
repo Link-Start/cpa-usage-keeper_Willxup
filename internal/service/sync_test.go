@@ -460,6 +460,42 @@ func TestProcessRedisUsageInboxNormalizesAPIKeyTokensByUsageIdentityType(t *test
 	}
 }
 
+func TestNormalizeRedisUsageEventsResolvesAPIKeyAuthTypeAlias(t *testing.T) {
+	db := openSyncTestDatabase(t)
+	if err := db.Create(&entities.UsageIdentity{
+		Name:         "Claude Provider",
+		AuthType:     entities.UsageIdentityAuthTypeAIProvider,
+		AuthTypeName: "apikey",
+		Identity:     "provider-auth-index",
+		Type:         "claude",
+		Provider:     "Team Display Name",
+	}).Error; err != nil {
+		t.Fatalf("seed usage identity: %v", err)
+	}
+	events := []entities.UsageEvent{{
+		AuthType:            "api_key",
+		AuthIndex:           "provider-auth-index",
+		Model:               "claude-sonnet",
+		InputTokens:         100,
+		OutputTokens:        30,
+		CacheReadTokens:     20,
+		CacheCreationTokens: 10,
+		TotalTokens:         160,
+	}}
+
+	normalized, err := normalizeRedisUsageEvents(context.Background(), db, events)
+	if err != nil {
+		t.Fatalf("normalizeRedisUsageEvents returned error: %v", err)
+	}
+	if len(normalized) != 1 {
+		t.Fatalf("expected one normalized event, got %d", len(normalized))
+	}
+	event := normalized[0]
+	if event.InputTokens != 130 || event.CachedTokens != 20 || event.CacheReadTokens != 20 || event.CacheCreationTokens != 10 || event.OutputTokens != 30 || event.TotalTokens != 160 {
+		t.Fatalf("expected api_key alias to resolve Claude identity type, got %+v", event)
+	}
+}
+
 func TestProcessRedisUsageInboxDoesNotFallbackWhenUsageTypeLookupErrors(t *testing.T) {
 	db := openSyncTestDatabase(t)
 	rows, err := repository.InsertRedisUsageInboxMessages(db, []dto.RedisInboxInsert{{

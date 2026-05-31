@@ -383,7 +383,10 @@ func buildUsageEventTypeResolver(ctx context.Context, db *gorm.DB, events []enti
 func loadRedisUsageIdentityTypeRows(ctx context.Context, db *gorm.DB, authIndexes []string, isDeleted bool) ([]entities.UsageIdentity, error) {
 	rows := make([]entities.UsageIdentity, 0)
 	for start := 0; start < len(authIndexes); start += redisUsageIdentityTypeLookupBatchSize {
-		end := min(start+redisUsageIdentityTypeLookupBatchSize, len(authIndexes))
+		end := start + redisUsageIdentityTypeLookupBatchSize
+		if end > len(authIndexes) {
+			end = len(authIndexes)
+		}
 		var batchRows []entities.UsageIdentity
 		// Redis inbox 单批最多可达 1000+ 条，SELECT IN 必须单独限批，避免 SQLite 变量上限导致整批反复 process_failed。
 		if err := db.WithContext(ctx).
@@ -411,7 +414,7 @@ func redisUsageAPIKeyAuthIndexes(events []entities.UsageEvent) []string {
 	seen := make(map[string]struct{}, len(events))
 	authIndexes := make([]string, 0, len(events))
 	for _, event := range events {
-		if strings.TrimSpace(event.AuthType) != "apikey" {
+		if normalizeRedisAuthType(event.AuthType) != "apikey" {
 			continue
 		}
 		authIndex := strings.TrimSpace(event.AuthIndex)
@@ -439,7 +442,7 @@ func missingRedisUsageAuthIndexes(authIndexes []string, byAuthIndex map[string]s
 }
 
 func resolveUsageEventType(event entities.UsageEvent, resolver usageEventTypeResolver) string {
-	switch strings.TrimSpace(event.AuthType) {
+	switch normalizeRedisAuthType(event.AuthType) {
 	case "oauth":
 		return strings.TrimSpace(event.Provider)
 	case "apikey":

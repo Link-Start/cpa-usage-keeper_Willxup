@@ -6,8 +6,6 @@ import {
   useState,
   type PropsWithChildren,
   type ReactNode,
-  type TouchEvent,
-  type WheelEvent,
 } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
@@ -46,6 +44,9 @@ const resolveContentScrollContainer = () => {
   const contentEl = document.querySelector('.content');
   return contentEl instanceof HTMLElement ? contentEl : null;
 };
+
+const isModalBodyScrollTarget = (target: EventTarget | null) =>
+  target instanceof Element && target.closest('.modal-body') !== null;
 
 const lockScroll = () => {
   if (typeof document === 'undefined') return;
@@ -102,6 +103,7 @@ export function Modal({
   const [isClosing, setIsClosing] = useState(false);
   const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const modalRef = useRef<HTMLDivElement | null>(null);
+  const overlayRef = useRef<HTMLDivElement | null>(null);
   const closeButtonRef = useRef<HTMLButtonElement | null>(null);
   const previouslyFocusedRef = useRef<HTMLElement | null>(null);
 
@@ -237,25 +239,38 @@ export function Modal({
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, [closeDisabled, getFocusableElements, handleClose, open]);
 
+  useEffect(() => {
+    if (!open && !isVisible) return;
+
+    const overlay = overlayRef.current;
+    if (!overlay) return;
+
+    const blockOverlayWheel = (event: WheelEvent) => {
+      if (isModalBodyScrollTarget(event.target)) return;
+      event.preventDefault();
+    };
+    const blockOverlayTouchMove = (event: TouchEvent) => {
+      if (isModalBodyScrollTarget(event.target)) return;
+      event.preventDefault();
+    };
+
+    // 不改 body 的 inline 布局属性，避免弹窗打开时触发页面跳顶或后台表格宽度重排；只拦截遮罩层自身滚动。
+    overlay.addEventListener('wheel', blockOverlayWheel, { passive: false });
+    overlay.addEventListener('touchmove', blockOverlayTouchMove, { passive: false });
+
+    return () => {
+      overlay.removeEventListener('wheel', blockOverlayWheel);
+      overlay.removeEventListener('touchmove', blockOverlayTouchMove);
+    };
+  }, [isVisible, open]);
+
   if (!open && !isVisible) return null;
 
   const overlayClass = `modal-overlay ${isClosing ? 'modal-overlay-closing' : 'modal-overlay-entering'}`;
   const modalClass = `modal ${isClosing ? 'modal-closing' : 'modal-entering'}${className ? ` ${className}` : ''}`;
 
-  const handleOverlayWheel = (event: WheelEvent<HTMLDivElement>) => {
-    const target = event.target;
-    if (target instanceof Element && target.closest('.modal-body')) return;
-    event.preventDefault();
-  };
-
-  const handleOverlayTouchMove = (event: TouchEvent<HTMLDivElement>) => {
-    const target = event.target;
-    if (target instanceof Element && target.closest('.modal-body')) return;
-    event.preventDefault();
-  };
-
   const modalContent = (
-    <div className={overlayClass} onWheel={handleOverlayWheel} onTouchMove={handleOverlayTouchMove}>
+    <div ref={overlayRef} className={overlayClass}>
       <div
         ref={modalRef}
         className={modalClass}
