@@ -37,18 +37,14 @@ func (s *HTTPPullSource) Pull(ctx context.Context) ([]string, error) {
 		// HTTP/network/API 错误交给 runner 决定退避或记录。
 		return nil, err
 	}
-	// 预分配 payload 数量大小，后面会过滤空值和 null。
+	// 预分配 payload 数量大小；source 层保留 null，避免破坏 runner 的满批判断。
 	messages := make([]string, 0, len(result.Payload))
 	for _, item := range result.Payload {
 		// HTTP 返回的是 json.RawMessage，这里只 trim 外层空白，保持原始 JSON 内容。
 		trimmed := strings.TrimSpace(string(item))
-		if trimmed == "" || trimmed == "null" {
-			// 空 payload 和 null 不写入 inbox，避免后续 decode 产生无效失败。
-			continue
-		}
-		// 保留 raw usage JSON，交给既有 inbox process 解码。
+		// 空 payload 和 null 交给统一 writer 过滤，保证本函数返回数量等于远端 payload 数量。
 		messages = append(messages, trimmed)
 	}
-	// 返回过滤后的 raw messages。
+	// 返回 HTTP payload 的 raw messages，后续由 writer 决定哪些可以入 inbox。
 	return messages, nil
 }
