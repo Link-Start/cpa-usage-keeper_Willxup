@@ -14,6 +14,7 @@ import { CredentialBadge, CredentialPriorityBadge, CredentialRowShell, Credentia
 
 type Translate = (key: string, options?: Record<string, string>) => string
 type InspectionIndicatorTone = 'idle' | 'running' | 'completed'
+type QuotaUsageMode = 'current' | 'estimated'
 type QuotaErrorDisplay = {
   code?: string
   message: string
@@ -56,6 +57,7 @@ interface AuthFileCredentialsSectionProps {
 export function AuthFileCredentialsSection({ rows, total, page, totalPages, pageSize, activeOnly, sort, loading, quotaRefreshing, quotaRefreshError, quotaAutoRefreshEnabled, quotaInspectionStatus, quotaInspectionLoading, quotaInspectionStarting, quotaInspectionError, onPageChange, onPageSizeChange, onActiveOnlyChange, onSortChange, onRefreshQuota, onRefreshQuotaForAuthIndex, onRefreshInspectionStatus, onStartInspection }: AuthFileCredentialsSectionProps) {
   const { t } = useTranslation()
   const [inspectionOpen, setInspectionOpen] = useState(false)
+  const [quotaUsageMode, setQuotaUsageMode] = useState<QuotaUsageMode>('current')
   const canRefresh = rows.some((row) => !isRowRefreshing(row) && !row.identity.is_deleted) && !quotaRefreshing
   const inspectionTone = inspectionIndicatorTone(quotaInspectionStatus)
   const openInspection = () => {
@@ -139,7 +141,7 @@ export function AuthFileCredentialsSection({ rows, total, page, totalPages, page
             rowClassName={styles.authFileCredentialRow}
             side={(
               <div className={styles.credentialQuotaSideWithAction}>
-                <AuthFileQuotaPanel row={row} />
+                <AuthFileQuotaPanel row={row} quotaUsageMode={quotaUsageMode} />
                 <button
                   type="button"
                   className={`${styles.credentialRowRefreshButton} ${rowRefreshing ? styles.credentialRowRefreshButtonLoading : ''}`.trim()}
@@ -156,6 +158,7 @@ export function AuthFileCredentialsSection({ rows, total, page, totalPages, page
         )
       })}
       <CredentialsPagination
+        leadingControls={<QuotaUsageModeSwitch label={t('usage_stats.credentials_quota_usage_mode_label')} mode={quotaUsageMode} onChange={setQuotaUsageMode} />}
         page={page}
         total={total}
         totalPages={totalPages}
@@ -166,6 +169,7 @@ export function AuthFileCredentialsSection({ rows, total, page, totalPages, page
           { value: 'priority', label: t('usage_stats.credentials_sort_priority') },
           { value: 'total_requests', label: t('usage_stats.credentials_sort_total_requests') },
           { value: 'total_tokens', label: t('usage_stats.credentials_sort_total_tokens') },
+          { value: 'last_used_at', label: t('usage_stats.credentials_sort_last_used') },
         ]}
         previousLabel={t('usage_stats.previous_page')}
         nextLabel={t('usage_stats.next_page')}
@@ -390,7 +394,36 @@ function CredentialPlanBadge({ children, tone = 'neutral' }: { children: string;
   return <span className={`${styles.credentialPlanBadge} ${styles[`credentialPlanBadge${capitalize(tone)}`]}`.trim()}>{children}</span>
 }
 
-function AuthFileQuotaPanel({ row }: { row: AuthFileCredentialRow }) {
+function QuotaUsageModeSwitch({ label, mode, onChange }: { label: string; mode: QuotaUsageMode; onChange: (mode: QuotaUsageMode) => void }) {
+  const { t } = useTranslation()
+
+  return (
+    <div className={styles.credentialQuotaModeControl}>
+      <span>{label}</span>
+      <div className={styles.credentialQuotaModeSwitcher} role="group" aria-label={t('usage_stats.credentials_quota_usage_mode_aria')}>
+        <span className={`${styles.credentialQuotaModeThumb} ${mode === 'estimated' ? styles.credentialQuotaModeThumbEstimated : ''}`.trim()} aria-hidden="true" />
+        <button
+          type="button"
+          className={mode === 'current' ? styles.credentialQuotaModeButtonActive : undefined}
+          onClick={() => onChange('current')}
+          aria-pressed={mode === 'current'}
+        >
+          {t('usage_stats.credentials_quota_usage_mode_current')}
+        </button>
+        <button
+          type="button"
+          className={mode === 'estimated' ? styles.credentialQuotaModeButtonActive : undefined}
+          onClick={() => onChange('estimated')}
+          aria-pressed={mode === 'estimated'}
+        >
+          {t('usage_stats.credentials_quota_usage_mode_estimated')}
+        </button>
+      </div>
+    </div>
+  )
+}
+
+export function AuthFileQuotaPanel({ row, quotaUsageMode }: { row: AuthFileCredentialRow; quotaUsageMode: QuotaUsageMode }) {
   const { t } = useTranslation()
 
   // 限额区域按加载、错误、刷新中、无缓存、可展示数据的顺序降级。
@@ -417,7 +450,7 @@ function AuthFileQuotaPanel({ row }: { row: AuthFileCredentialRow }) {
     <div className={styles.credentialQuotaPanel}>
       <div className={styles.credentialQuotaBars}>
         {/* 每个可计算进度的 quota 都独占一个稳定块；不可进度化 quota 在 view model 中已过滤。 */}
-        {row.displayQuotas.map((quota) => <QuotaBar key={quota.key} quota={quota} />)}
+        {row.displayQuotas.map((quota) => <QuotaBar key={quota.key} quota={quota} quotaUsageMode={quotaUsageMode} />)}
       </div>
     </div>
   )
@@ -625,7 +658,7 @@ export function formatQuotaWindowUsageAriaLabel(t: Translate, windowUsage: NonNu
   })
 }
 
-function QuotaBar({ quota }: { quota: DisplayQuota }) {
+function QuotaBar({ quota, quotaUsageMode }: { quota: DisplayQuota; quotaUsageMode: QuotaUsageMode }) {
   const { t } = useTranslation()
   // 条宽使用剩余额度百分比，颜色跟随剩余风险状态从绿到黄到红。
   const percent = quota.barPercent ?? 0
@@ -633,6 +666,7 @@ function QuotaBar({ quota }: { quota: DisplayQuota }) {
   const percentLabel = quota.barPercent === null ? '' : `${Math.round(quota.barPercent)}%`
   const resetLabel = quota.resetText ? formatQuotaResetLabel(quota.resetText) : ''
   const resetDuration = quota.resetText ? formatQuotaResetDuration(quota.resetText) : ''
+  const windowUsage = quotaWindowUsageForMode(quota, quotaUsageMode)
 
   return (
     <div className={styles.credentialQuotaBarBlock}>
@@ -651,15 +685,15 @@ function QuotaBar({ quota }: { quota: DisplayQuota }) {
         <span className={`${styles.credentialQuotaFill} ${credentialToneClassName('credentialQuotaFill', quota.status)}`.trim()} style={{ width }} />
       </div>
       <div className={styles.credentialQuotaMeta}>
-        {quota.windowUsage && (
-          <strong className={styles.credentialQuotaWindowUsage} aria-label={formatQuotaWindowUsageAriaLabel(t, quota.windowUsage)}>
+        {windowUsage && (
+          <strong className={styles.credentialQuotaWindowUsage} aria-label={formatQuotaWindowUsageAriaLabel(t, windowUsage)}>
             <span className={styles.credentialQuotaUsageMetric}>
               <img src={quotaTokenIcon} alt="" aria-hidden="true" />
-              <span>{quota.windowUsage.tokens}</span>
+              <span>{windowUsage.tokens}</span>
             </span>
             <span className={styles.credentialQuotaUsageMetric}>
               <img src={quotaCostIcon} alt="" aria-hidden="true" />
-              <span>{quota.windowUsage.cost}</span>
+              <span>{windowUsage.cost}</span>
             </span>
           </strong>
         )}
@@ -667,4 +701,11 @@ function QuotaBar({ quota }: { quota: DisplayQuota }) {
       </div>
     </div>
   )
+}
+
+function quotaWindowUsageForMode(quota: DisplayQuota, mode: QuotaUsageMode): DisplayQuota['windowUsage'] {
+  if (mode === 'estimated' && quota.windowUsageEstimate) {
+    return quota.windowUsageEstimate
+  }
+  return quota.windowUsage
 }

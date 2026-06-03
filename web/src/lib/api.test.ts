@@ -223,7 +223,7 @@ describe('fetchUsageEvents', () => {
       page: 2,
       pageSize: 20,
       activeOnly: true,
-      sort: 'priority',
+      sort: 'last_used_at',
       types: ['claude', ' openai '],
     });
 
@@ -235,7 +235,7 @@ describe('fetchUsageEvents', () => {
     expect(parsed.searchParams.get('page')).toBe('2');
     expect(parsed.searchParams.get('page_size')).toBe('20');
     expect(parsed.searchParams.get('active_only')).toBe('true');
-    expect(parsed.searchParams.get('sort')).toBe('priority');
+    expect(parsed.searchParams.get('sort')).toBe('last_used_at');
     expect(parsed.searchParams.getAll('type')).toEqual(['claude', ' openai ']);
     expect(init).toMatchObject({ credentials: 'include', signal });
   });

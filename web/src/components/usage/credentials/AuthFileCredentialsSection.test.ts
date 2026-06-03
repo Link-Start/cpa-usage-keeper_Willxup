@@ -1,5 +1,15 @@
+import { createElement } from 'react'
+import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it, vi } from 'vitest'
-import { formatInspectionCompletedAt, formatInspectionProgressPercent, formatQuotaErrorDisplay, formatQuotaResetDuration, formatQuotaResetLabel, formatQuotaWindowUsageAriaLabel, inspectionIndicatorTone, isInspectionStartDisabled } from './AuthFileCredentialsSection'
+import { AuthFileQuotaPanel, formatInspectionCompletedAt, formatInspectionProgressPercent, formatQuotaErrorDisplay, formatQuotaResetDuration, formatQuotaResetLabel, formatQuotaWindowUsageAriaLabel, inspectionIndicatorTone, isInspectionStartDisabled } from './AuthFileCredentialsSection'
+import type { AuthFileCredentialRow, DisplayQuota } from './credentialViewModels'
+
+vi.mock('react-i18next', () => ({
+  initReactI18next: { type: '3rdParty', init: () => undefined },
+  useTranslation: () => ({
+    t: (key: string, params?: Record<string, string>) => `${key}:${params?.tokens ?? ''}:${params?.cost ?? ''}`,
+  }),
+}))
 
 const formatLocalResetTime = (resetAt: string) => {
   const resetTime = new Date(resetAt)
@@ -39,6 +49,48 @@ describe('AuthFileCredentialsSection quota window usage accessibility', () => {
     const t = (key: string, options?: Record<string, string>) => `${key}:${options?.tokens}:${options?.cost}`
 
     expect(formatQuotaWindowUsageAriaLabel(t, { tokens: '1.2M', cost: '$0.42' })).toBe('usage_stats.credentials_quota_window_usage_aria:1.2M:$0.42')
+  })
+})
+
+describe('AuthFileCredentialsSection quota usage mode rendering', () => {
+  const quota: DisplayQuota = {
+    key: 'rate_limit.primary_window',
+    label: '5h',
+    percent: 25,
+    barPercent: 75,
+    percentKind: 'used',
+    windowUsage: { tokens: '1.00M', cost: '$2.50' },
+    windowUsageEstimate: { tokens: '4.00M', cost: '$10.00' },
+    status: 'ok',
+  }
+  const row = {
+    identity: { identity: 'auth-1', is_deleted: false },
+    displayQuotas: [quota],
+    quota: [],
+    quotaLoading: false,
+  } as AuthFileCredentialRow
+
+  it('renders current quota usage by default and estimated usage when requested', () => {
+    const currentHtml = renderToStaticMarkup(createElement(AuthFileQuotaPanel, { row, quotaUsageMode: 'current' }))
+    const estimatedHtml = renderToStaticMarkup(createElement(AuthFileQuotaPanel, { row, quotaUsageMode: 'estimated' }))
+
+    expect(currentHtml).toContain('1.00M')
+    expect(currentHtml).toContain('$2.50')
+    expect(currentHtml).not.toContain('4.00M')
+    expect(currentHtml).not.toContain('$10.00')
+    expect(estimatedHtml).toContain('4.00M')
+    expect(estimatedHtml).toContain('$10.00')
+  })
+
+  it('falls back to current quota usage when estimated usage is unavailable', () => {
+    const currentOnlyRow = {
+      ...row,
+      displayQuotas: [{ ...quota, windowUsageEstimate: undefined }],
+    } as AuthFileCredentialRow
+    const estimatedHtml = renderToStaticMarkup(createElement(AuthFileQuotaPanel, { row: currentOnlyRow, quotaUsageMode: 'estimated' }))
+
+    expect(estimatedHtml).toContain('1.00M')
+    expect(estimatedHtml).toContain('$2.50')
   })
 })
 

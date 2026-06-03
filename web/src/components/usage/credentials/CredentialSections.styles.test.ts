@@ -94,6 +94,20 @@ describe('Credential section styles', () => {
     expect(authFileSectionSource).toContain('aria-valuemax={100}')
   })
 
+  it('places the Auth Files quota usage mode switch in the pagination toolbar before sorting', () => {
+    expect(authFileSectionSource).not.toContain('credentialQuotaActionStack')
+    expect(credentialStyles).not.toContain('credentialQuotaActionStack')
+    expect(authFileSectionSource).toContain('leadingControls={<QuotaUsageModeSwitch')
+    expect(authFileSectionSource).toContain('credentials_quota_usage_mode_label')
+    expect(authFileSectionSource).toContain('credentialQuotaModeSwitcher')
+    expect(credentialShellSource).toMatch(/\{leadingControls\}[\s\S]*?\{sortOptions/)
+    expect(authFileSectionSource).toContain('credentials_quota_usage_mode_current')
+    expect(authFileSectionSource).toContain('credentials_quota_usage_mode_estimated')
+    expect(credentialStyles).toMatch(/\.credentialQuotaModeControl\s*\{[\s\S]*?display:\s*flex;/)
+    expect(credentialStyles).toMatch(/\.credentialQuotaModeSwitcher\s*\{[\s\S]*?border-radius:\s*999px;/)
+    expect(credentialStyles).toMatch(/\.credentialQuotaModeThumbEstimated\s*\{[\s\S]*?transform:\s*translateX\(100%\);/)
+  })
+
   it('keeps Total Requests fixed and wraps the breakdown only when it overflows', () => {
     expect(credentialStyles).toMatch(/\.credentialMetricGroup\s*\{[\s\S]*?grid-template-columns:\s*109px repeat\(3, 95px\);/)
     expect(credentialStyles).toMatch(/\.credentialRequestMetric\s*\{[\s\S]*?align-items:\s*baseline;/)
@@ -111,8 +125,12 @@ describe('Credential section styles', () => {
     expect(credentialStyles).toMatch(/\.credentialPagination\s*\{[\s\S]*?box-sizing:\s*border-box;/)
     expect(credentialStyles).toMatch(/\.credentialPagination\s*\{[\s\S]*?align-items:\s*center;/)
     expect(credentialStyles).toMatch(/\.credentialPagination\s*\{[\s\S]*?padding:\s*0 22px;/)
+    expect(credentialStyles).toMatch(/@include tablet\s*\{[\s\S]*?\.credentialPagination\s*\{[\s\S]*?overflow-x:\s*auto;/)
+    expect(credentialStyles).toMatch(/@include tablet\s*\{[\s\S]*?\.credentialPaginationControls\s*\{[\s\S]*?width:\s*max-content;/)
+    expect(credentialStyles).toMatch(/@include tablet\s*\{[\s\S]*?\.credentialQuotaModeControl[\s\S]*?\.credentialPageSizeControl\s*\{[\s\S]*?flex:\s*0 0 auto;/)
     expect(credentialStyles).toMatch(/@include mobile\s*\{[\s\S]*?\.credentialPagination\s*\{[\s\S]*?overflow-x:\s*auto;/)
     expect(credentialStyles).toMatch(/@include mobile\s*\{[\s\S]*?\.credentialPaginationControls\s*\{[\s\S]*?width:\s*max-content;/)
+    expect(credentialStyles).toMatch(/@include mobile\s*\{[\s\S]*?\.credentialQuotaModeControl[\s\S]*?\.credentialPageSizeControl\s*\{[\s\S]*?flex:\s*0 0 auto;/)
     expect(credentialStyles).toMatch(/@include mobile\s*\{[\s\S]*?\.credentialPageSizeControl\s*\{[\s\S]*?flex:\s*0 0 auto;/)
   })
 
