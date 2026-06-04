@@ -21,7 +21,7 @@ func (p xaiProvider) Check(ctx context.Context, input ProviderInput) (ProviderOu
 		AuthIndex: input.Identity.Identity,
 		Method:    p.config.Method,
 		URL:       p.config.URL,
-		Header:    p.config.Headers,
+		Header:    copyHeaders(p.config.Headers),
 	})
 	if err != nil {
 		return ProviderOutput{}, err

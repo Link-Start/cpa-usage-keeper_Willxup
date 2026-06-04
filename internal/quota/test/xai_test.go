@@ -79,3 +79,38 @@ func TestXAIProviderParsesNestedBodyTextBillingResponse(t *testing.T) {
 		t.Fatalf("expected nested body xai billing payload, got %#v", result.Billing)
 	}
 }
+
+func TestXAIProviderCopiesHeadersForEachBillingRequest(t *testing.T) {
+	xaiBillingJSON := `{"config":{"monthlyLimit":{"val":20000},"used":{"val":167},"billingPeriodEnd":"2026-07-01T00:00:00+00:00"}}`
+	caller := &mutatingHeaderManagementCaller{response: &apicall.Response{
+		StatusCode: 200,
+		BodyText:   xaiBillingJSON,
+		Body:       json.RawMessage(xaiBillingJSON),
+	}}
+	provider := quota.NewXAIProvider(caller, quota.DefaultProviderConfigs().XAI)
+
+	for index := 0; index < 2; index++ {
+		if _, err := provider.Check(context.Background(), quota.ProviderInput{Identity: entities.UsageIdentity{Identity: "xai-auth"}}); err != nil {
+			t.Fatalf("Check %d returned error: %v", index+1, err)
+		}
+	}
+	if len(caller.authorizations) != 2 {
+		t.Fatalf("expected two xai billing requests, got %d", len(caller.authorizations))
+	}
+	for index, authorization := range caller.authorizations {
+		if authorization != "Bearer $TOKEN$" {
+			t.Fatalf("expected request %d to start from template authorization header, got %q", index+1, authorization)
+		}
+	}
+}
+
+type mutatingHeaderManagementCaller struct {
+	authorizations []string
+	response       *apicall.Response
+}
+
+func (c *mutatingHeaderManagementCaller) CallManagementAPI(ctx context.Context, request apicall.Request) (*apicall.Response, error) {
+	c.authorizations = append(c.authorizations, request.Header["Authorization"])
+	request.Header["Authorization"] = "Bearer leaked-token"
+	return c.response, nil
+}
