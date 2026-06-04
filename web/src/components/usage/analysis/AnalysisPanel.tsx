@@ -1202,7 +1202,7 @@ export function AnalysisPanel({ analysis, loading, isDark, isMobile }: AnalysisP
         <ModelEfficiencyCard rows={analysis?.model_efficiency ?? []} loading={loading} isDark={isDark} isMobile={isMobile} />
       </div>
       <CompositionPanel tabs={compositionTabs} loading={loading} isDark={isDark} />
-      <Heatmap cells={analysis?.heatmap.cells ?? []} apiKeys={analysis?.heatmap.api_keys ?? []} apiKeyLabels={analysis?.heatmap.api_key_labels ?? {}} models={analysis?.heatmap.models ?? []} loading={loading} isDark={isDark} />
+      <Heatmap cells={analysis?.heatmap?.cells ?? []} apiKeys={analysis?.heatmap?.api_keys ?? []} apiKeyLabels={analysis?.heatmap?.api_key_labels ?? {}} models={analysis?.heatmap?.models ?? []} loading={loading} isDark={isDark} />
     </div>
   );
 }

@@ -539,4 +539,10 @@ describe('AnalysisPanel token chart data', () => {
     expect(markup).not.toContain('usage_stats.analysis_heatmap_tokens_prefix');
     expect(markup).not.toContain('usage_stats.analysis_heatmap_requests_prefix');
   });
+
+  it('keeps rendering when an older analysis response omits heatmap', () => {
+    const analysis = { ...emptyAnalysis, heatmap: undefined } as unknown as AnalysisResponse;
+
+    expect(() => renderToStaticMarkup(<AnalysisPanel analysis={analysis} loading={false} isDark={false} isMobile={false} />)).not.toThrow();
+  });
 });
