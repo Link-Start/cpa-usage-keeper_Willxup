@@ -1,11 +1,12 @@
-import { createElement } from 'react'
+import { createElement, type ComponentType } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 import { CredentialSectionShell, CredentialsPagination, formatCredentialNumber, formatCredentialPercent } from './CredentialSectionShell'
 
 describe('CredentialSectionShell formatting', () => {
-  it('omits the eyebrow element when no eyebrow is provided', () => {
-    const html = renderToStaticMarkup(createElement(CredentialSectionShell, {
+  it('does not render the removed label slot', () => {
+    const html = renderToStaticMarkup(createElement(CredentialSectionShell as ComponentType<Record<string, unknown>>, {
+      eyebrow: 'Credentials',
       title: 'Auth Files',
       subtitle: 'Credential usage',
       countLabel: '2',

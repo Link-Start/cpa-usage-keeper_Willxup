@@ -1835,7 +1835,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                   }}
                 />
 
-                <ServiceHealthCard usage={usage} loading={overviewDisplayLoading} showEyebrow={false} />
+                <ServiceHealthCard usage={usage} loading={overviewDisplayLoading} />
 
                 <TokenBreakdownChart
                   usage={usage}

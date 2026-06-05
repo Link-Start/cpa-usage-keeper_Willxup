@@ -60,10 +60,9 @@ export function parseTime(value?: string): number {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-function ServiceHealthTitle({ title, subtitle, eyebrow, showEyebrow }: { title: string; subtitle: string; eyebrow: string; showEyebrow: boolean }) {
+function ServiceHealthTitle({ title, subtitle }: { title: string; subtitle: string }) {
   return (
     <div className={styles.sectionTitleBlock}>
-      {showEyebrow && <span className={styles.sectionEyebrow}>{eyebrow}</span>}
       <h3 className={styles.sectionTitle}>{title}</h3>
       <p className={styles.sectionSubtitle}>{subtitle}</p>
     </div>
@@ -73,10 +72,9 @@ function ServiceHealthTitle({ title, subtitle, eyebrow, showEyebrow }: { title: 
 export interface ServiceHealthCardProps {
   usage: UsageOverviewPayload | null;
   loading: boolean;
-  showEyebrow?: boolean;
 }
 
-export function ServiceHealthCard({ usage, loading, showEyebrow = true }: ServiceHealthCardProps) {
+export function ServiceHealthCard({ usage, loading }: ServiceHealthCardProps) {
   const { t } = useTranslation();
   const [activeTooltip, setActiveTooltip] = useState<ActiveTooltipState | null>(null);
   const gridRef = useRef<HTMLDivElement>(null);
@@ -275,10 +273,8 @@ export function ServiceHealthCard({ usage, loading, showEyebrow = true }: Servic
     <div className={styles.healthCard}>
       <div className={styles.healthHeader}>
         <ServiceHealthTitle
-          eyebrow={t('usage_stats.service_health_eyebrow')}
           title={t('usage_stats.service_health_title')}
           subtitle={t('usage_stats.service_health_subtitle')}
-          showEyebrow={showEyebrow}
         />
         <div className={styles.healthMeta}>
           <div className={styles.healthTopLine}>

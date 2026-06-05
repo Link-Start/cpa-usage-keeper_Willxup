@@ -17,15 +17,8 @@ describe('ServiceHealthCard time parsing', () => {
 });
 
 describe('ServiceHealthCard title', () => {
-  it('keeps the reliability eyebrow by default for shared overview cards', () => {
+  it('renders the health title without the reliability label', () => {
     const html = renderToStaticMarkup(createElement(ServiceHealthCard, { usage: null, loading: false }));
-
-    expect(html).toContain('Request Health Timeline');
-    expect(html).toContain('Reliability');
-  });
-
-  it('can hide the reliability eyebrow while keeping the title', () => {
-    const html = renderToStaticMarkup(createElement(ServiceHealthCard, { usage: null, loading: false, showEyebrow: false }));
 
     expect(html).toContain('Request Health Timeline');
     expect(html).not.toContain('Reliability');

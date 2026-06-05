@@ -21,8 +21,9 @@ describe('KeyOverviewPage layout', () => {
     expect(source).toContain('}, [onAuthRequired, timeRange]);')
   })
 
-  it('hides the Request Health Timeline eyebrow to match the admin overview page', () => {
-    expect(source).toContain('<ServiceHealthCard usage={usage} loading={overviewDisplayLoading} showEyebrow={false} />')
+  it('removes the Request Health Timeline label instead of toggling it off', () => {
+    expect(source).toContain('<ServiceHealthCard usage={usage} loading={overviewDisplayLoading} />')
+    expect(source).not.toContain('showEyebrow')
   })
 
   it('copies the relevant admin toolbar class contracts into its own module', () => {

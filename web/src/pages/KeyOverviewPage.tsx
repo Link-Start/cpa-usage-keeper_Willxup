@@ -432,7 +432,7 @@ export function KeyOverviewPage({ apiKey, onAuthRequired }: KeyOverviewPageProps
               }}
             />
 
-            <ServiceHealthCard usage={usage} loading={overviewDisplayLoading} showEyebrow={false} />
+            <ServiceHealthCard usage={usage} loading={overviewDisplayLoading} />
 
             <TokenBreakdownChart
               usage={usage}
