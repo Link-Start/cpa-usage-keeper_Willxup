@@ -192,10 +192,11 @@ describe('AuthFileCredentialsSection quota error display', () => {
 })
 
 describe('AuthFileCredentialsSection inspection controls', () => {
-  it('calculates progress from cached quota results and total active auth files', () => {
-    expect(formatInspectionProgressPercent({ total: 5, cached: 2 })).toBe(40)
-    expect(formatInspectionProgressPercent({ total: 0, cached: 2 })).toBe(0)
-    expect(formatInspectionProgressPercent({ total: 5, cached: 9 })).toBe(100)
+  it('calculates progress from cached quota results and inspectable auth files', () => {
+    expect(formatInspectionProgressPercent({ total: 5, cached: 2, unknown: 1 })).toBe(50)
+    expect(formatInspectionProgressPercent({ total: 5, cached: 2, unknown: 3 })).toBe(100)
+    expect(formatInspectionProgressPercent({ total: 0, cached: 2, unknown: 0 })).toBe(0)
+    expect(formatInspectionProgressPercent({ total: 5, cached: 9, unknown: 1 })).toBe(100)
   })
 
   it('disables manual inspection while auto refresh or an inspection round is active', () => {
@@ -208,7 +209,8 @@ describe('AuthFileCredentialsSection inspection controls', () => {
 
   it('uses running and completed status dots for the Auth Files inspection button', () => {
     expect(inspectionIndicatorTone({ running: true, completed: false })).toBe('running')
-    expect(inspectionIndicatorTone({ running: false, completed: true })).toBe('completed')
+    expect(inspectionIndicatorTone({ running: false, completed: true, completed_at: '2026-06-03T10:30:00Z' })).toBe('completed')
+    expect(inspectionIndicatorTone({ running: false, completed: true })).toBe('idle')
     expect(inspectionIndicatorTone(null)).toBe('idle')
   })
 

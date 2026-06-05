@@ -104,6 +104,18 @@ describe('i18n resources', () => {
     }
   });
 
+  it('labels unknown Auth Files inspection results in every language', () => {
+    expect(i18n.getResource('en', 'translation', 'usage_stats.credentials_inspection_unknown')).toBe('Unknown');
+    expect(i18n.getResource('zh', 'translation', 'usage_stats.credentials_inspection_unknown')).toBe('未知');
+    expect(i18n.getResource('zh-TW', 'translation', 'usage_stats.credentials_inspection_unknown')).toBe('未知');
+  });
+
+  it('labels reached-limit Auth Files inspection results in every language', () => {
+    expect(i18n.getResource('en', 'translation', 'usage_stats.credentials_inspection_limit_reached')).toBe('Limit reached');
+    expect(i18n.getResource('zh', 'translation', 'usage_stats.credentials_inspection_limit_reached')).toBe('达到限额');
+    expect(i18n.getResource('zh-TW', 'translation', 'usage_stats.credentials_inspection_limit_reached')).toBe('達到限額');
+  });
+
   it('keeps the login product title aligned across languages', () => {
     expect(i18n.getResourceBundle('en', 'translation').auth.login_title).toBe('CPA Usage Statistics Dashboard');
     expect(i18n.getResourceBundle('zh', 'translation').auth.login_title).toBe('CPA 用量统计仪表盘');
