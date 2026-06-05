@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import {
   RequestEventsDetailsCard,
+  isRequestEventColumnSelectionControlled,
   resolveRequestEventColumnMenuFocusIndex,
   toggleRequestEventColumnId,
   type RequestEventColumnId,
@@ -112,6 +113,16 @@ describe('RequestEventsDetailsCard pagination', () => {
 
     expect(html.indexOf('<th title="Time to First Token">TTFT</th>')).toBeLessThan(html.indexOf('<th title="Using latency_ms in ms">Latency</th>'));
     expect(html).toMatch(/Success<\/span><\/td><td class="[^"]*durationCell[^"]*">-<\/td><td class="[^"]*durationCell[^"]*">120ms<\/td>/);
+  });
+
+  it('keeps the Latency column visible when latency is missing', () => {
+    const html = renderCard({
+      events: [{ ...events[0], latency_ms: undefined }],
+    });
+
+    expect(html.indexOf('<th title="Time to First Token">TTFT</th>')).toBeLessThan(html.indexOf('<th title="Using latency_ms in ms">Latency</th>'));
+    expect(html.indexOf('<th title="Using latency_ms in ms">Latency</th>')).toBeLessThan(html.indexOf('<th>Type</th>'));
+    expect(html).toMatch(/45ms<\/td><td class="[^"]*durationCell[^"]*">--<\/td><td>SSE<\/td>/);
   });
 
   it('shows a dash for zero TTFT values', () => {
@@ -299,11 +310,31 @@ describe('RequestEventsDetailsCard pagination', () => {
     expect(html).not.toContain('title="Production Key">Production Key</td>');
   });
 
+  it('honors controlled request event column selection', () => {
+    const html = renderCard({
+      visibleColumnIds: ['timestamp', 'model'],
+    });
+
+    expect(html).toContain('<th>Timestamp</th>');
+    expect(html).toContain('<th>Model</th>');
+    expect(html).toContain('2026/04/23 02:00:00');
+    expect(html).toContain('<td class="_modelCell_');
+    expect(html).not.toContain('<th>API Key</th>');
+    expect(html).not.toContain('<th>Total Cost</th>');
+    expect(html).not.toContain('$0.1234');
+  });
+
   it('keeps at least one request event column selected', () => {
     const selected: RequestEventColumnId[] = ['timestamp'];
 
     expect(toggleRequestEventColumnId(selected, 'timestamp')).toEqual(['timestamp']);
     expect(toggleRequestEventColumnId(selected, 'model')).toEqual(['timestamp', 'model']);
+  });
+
+  it('treats request event columns as controlled only when value and callback are both provided', () => {
+    expect(isRequestEventColumnSelectionControlled(['timestamp'], () => undefined)).toBe(true);
+    expect(isRequestEventColumnSelectionControlled(undefined, () => undefined)).toBe(false);
+    expect(isRequestEventColumnSelectionControlled(['timestamp'], undefined)).toBe(false);
   });
 
   it('cycles column menu focus for arrow and tab navigation', () => {

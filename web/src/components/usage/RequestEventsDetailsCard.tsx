@@ -85,6 +85,11 @@ export const toggleRequestEventColumnId = (
   return availableColumnIds.filter((currentColumnId) => normalized.includes(currentColumnId) || currentColumnId === columnId);
 };
 
+export const isRequestEventColumnSelectionControlled = (
+  visibleColumnIds: readonly RequestEventColumnId[] | undefined,
+  onVisibleColumnIdsChange: ((columnIds: RequestEventColumnId[]) => void) | undefined,
+) => visibleColumnIds !== undefined && onVisibleColumnIdsChange !== undefined;
+
 const appendSelectedOption = (
   options: SelectOption[],
   selectedValue: string,
@@ -145,11 +150,13 @@ export interface RequestEventsDetailsCardProps {
   sourceFilter: string;
   resultFilter: string;
   initialVisibleColumnIds?: readonly RequestEventColumnId[];
+  visibleColumnIds?: readonly RequestEventColumnId[];
   onPageChange: (page: number) => void;
   onPageSizeChange: (pageSize: number) => void;
   onModelFilterChange: (model: string) => void;
   onSourceFilterChange: (source: string) => void;
   onResultFilterChange: (result: string) => void;
+  onVisibleColumnIdsChange?: (columnIds: RequestEventColumnId[]) => void;
 }
 
 const toNumber = (value: unknown): number => {
@@ -471,11 +478,13 @@ export function RequestEventsDetailsCard({
   sourceFilter,
   resultFilter,
   initialVisibleColumnIds,
+  visibleColumnIds,
   onPageChange,
   onPageSizeChange,
   onModelFilterChange,
   onSourceFilterChange,
   onResultFilterChange,
+  onVisibleColumnIdsChange,
 }: RequestEventsDetailsCardProps) {
   const { t } = useTranslation();
   const latencyHint = t('usage_stats.latency_unit_hint', {
@@ -541,26 +550,29 @@ export function RequestEventsDetailsCard({
     });
   }, [events]);
 
-  const hasLatencyData = useMemo(() => rows.some((row) => row.latencyMs !== null), [rows]);
-  const [visibleColumnIds, setVisibleColumnIds] = useState<RequestEventColumnId[]>(() => (
-    normalizeRequestEventVisibleColumnIds(initialVisibleColumnIds ?? REQUEST_EVENT_COLUMN_IDS)
+  const [internalVisibleColumnIds, setInternalVisibleColumnIds] = useState<RequestEventColumnId[]>(() => (
+    normalizeRequestEventVisibleColumnIds(initialVisibleColumnIds ?? visibleColumnIds ?? REQUEST_EVENT_COLUMN_IDS)
   ));
+  const isColumnSelectionControlled = isRequestEventColumnSelectionControlled(visibleColumnIds, onVisibleColumnIdsChange);
+  const selectedVisibleColumnIds = isColumnSelectionControlled && visibleColumnIds !== undefined
+    ? visibleColumnIds
+    : internalVisibleColumnIds;
 
-  const availableColumnIds = useMemo(
-    () => REQUEST_EVENT_COLUMN_IDS.filter((columnId) => columnId !== 'latency' || hasLatencyData),
-    [hasLatencyData]
-  );
   const effectiveVisibleColumnIds = useMemo(
-    () => normalizeRequestEventVisibleColumnIds(visibleColumnIds, availableColumnIds),
-    [availableColumnIds, visibleColumnIds]
+    () => normalizeRequestEventVisibleColumnIds(selectedVisibleColumnIds),
+    [selectedVisibleColumnIds]
   );
   const effectiveVisibleColumnIdSet = useMemo(
     () => new Set<RequestEventColumnId>(effectiveVisibleColumnIds),
     [effectiveVisibleColumnIds]
   );
   const handleColumnToggle = useCallback((columnId: RequestEventColumnId) => {
-    setVisibleColumnIds((currentColumnIds) => toggleRequestEventColumnId(currentColumnIds, columnId, availableColumnIds));
-  }, [availableColumnIds]);
+    const nextColumnIds = toggleRequestEventColumnId(selectedVisibleColumnIds, columnId);
+    if (!isColumnSelectionControlled) {
+      setInternalVisibleColumnIds(nextColumnIds);
+    }
+    onVisibleColumnIdsChange?.(nextColumnIds);
+  }, [isColumnSelectionControlled, onVisibleColumnIdsChange, selectedVisibleColumnIds]);
 
   const modelOptions = useMemo(() => {
     const options = [
@@ -748,8 +760,8 @@ export function RequestEventsDetailsCard({
       },
     ];
 
-    return definitions.filter((definition) => definition.id !== 'latency' || hasLatencyData);
-  }, [hasLatencyData, latencyHint, t, ttftHint]);
+    return definitions;
+  }, [latencyHint, t, ttftHint]);
 
   const visibleColumns = useMemo(
     () => columnDefinitions.filter((definition) => effectiveVisibleColumnIdSet.has(definition.id)),
@@ -759,11 +771,11 @@ export function RequestEventsDetailsCard({
     () => columnDefinitions.map((definition) => ({ id: definition.id, label: definition.label })),
     [columnDefinitions]
   );
-  const visibleColumnSummary = effectiveVisibleColumnIds.length === availableColumnIds.length
+  const visibleColumnSummary = effectiveVisibleColumnIds.length === REQUEST_EVENT_COLUMN_IDS.length
     ? t('usage_stats.request_events_columns_all')
     : t('usage_stats.request_events_columns_count', {
         selected: effectiveVisibleColumnIds.length,
-        total: availableColumnIds.length,
+        total: REQUEST_EVENT_COLUMN_IDS.length,
       });
 
   const hasActiveFilters =
