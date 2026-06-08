@@ -190,7 +190,7 @@ export function ApiKeySettingsCard({ apiKeys, loading = false, savingId = null, 
                 <div key={item.id} className={styles.apiKeySettingsItem}>
                   <div className={styles.apiKeySettingsSummary}>
                     <span className={styles.apiKeyFieldLabel}>{t('usage_stats.api_key_settings_display_key')}</span>
-                    <span className={styles.apiKeySettingsName} title={item.apiKey}>{apiKey}</span>
+                    <span className={styles.apiKeySettingsName} title={apiKey}>{apiKey}</span>
                   </div>
                   <div className={styles.apiKeySettingsForm}>
                     <label className={styles.apiKeyAliasField}>

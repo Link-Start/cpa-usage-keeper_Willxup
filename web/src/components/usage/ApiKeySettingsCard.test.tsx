@@ -31,13 +31,13 @@ describe('ApiKeySettingsCard', () => {
     expect(html).toContain('Primary');
     expect(html).toContain('sk-*********123456');
     expect(html).toContain('sk-*********654321');
-    expect(html).not.toContain('>sk-alpha123456<');
-    expect(html).not.toContain('>sk-beta654321<');
+    expect(html).not.toContain('sk-alpha123456');
+    expect(html).not.toContain('sk-beta654321');
     expect(html).not.toContain('placeholder="sk-alpha123456"');
     expect(html).toContain('aria-label="Show full API keys"');
     expect(html).toContain('m2 2 20 20');
     expect(countOccurrences(html, '>Copy<')).toBe(2);
-    expect(html).toContain('title="sk-alpha123456"');
+    expect(html).toContain('title="sk-*********123456"');
     expect(html).not.toContain('9007199254740993');
     expect(html).not.toContain('Local ID');
     expect(html).not.toContain('sk-target-secret-value');
