@@ -1,69 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { buildCustomDateRangeQuery, getOverviewChartEndMs, getOverviewDisplayLoading, getOverviewHourWindowHours, getPreferredOverviewChartPeriod, getTimeRangeOptions, getUsageTabOptions, refreshPageData, sanitizeRequestEventFilters, scheduleOverviewAutoRefresh, shouldShowRangeControls, shouldShowUpdateCheckButton, getUpdateCheckToastDuration, syncCpaData } from './UsagePage';
-import { ApiError } from '@/lib/api';
-import { filterUsageByWindow, type UsageFilterWindow } from '@/utils/usage';
-import type { StatusResponse, UsageSnapshot } from '@/lib/types';
-
-const usage: UsageSnapshot = {
-  total_requests: 2,
-  success_count: 2,
-  failure_count: 0,
-  total_tokens: 300,
-  requests_by_day: {},
-  requests_by_hour: {},
-  tokens_by_day: {},
-  tokens_by_hour: {},
-  apis: {
-    'provider-a': {
-      display_name: 'Provider A',
-      total_requests: 2,
-      success_count: 2,
-      failure_count: 0,
-      total_tokens: 300,
-      models: {
-        'claude-sonnet': {
-          total_requests: 2,
-          success_count: 2,
-          failure_count: 0,
-          total_tokens: 300,
-          details: [
-            {
-              timestamp: '2026-04-23T00:00:00.000Z',
-              latency_ms: 100,
-              source: 'source-a',
-              auth_index: '1',
-              failed: false,
-              tokens: {
-                input_tokens: 50,
-                output_tokens: 50,
-                reasoning_tokens: 0,
-                cached_tokens: 0,
-                total_tokens: 100,
-              },
-            },
-            {
-              timestamp: '2026-04-23T02:00:00.000Z',
-              latency_ms: 120,
-              source: 'source-a',
-              auth_index: '1',
-              failed: false,
-              tokens: {
-                input_tokens: 100,
-                output_tokens: 100,
-                reasoning_tokens: 0,
-                cached_tokens: 0,
-                total_tokens: 200,
-              },
-            },
-          ],
-        },
-      },
-    },
-  },
-};
-
-const deriveFilteredUsageLikePage = (input: UsageSnapshot, filterWindow: UsageFilterWindow) =>
-  filterUsageByWindow(input, filterWindow);
+import { buildCustomDateRangeQuery, getBackToCPALinkURL, getCredentialSectionVisibility, getCustomDateRangeBounds, getOverviewChartEndMs, getOverviewDisplayLoading, getOverviewHourWindowHours, getPreferredOverviewChartPeriod, getTimeRangeOptions, getUsageTabOptions, isCustomDateWithinBounds, isUsagePageVisible, loadRequestEventsPreferences, normalizeRequestEventsPreferences, normalizeUsageTabValue, openDateInputPicker, refreshPageData, REQUEST_EVENTS_PREFERENCES_STORAGE_KEY, sanitizeRequestEventFilters, saveRequestEventsPreferences, scheduleOverviewAutoRefresh, scheduleStatusActiveHeartbeat, shouldAutoRefreshUsageTab, shouldShowApiKeyFilter, shouldShowRangeControls, shouldShowUpdateCheckButton, STATUS_ACTIVE_HEARTBEAT_INTERVAL_MS, getUpdateCheckToastDuration } from './UsagePage';
+import { REQUEST_EVENT_COLUMN_IDS } from '@/components/usage/RequestEventsDetailsCard';
+import type { StatusResponse, UsageFilterWindow } from '@/lib/types';
 
 const createAutoRefreshTestDocument = (visibilityState: DocumentVisibilityState = 'visible') => {
   const target = new EventTarget();
@@ -80,6 +18,30 @@ const createAutoRefreshTestDocument = (visibilityState: DocumentVisibilityState 
   };
 };
 
+const createStatusResponse = (lastError = '', quotaAutoRefreshEnabled = true): StatusResponse => ({
+  running: true,
+  sync_running: false,
+  timezone: 'UTC',
+  last_error: lastError,
+  quotaAutoRefreshEnabled,
+});
+
+const flushPromises = async () => {
+  await Promise.resolve();
+  await Promise.resolve();
+};
+
+const createMemoryStorage = (seed: Record<string, string> = {}) => {
+  const values = new Map(Object.entries(seed));
+  return {
+    getItem: vi.fn((key: string) => values.get(key) ?? null),
+    setItem: vi.fn((key: string, value: string) => {
+      values.set(key, value);
+    }),
+    value: (key: string) => values.get(key),
+  };
+};
+
 afterEach(() => {
   vi.useRealTimers();
   vi.restoreAllMocks();
@@ -92,6 +54,36 @@ describe('UsagePage Overview loading display', () => {
 
   it('shows loading before Overview data has loaded', () => {
     expect(getOverviewDisplayLoading({ loading: true, hasUsage: false })).toBe(true);
+  });
+});
+
+describe('UsagePage Back to CPA link', () => {
+  it('uses the CPA public URL from status', () => {
+    expect(getBackToCPALinkURL({ cpa_public_url: 'https://cpa.example.com' }, 'https://keeper.example.com')).toBe('https://cpa.example.com/management.html');
+  });
+
+  it('uses the current origin when status does not include a CPA public URL', () => {
+    expect(getBackToCPALinkURL({}, 'https://cpa.domain.com')).toBe('https://cpa.domain.com/management.html');
+    expect(getBackToCPALinkURL(null, 'https://cpa.domain.com')).toBe('https://cpa.domain.com/management.html');
+  });
+
+  it('normalizes trailing slashes and existing management pages', () => {
+    expect(getBackToCPALinkURL({ cpa_public_url: 'https://cpa.example.com/' }, 'https://keeper.example.com')).toBe('https://cpa.example.com/management.html');
+    expect(getBackToCPALinkURL({ cpa_public_url: 'https://cpa.example.com/cpa/' }, 'https://keeper.example.com')).toBe('https://cpa.example.com/cpa/management.html');
+    expect(getBackToCPALinkURL({ cpa_public_url: 'https://cpa.example.com/management.html' }, 'https://keeper.example.com')).toBe('https://cpa.example.com/management.html');
+  });
+
+  it('supports relative public paths and bare host names', () => {
+    expect(getBackToCPALinkURL({ cpa_public_url: '/cpa/' }, 'https://keeper.example.com')).toBe('https://keeper.example.com/cpa/management.html');
+    expect(getBackToCPALinkURL({ cpa_public_url: 'cpa.domain.com/' }, 'https://keeper.example.com')).toBe('https://cpa.domain.com/management.html');
+    expect(getBackToCPALinkURL({ cpa_public_url: 'cpa.domain.com:8317/' }, 'https://keeper.example.com')).toBe('https://cpa.domain.com:8317/management.html');
+  });
+
+  it('rejects explicit non-http public URL schemes', () => {
+    expect(getBackToCPALinkURL({ cpa_public_url: 'javascript://alert(1)' }, 'https://keeper.example.com')).toBe('');
+    expect(getBackToCPALinkURL({ cpa_public_url: 'data://text/html,<script>alert(1)</script>' }, 'https://keeper.example.com')).toBe('');
+    expect(getBackToCPALinkURL({ cpa_public_url: 'file:///etc/passwd' }, 'https://keeper.example.com')).toBe('');
+    expect(getBackToCPALinkURL({ cpa_public_url: 'ftp://cpa.example.com' }, 'https://keeper.example.com')).toBe('');
   });
 });
 
@@ -206,23 +198,191 @@ describe('UsagePage Overview auto-refresh', () => {
   });
 });
 
-describe('UsagePage range filtering bug', () => {
-  it('changes the usage payload that summary metrics read from', () => {
-    const filterWindow: UsageFilterWindow = {
-      startMs: Date.parse('2026-04-23T01:00:00.000Z'),
-      endMs: Date.parse('2026-04-23T03:00:00.000Z'),
-      windowMinutes: 120,
+describe('UsagePage visibility guard', () => {
+  it('treats hidden documents as inactive for credentials polling', () => {
+    expect(isUsagePageVisible({ visibilityState: 'visible' })).toBe(true);
+    expect(isUsagePageVisible({ visibilityState: 'hidden' })).toBe(false);
+  });
+});
+
+describe('UsagePage status active heartbeat', () => {
+  it('loads status and marks the page active immediately and on the 30s cadence', async () => {
+    let intervalHandler: (() => void) | undefined;
+    const testDocument = createAutoRefreshTestDocument();
+    const timerTarget = {
+      setInterval: vi.fn((handler: () => void, timeout: number) => {
+        intervalHandler = handler;
+        expect(timeout).toBe(STATUS_ACTIVE_HEARTBEAT_INTERVAL_MS);
+        return 7;
+      }),
+      clearInterval: vi.fn(),
     };
+    const status = createStatusResponse('last problem');
+    const loadStatus = vi.fn(async () => status);
+    const markActive = vi.fn(async () => undefined);
+    const setStatus = vi.fn();
+    const setStatusError = vi.fn();
 
-    const expected = filterUsageByWindow(usage, filterWindow);
-    const actual = deriveFilteredUsageLikePage(usage, filterWindow);
+    const cleanup = scheduleStatusActiveHeartbeat({
+      loadStatus,
+      markActive,
+      setStatus,
+      setStatusError,
+      documentRef: testDocument,
+      timerTarget,
+    });
+    await flushPromises();
 
-    expect(expected.total_requests).toBe(1);
-    expect(actual.total_requests).toBe(expected.total_requests);
+    expect(loadStatus).toHaveBeenCalledTimes(1);
+    expect(markActive).toHaveBeenCalledTimes(1);
+    expect(setStatus).toHaveBeenCalledWith(status);
+    expect(setStatusError).toHaveBeenCalledWith('last problem');
+
+    intervalHandler?.();
+    await flushPromises();
+
+    expect(loadStatus).toHaveBeenCalledTimes(2);
+    expect(markActive).toHaveBeenCalledTimes(2);
+
+    cleanup();
+  });
+
+  it('loads status once without active heartbeat when quota auto refresh is disabled', async () => {
+    const testDocument = createAutoRefreshTestDocument();
+    const timerTarget = {
+      setInterval: vi.fn(() => 7),
+      clearInterval: vi.fn(),
+    };
+    const status = createStatusResponse('', false);
+    const loadStatus = vi.fn(async () => status);
+    const markActive = vi.fn(async () => undefined);
+    const setStatus = vi.fn();
+    const setStatusError = vi.fn();
+
+    const cleanup = scheduleStatusActiveHeartbeat({
+      loadStatus,
+      markActive,
+      setStatus,
+      setStatusError,
+      documentRef: testDocument,
+      timerTarget,
+    });
+    await flushPromises();
+
+    expect(loadStatus).toHaveBeenCalledTimes(1);
+    expect(markActive).not.toHaveBeenCalled();
+    expect(timerTarget.setInterval).not.toHaveBeenCalled();
+    expect(setStatus).toHaveBeenCalledWith(status);
+
+    cleanup();
+  });
+
+  it('does not start while hidden and starts immediately when visible again', async () => {
+    const testDocument = createAutoRefreshTestDocument('hidden');
+    const timerTarget = {
+      setInterval: vi.fn(() => 8),
+      clearInterval: vi.fn(),
+    };
+    const loadStatus = vi.fn(async () => createStatusResponse());
+    const markActive = vi.fn(async () => undefined);
+
+    const cleanup = scheduleStatusActiveHeartbeat({
+      loadStatus,
+      markActive,
+      setStatus: vi.fn(),
+      setStatusError: vi.fn(),
+      documentRef: testDocument,
+      timerTarget,
+    });
+    await flushPromises();
+
+    expect(loadStatus).not.toHaveBeenCalled();
+
+    testDocument.setVisibilityState('visible');
+    testDocument.dispatchEvent(new Event('visibilitychange'));
+    await flushPromises();
+
+    expect(loadStatus).toHaveBeenCalledTimes(1);
+    expect(markActive).toHaveBeenCalledTimes(1);
+
+    cleanup();
+  });
+
+  it('aborts the in-flight heartbeat before creating an interval when hidden', () => {
+    let capturedSignal: AbortSignal | undefined;
+    const testDocument = createAutoRefreshTestDocument();
+    const timerTarget = {
+      setInterval: vi.fn(() => 9),
+      clearInterval: vi.fn(),
+    };
+    const loadStatus = vi.fn((signal: AbortSignal) => {
+      capturedSignal = signal;
+      return new Promise<StatusResponse>(() => undefined);
+    });
+
+    const cleanup = scheduleStatusActiveHeartbeat({
+      loadStatus,
+      markActive: vi.fn(async () => undefined),
+      setStatus: vi.fn(),
+      setStatusError: vi.fn(),
+      documentRef: testDocument,
+      timerTarget,
+    });
+
+    expect(loadStatus).toHaveBeenCalledTimes(1);
+    expect(capturedSignal?.aborted).toBe(false);
+
+    testDocument.setVisibilityState('hidden');
+    testDocument.dispatchEvent(new Event('visibilitychange'));
+
+    expect(capturedSignal?.aborted).toBe(true);
+    expect(timerTarget.setInterval).not.toHaveBeenCalled();
+    expect(timerTarget.clearInterval).not.toHaveBeenCalled();
+
+    cleanup();
+  });
+});
+
+describe('UsagePage active tab auto-refresh guard', () => {
+  it('allows Request Events auto-refresh only on the first page', () => {
+    expect(shouldAutoRefreshUsageTab({ activeTab: 'events', eventsPage: 1 })).toBe(true);
+    expect(shouldAutoRefreshUsageTab({ activeTab: 'events', eventsPage: 2 })).toBe(false);
+  });
+
+  it('does not auto-refresh credential detail tabs', () => {
+    expect(shouldAutoRefreshUsageTab({ activeTab: 'auth-files', eventsPage: 1 })).toBe(false);
+    expect(shouldAutoRefreshUsageTab({ activeTab: 'ai-provider', eventsPage: 1 })).toBe(false);
+  });
+
+  it('keeps Overview auto-refresh enabled and does not auto-refresh other tabs', () => {
+    expect(shouldAutoRefreshUsageTab({ activeTab: 'overview', eventsPage: 2 })).toBe(true);
+    expect(shouldAutoRefreshUsageTab({ activeTab: 'analysis', eventsPage: 1 })).toBe(false);
+    expect(shouldAutoRefreshUsageTab({ activeTab: 'settings', eventsPage: 1 })).toBe(false);
   });
 });
 
 describe('UsagePage request event filters', () => {
+  it('keeps restored model and source filters until backend filter options load', () => {
+    const next = sanitizeRequestEventFilters(
+      {
+        model: 'claude-opus',
+        source: 'authidx-source-b',
+        result: 'failed',
+      },
+      {
+        models: [],
+        sources: [],
+      },
+      false,
+    );
+
+    expect(next).toEqual({
+      model: 'claude-opus',
+      source: 'authidx-source-b',
+      result: 'failed',
+    });
+  });
+
   it('clears model and source filters that are no longer available', () => {
     const next = sanitizeRequestEventFilters(
       {
@@ -264,25 +424,160 @@ describe('UsagePage request event filters', () => {
   });
 });
 
+describe('UsagePage request event preferences', () => {
+  it('normalizes persisted filters, page size, and visible columns', () => {
+    const preferences = normalizeRequestEventsPreferences({
+      version: 1,
+      pageSize: 500,
+      filters: {
+        model: 'claude-opus',
+        source: 'authidx-source-b',
+        result: 'failed',
+      },
+      visibleColumnIds: ['model', 'timestamp', 'model', 'not-a-column', 'total_cost'],
+    });
+
+    expect(preferences).toEqual({
+      version: 1,
+      pageSize: 500,
+      filters: {
+        model: 'claude-opus',
+        source: 'authidx-source-b',
+        result: 'failed',
+      },
+      visibleColumnIds: ['model', 'timestamp', 'total_cost'],
+    });
+  });
+
+  it('falls back safely for damaged persisted request event preferences', () => {
+    const preferences = normalizeRequestEventsPreferences({
+      version: 1,
+      pageSize: 999,
+      filters: {
+        model: 42,
+        source: '',
+        result: 'maybe',
+      },
+      visibleColumnIds: ['not-a-column'],
+    });
+
+    expect(preferences.pageSize).toBe(100);
+    expect(preferences.filters).toEqual({
+      model: '__all__',
+      source: '__all__',
+      result: '__all__',
+    });
+    expect(preferences.visibleColumnIds[0]).toBe('timestamp');
+    expect(preferences.visibleColumnIds.length).toBeGreaterThan(1);
+  });
+
+  it('keeps persisted request event columns unchanged when Speed is absent', () => {
+    const columnIdsWithoutSpeed = REQUEST_EVENT_COLUMN_IDS.filter((columnId) => columnId !== 'speed');
+    const preferences = normalizeRequestEventsPreferences({
+      version: 1,
+      pageSize: 100,
+      visibleColumnIds: columnIdsWithoutSpeed,
+    });
+
+    expect(preferences.visibleColumnIds).toEqual(columnIdsWithoutSpeed);
+    expect(preferences.visibleColumnIds).not.toContain('speed');
+  });
+
+  it('preserves a saved preference that intentionally hides Speed', () => {
+    const storage = createMemoryStorage();
+    const hiddenSpeedColumnIds = REQUEST_EVENT_COLUMN_IDS.filter((columnId) => columnId !== 'speed');
+
+    saveRequestEventsPreferences({
+      version: 1,
+      pageSize: 100,
+      filters: {
+        model: '__all__',
+        source: '__all__',
+        result: '__all__',
+      },
+      visibleColumnIds: hiddenSpeedColumnIds,
+    }, storage);
+
+    const stored = JSON.parse(storage.value(REQUEST_EVENTS_PREFERENCES_STORAGE_KEY) ?? '');
+    expect(stored).toEqual({
+      version: 1,
+      pageSize: 100,
+      filters: {
+        model: '__all__',
+        source: '__all__',
+        result: '__all__',
+      },
+      visibleColumnIds: hiddenSpeedColumnIds,
+    });
+    expect(loadRequestEventsPreferences(storage).visibleColumnIds).toEqual(hiddenSpeedColumnIds);
+  });
+
+  it('loads defaults from invalid JSON and persists normalized request event preferences', () => {
+    const storage = createMemoryStorage({
+      [REQUEST_EVENTS_PREFERENCES_STORAGE_KEY]: '{bad json',
+    });
+
+    expect(loadRequestEventsPreferences(storage).pageSize).toBe(100);
+
+    saveRequestEventsPreferences({
+      version: 1,
+      pageSize: 50,
+      filters: {
+        model: 'gpt-4.1',
+        source: 'source-a',
+        result: 'success',
+      },
+      visibleColumnIds: ['timestamp', 'timestamp', 'model'],
+    }, storage);
+
+    expect(storage.setItem).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(storage.value(REQUEST_EVENTS_PREFERENCES_STORAGE_KEY) ?? '')).toEqual({
+      version: 1,
+      pageSize: 50,
+      filters: {
+        model: 'gpt-4.1',
+        source: 'source-a',
+        result: 'success',
+      },
+      visibleColumnIds: ['timestamp', 'model'],
+    });
+  });
+});
+
 for (const [tab, expected] of [
   ['overview', true],
   ['analysis', true],
   ['events', true],
-  ['credentials', false],
-  ['pricing', false],
+  ['auth-files', false],
+  ['ai-provider', false],
+  ['settings', false],
 ] as const) {
   it(`returns ${expected} for ${tab} range controls visibility`, () => {
     expect(shouldShowRangeControls(tab)).toBe(expected);
   });
 }
 
+for (const [tab, expected] of [
+  ['overview', true],
+  ['analysis', true],
+  ['events', true],
+  ['auth-files', false],
+  ['ai-provider', false],
+  ['settings', false],
+] as const) {
+  it(`returns ${expected} for ${tab} API Key filter visibility`, () => {
+    expect(shouldShowApiKeyFilter(tab)).toBe(expected);
+  });
+}
+
 describe('UsagePage time range options', () => {
-  it('includes rolling 24h, local Today, and 30d ranges', () => {
+  it('includes rolling 24h, local Today, Yesterday, and 30d ranges', () => {
     const options = getTimeRangeOptions((key) => `translated:${key}`);
 
-    expect(options.map((option) => option.value)).toEqual(['4h', '8h', '12h', '24h', 'today', '7d', '30d', 'custom']);
+    expect(options.map((option) => option.value)).toEqual(['4h', '8h', '12h', '24h', 'today', 'yesterday', '7d', '30d', 'custom']);
     expect(options.map((option) => option.label)).toContain('translated:usage_stats.range_24h');
     expect(options.map((option) => option.label)).toContain('translated:usage_stats.range_today');
+    expect(options.map((option) => option.label)).toContain('translated:usage_stats.range_yesterday');
     expect(options.map((option) => option.label)).toContain('translated:usage_stats.range_30d');
   });
 });
@@ -296,6 +591,45 @@ describe('UsagePage Overview chart period preference', () => {
     expect(getPreferredOverviewChartPeriod({ windowMinutes: 24 * 60 })).toBe('hour');
     expect(getPreferredOverviewChartPeriod({ windowMinutes: (24 * 60) + 1 })).toBe('day');
     expect(getPreferredOverviewChartPeriod({ windowMinutes: 30 * 24 * 60 })).toBe('day');
+  });
+});
+
+describe('UsagePage custom date input bounds', () => {
+  it('limits selectable Custom dates to today through the first day of the previous month', () => {
+    expect(getCustomDateRangeBounds(Date.parse('2026-05-13T12:00:00.000Z'), 'UTC')).toEqual({
+      min: '2026-04-01',
+      max: '2026-05-13',
+    });
+  });
+
+  it('uses the project timezone when deriving Custom date bounds', () => {
+    expect(getCustomDateRangeBounds(Date.parse('2026-05-13T06:30:00.000Z'), 'America/Los_Angeles')).toEqual({
+      min: '2026-04-01',
+      max: '2026-05-12',
+    });
+  });
+
+  it('rejects tomorrow and dates before the first day of the previous month', () => {
+    const bounds = { min: '2026-04-01', max: '2026-05-13' };
+
+    expect(isCustomDateWithinBounds('2026-05-13', bounds)).toBe(true);
+    expect(isCustomDateWithinBounds('2026-04-01', bounds)).toBe(true);
+    expect(isCustomDateWithinBounds('2026-05-14', bounds)).toBe(false);
+    expect(isCustomDateWithinBounds('2026-03-31', bounds)).toBe(false);
+  });
+
+  it('opens the native date picker when the date field is activated', () => {
+    const showPicker = vi.fn();
+
+    openDateInputPicker({ showPicker } as unknown as HTMLInputElement);
+
+    expect(showPicker).toHaveBeenCalledTimes(1);
+  });
+
+  it('ignores browsers that reject programmatic date picker opening', () => {
+    const input = { showPicker: vi.fn(() => { throw new Error('not allowed') }) } as unknown as HTMLInputElement;
+
+    expect(() => openDateInputPicker(input)).not.toThrow();
   });
 });
 
@@ -318,7 +652,7 @@ describe('UsagePage custom date query', () => {
 });
 
 describe('UsagePage Overview chart window', () => {
-  it('uses the backend-resolved range end for Today hourly chart buckets', () => {
+  it('uses backend Today range start instead of browser-local midnight for chart buckets', () => {
     const filterWindow: UsageFilterWindow = {
       startMs: Date.parse('2026-04-23T00:00:00.000Z'),
       endMs: Date.parse('2026-04-23T12:34:56.000Z'),
@@ -330,8 +664,26 @@ describe('UsagePage Overview chart window', () => {
       timeRange: 'today',
       filterWindow,
       fallbackEndMs: filterWindow.endMs ?? 0,
+      resolvedRangeStartMs: Date.parse('2026-04-22T16:00:00.000Z'),
       resolvedRangeEndMs: Date.parse('2026-04-23T15:59:59.999Z'),
-    })).toBe(Date.parse('2026-04-23T15:59:59.999Z'));
+    })).toBe(Date.parse('2026-04-23T16:00:00.000Z'));
+  });
+
+  it('uses Yesterday hourly chart buckets through the next day boundary', () => {
+    const filterWindow: UsageFilterWindow = {
+      startMs: Date.parse('2026-04-23T00:00:00.000Z'),
+      endMs: Date.parse('2026-04-23T23:59:59.999Z'),
+      windowMinutes: 24 * 60,
+    };
+    const resolvedRangeEndMs = Date.parse('2026-04-23T23:59:59.999Z');
+
+    expect(getOverviewHourWindowHours({ timeRange: 'yesterday', filterWindow })).toBe(24);
+    expect(getOverviewChartEndMs({
+      timeRange: 'yesterday',
+      filterWindow,
+      fallbackEndMs: Date.parse('2026-04-24T12:34:56.000Z'),
+      resolvedRangeEndMs,
+    })).toBe(Date.parse('2026-04-24T00:00:00.000Z'));
   });
 });
 
@@ -343,95 +695,49 @@ describe('UsagePage tab labels', () => {
       'translated:usage_stats.tab_overview',
       'translated:usage_stats.tab_analysis',
       'translated:usage_stats.tab_events',
-      'translated:usage_stats.tab_credentials',
-      'translated:usage_stats.tab_pricing',
+      'translated:usage_stats.tab_auth_files',
+      'translated:usage_stats.tab_ai_provider',
+      'translated:usage_stats.tab_settings',
     ]);
+  });
+});
+
+describe('UsagePage credentials tab migration', () => {
+  it('migrates the legacy Credentials tab value to Auth Files', () => {
+    expect(normalizeUsageTabValue('credentials')).toBe('auth-files');
+  });
+
+  it('keeps each credential section scoped to its own tab', () => {
+    expect(getCredentialSectionVisibility('auth-files')).toEqual({
+      enabled: true,
+      showAuthFiles: true,
+      showAiProvider: false,
+    });
+    expect(getCredentialSectionVisibility('ai-provider')).toEqual({
+      enabled: true,
+      showAuthFiles: false,
+      showAiProvider: true,
+    });
+    expect(getCredentialSectionVisibility('overview')).toEqual({
+      enabled: false,
+      showAuthFiles: false,
+      showAiProvider: false,
+    });
   });
 });
 
 describe('UsagePage refresh action', () => {
   it('reloads page data without triggering backend sync', async () => {
     let refreshCalls = 0;
-    let syncCalls = 0;
+    const syncCalls = 0;
 
     await refreshPageData({
       refreshActiveTab: async () => {
         refreshCalls += 1;
       },
-      triggerBackendSync: async () => {
-        syncCalls += 1;
-      },
     });
 
     expect(refreshCalls).toBe(1);
     expect(syncCalls).toBe(0);
-  });
-});
-
-describe('UsagePage sync action', () => {
-  it('triggers backend sync, refreshes active tab data, and reloads status', async () => {
-    const calls: string[] = [];
-    let receivedStatus: StatusResponse | null = null;
-    const syncStatus: StatusResponse = { running: true, sync_running: false, last_status: 'completed' };
-    const refreshedStatus: StatusResponse = {
-      running: true,
-      sync_running: false,
-      last_status: 'completed',
-      last_run_at: '2026-04-26T13:00:00.000Z',
-    };
-
-    await syncCpaData({
-      triggerBackendSync: async () => {
-        calls.push('sync');
-        return syncStatus;
-      },
-      refreshActiveTab: async () => {
-        calls.push('refresh');
-      },
-      refreshStatus: async () => {
-        calls.push('status');
-        return refreshedStatus;
-      },
-      onStatus: (status) => {
-        calls.push('set-status');
-        receivedStatus = status;
-      },
-    });
-
-    expect(calls).toEqual(['sync', 'refresh', 'status', 'set-status']);
-    expect(receivedStatus).toBe(refreshedStatus);
-  });
-
-  it('reloads status and preserves the sync error when backend sync fails', async () => {
-    const calls: string[] = [];
-    let receivedStatus: StatusResponse | null = null;
-    const refreshedStatus: StatusResponse = {
-      running: true,
-      sync_running: false,
-      last_status: 'completed',
-      last_run_at: '2026-04-26T13:00:00.000Z',
-    };
-    const syncError = new ApiError('metadata sync failed', 500);
-
-    await expect(syncCpaData({
-      triggerBackendSync: async () => {
-        calls.push('sync');
-        throw syncError;
-      },
-      refreshActiveTab: async () => {
-        calls.push('refresh');
-      },
-      refreshStatus: async () => {
-        calls.push('status');
-        return refreshedStatus;
-      },
-      onStatus: (status) => {
-        calls.push('set-status');
-        receivedStatus = status;
-      },
-    })).rejects.toBe(syncError);
-
-    expect(calls).toEqual(['sync', 'status', 'set-status']);
-    expect(receivedStatus).toBe(refreshedStatus);
   });
 });

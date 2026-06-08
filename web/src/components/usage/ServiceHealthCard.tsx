@@ -49,16 +49,20 @@ function formatDateTime(timestamp: number): string {
   return `${month}/${day} ${h}:${m}`;
 }
 
-function parseTime(value?: string): number {
+export function parseTime(value?: string): number {
   if (!value) return 0;
+  const nanosecondBoundary = value.match(/^(.*T\d{2}:\d{2}:\d{2})\.9{4,}(Z|[+-]\d{2}:\d{2})$/);
+  if (nanosecondBoundary) {
+    const rounded = Date.parse(`${nanosecondBoundary[1]}${nanosecondBoundary[2]}`) + 1000;
+    return Number.isFinite(rounded) ? rounded : 0;
+  }
   const parsed = Date.parse(value);
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-function ServiceHealthTitle({ title, subtitle, eyebrow }: { title: string; subtitle: string; eyebrow: string }) {
+function ServiceHealthTitle({ title, subtitle }: { title: string; subtitle: string }) {
   return (
     <div className={styles.sectionTitleBlock}>
-      <span className={styles.sectionEyebrow}>{eyebrow}</span>
       <h3 className={styles.sectionTitle}>{title}</h3>
       <p className={styles.sectionSubtitle}>{subtitle}</p>
     </div>
@@ -269,7 +273,6 @@ export function ServiceHealthCard({ usage, loading }: ServiceHealthCardProps) {
     <div className={styles.healthCard}>
       <div className={styles.healthHeader}>
         <ServiceHealthTitle
-          eyebrow={t('usage_stats.service_health_eyebrow')}
           title={t('usage_stats.service_health_title')}
           subtitle={t('usage_stats.service_health_subtitle')}
         />

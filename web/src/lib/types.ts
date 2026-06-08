@@ -1,5 +1,14 @@
+export type AuthRole = 'admin' | 'api_key_viewer'
+
+export interface AuthSessionAPIKeySummary {
+  display_key: string
+  alias?: string
+}
+
 export interface AuthSessionResponse {
   authenticated: boolean
+  role?: AuthRole
+  api_key?: AuthSessionAPIKeySummary
 }
 
 export interface StatusResponse {
@@ -8,6 +17,8 @@ export interface StatusResponse {
   timezone: string
   version?: string
   updateCheckEnabled?: boolean
+  quotaAutoRefreshEnabled?: boolean
+  cpa_public_url?: string
   last_run_at?: string
   last_error?: string
   last_warning?: string
@@ -22,44 +33,7 @@ export interface UpdateCheckResponse {
   message: string
 }
 
-export interface UsageTokenStats {
-  input_tokens: number
-  output_tokens: number
-  reasoning_tokens: number
-  cached_tokens: number
-  total_tokens: number
-}
-
-export interface UsageDetail {
-  timestamp: string
-  latency_ms: number
-  source: string
-  source_raw?: string
-  source_display?: string
-  source_type?: string
-  auth_index: string
-  failed: boolean
-  tokens: UsageTokenStats
-}
-
-export interface UsageModelSnapshot {
-  total_requests: number
-  success_count: number
-  failure_count: number
-  total_tokens: number
-  details?: UsageDetail[]
-}
-
-export interface UsageApiSnapshot {
-  display_name?: string
-  total_requests: number
-  success_count: number
-  failure_count: number
-  total_tokens: number
-  models: Record<string, UsageModelSnapshot>
-}
-
-export interface UsageSnapshot {
+export interface UsageOverviewUsageSnapshot {
   total_requests: number
   success_count: number
   failure_count: number
@@ -68,7 +42,6 @@ export interface UsageSnapshot {
   requests_by_hour: Record<string, number>
   tokens_by_day: Record<string, number>
   tokens_by_hour: Record<string, number>
-  apis: Record<string, UsageApiSnapshot>
 }
 
 export interface UsageOverviewSummary {
@@ -117,7 +90,7 @@ export interface UsageOverviewServiceHealth {
 }
 
 export interface UsageOverviewResponse {
-  usage: UsageSnapshot
+  usage: UsageOverviewUsageSnapshot
   summary?: UsageOverviewSummary
   series?: UsageOverviewSeries
   hourly_series?: UsageOverviewSeries
@@ -133,13 +106,19 @@ export interface UsageEventTokens {
   output_tokens: number
   reasoning_tokens: number
   cached_tokens: number
+  cache_read_tokens: number
+  cache_creation_tokens: number
   total_tokens: number
 }
 
 export interface UsageEvent {
-  id?: number
+  id?: string
   timestamp: string
+  api_key?: string
   model: string
+  reasoning_effort?: string
+  executor_type?: string
+  endpoint?: string
   source: string
   source_raw?: string
   source_type?: string
@@ -147,7 +126,12 @@ export interface UsageEvent {
   isDelete?: boolean
   failed: boolean
   latency_ms: number
+  ttft_ms?: number
+  speed_tps?: number
   tokens: UsageEventTokens
+  cost_usd?: number
+  cost_available?: boolean
+  pricing_style?: PricingStyle
 }
 
 export interface UsageSourceFilterOption {
@@ -158,23 +142,24 @@ export interface UsageSourceFilterOption {
 
 export interface UsageEventsResponse {
   events: UsageEvent[]
-  models: string[]
-  sources: UsageSourceFilterOption[]
   total_count: number
   page: number
   page_size: number
   total_pages: number
 }
 
-export interface UsageEventFilterOptionsResponse {
+export interface UsageEventModelFilterOptionsResponse {
   models: string[]
+}
+
+export interface UsageEventSourceFilterOptionsResponse {
   sources: UsageSourceFilterOption[]
 }
 
 export type UsageIdentityAuthType = 1 | 2
 
 export interface UsageIdentity {
-  id: number
+  id: string
   name: string
   displayName?: string
   auth_type: UsageIdentityAuthType
@@ -182,6 +167,15 @@ export interface UsageIdentity {
   identity: string
   type: string
   provider: string
+  prefix: string
+  file_name?: string
+  file_path?: string
+  priority?: number
+  disabled: boolean
+  note?: string
+  plan_type?: string
+  active_start?: string
+  active_until?: string
   total_requests: number
   success_count: number
   failure_count: number
@@ -190,7 +184,7 @@ export interface UsageIdentity {
   reasoning_tokens: number
   cached_tokens: number
   total_tokens: number
-  last_aggregated_usage_event_id: number
+  last_aggregated_usage_event_id: string
   first_used_at?: string
   last_used_at?: string
   stats_updated_at?: string
@@ -204,44 +198,245 @@ export interface UsageIdentitiesResponse {
   identities: UsageIdentity[]
 }
 
-export interface UsageAnalysisModel {
-  model: string
-  total_requests: number
-  success_count: number
-  failure_count: number
-  input_tokens: number
-  output_tokens: number
-  reasoning_tokens: number
-  cached_tokens: number
-  total_tokens: number
-  total_latency_ms: number
-  latency_sample_count: number
+export interface UsageIdentityTypeCount {
+  type: string
+  count: number
 }
 
-export interface UsageAnalysisApi {
+export interface UsageIdentitiesPageResponse {
+  identities: UsageIdentity[]
+  total_count: number
+  page: number
+  page_size: number
+  total_pages: number
+  type_counts?: UsageIdentityTypeCount[]
+}
+
+export interface UsageQuotaWindow {
+  duration?: number
+  unit?: string
+  seconds?: number
+}
+
+export interface UsageQuotaRow {
+  key: string
+  label?: string
+  scope?: string
+  metric?: string
+  planType?: string
+  used?: number
+  limit?: number
+  remaining?: number
+  usedPercent?: number
+  remainingFraction?: number
+  allowed?: boolean
+  limitReached?: boolean
+  window?: UsageQuotaWindow
+  resetAt?: string
+  resetAfterSeconds?: number
+  window_usage_tokens?: number
+  window_usage_cost?: number
+}
+
+export interface UsageQuotaCheckResponse {
+  id: string
+  quota: UsageQuotaRow[]
+}
+
+export interface UsageQuotaCacheItem {
+  auth_index: string
+  file_name?: string
+  status: 'completed' | 'failed'
+  quota?: UsageQuotaCheckResponse
+  error?: string
+  http_status_code?: number
+  expires_at?: string
+  refreshed_at?: string
+}
+
+export interface UsageQuotaCacheResponse {
+  items: UsageQuotaCacheItem[]
+}
+
+export interface UsageQuotaRefreshTaskResponse {
+  authIndex: string
+  file_name?: string
+  status: 'queued' | 'running' | 'completed' | 'failed'
+  quota?: UsageQuotaCheckResponse
+  error?: string
+  http_status_code?: number
+  refreshed_at?: string
+  expiresAt?: string
+}
+
+export type UsageQuotaInspectionResultStatus = 'normal' | 'limit_reached' | 'unauthorized_401' | 'payment_required_402' | 'other_failed'
+
+export interface UsageQuotaInspectionResult {
+  auth_index: string
+  name: string
+  type: string
+  file_name?: string
+  status: UsageQuotaInspectionResultStatus
+  error?: string
+  http_status_code?: number
+  refreshed_at?: string
+}
+
+export interface UsageQuotaInspectionStatusResponse {
+  total: number
+  cached: number
+  running: boolean
+  completed: boolean
+  completed_at?: string
+  normal: number
+  limit_reached: number
+  unauthorized_401: number
+  payment_required_402: number
+  other_failed: number
+  unknown: number
+  results: UsageQuotaInspectionResult[]
+}
+
+export interface UsageQuotaRefreshTaskRef {
+  authIndex: string
+}
+
+export interface UsageQuotaRefreshRejectedAuthIndex {
+  authIndex: string
+  error: 'not_found' | 'not_auth_file' | 'unsupported' | 'duplicate' | 'duplicate_request' | 'invalid'
+}
+
+export interface UsageQuotaRefreshResponse {
+  tasks: UsageQuotaRefreshTaskRef[]
+  rejected: UsageQuotaRefreshRejectedAuthIndex[]
+  accepted: number
+  skipped: number
+  limit: number
+}
+
+export interface AnalysisTokenUsageBucket {
+  bucket: string
+  input_tokens: number
+  output_tokens: number
+  cached_tokens: number
+  reasoning_tokens: number
+  total_tokens: number
+  requests: number
+  cost_usd: number
+  cost_available: boolean
+}
+
+export interface AnalysisCompositionItem {
+  key: string
+  label: string
+  total_tokens: number
+  requests: number
+  percent: number
+  input_tokens: number
+  output_tokens: number
+  cached_tokens: number
+  reasoning_tokens: number
+  cost_usd: number
+  cost_available: boolean
+}
+
+export interface AnalysisHeatmapCell {
   api_key: string
-  display_name: string
-  total_requests: number
-  success_count: number
-  failure_count: number
+  model: string
   input_tokens: number
   output_tokens: number
-  reasoning_tokens: number
   cached_tokens: number
+  reasoning_tokens: number
   total_tokens: number
-  models: UsageAnalysisModel[]
+  requests: number
+  cost_usd: number
+  cost_available: boolean
+  intensity: number
 }
 
-export interface UsageAnalysisResponse {
-  apis: UsageAnalysisApi[]
-  models: UsageAnalysisModel[]
+export interface AnalysisHeatmapPayload {
+  api_keys: string[]
+  api_key_labels: Record<string, string>
+  models: string[]
+  cells: AnalysisHeatmapCell[]
+}
+
+export interface AnalysisCostBreakdown {
+  input_cost_usd: number
+  output_cost_usd: number
+  cached_cost_usd: number
+  total_cost_usd: number
+  cost_available: boolean
+}
+
+export interface AnalysisModelEfficiencyItem {
+  model: string
+  requests: number
+  input_tokens: number
+  output_tokens: number
+  cached_tokens: number
+  reasoning_tokens: number
+  total_tokens: number
+  cost_usd: number
+  cost_available: boolean
+  cost_per_request_usd: number
+  output_tokens_per_request: number
+  cache_rate: number
+}
+
+export interface AnalysisResponse {
+  granularity: 'hourly' | 'daily'
+  timezone: string
+  range_start?: string
+  range_end?: string
+  token_usage: AnalysisTokenUsageBucket[]
+  api_key_composition: AnalysisCompositionItem[]
+  model_composition: AnalysisCompositionItem[]
+  auth_files_composition: AnalysisCompositionItem[]
+  ai_provider_composition: AnalysisCompositionItem[]
+  heatmap: AnalysisHeatmapPayload
+  cost_breakdown: AnalysisCostBreakdown
+  model_efficiency: AnalysisModelEfficiencyItem[]
+}
+
+export interface CpaApiKeySettingsItem {
+  id: string
+  keyAlias: string
+  displayKey: string
+  label: string
+  lastSyncedAt: string | null
+}
+
+export interface CpaApiKeyOption {
+  id: string
+  label: string
+}
+
+export interface CpaApiKeysResponse {
+  items: CpaApiKeySettingsItem[]
+}
+
+export interface CpaApiKeyOptionsResponse {
+  options: CpaApiKeyOption[]
+}
+
+export type PricingStyle = 'openai' | 'claude'
+
+export interface ModelPrice {
+  style: PricingStyle
+  prompt: number
+  completion: number
+  cache: number
+  cacheCreation: number
 }
 
 export interface PricingEntry {
   model: string
+  pricing_style: PricingStyle
   prompt_price_per_1m: number
   completion_price_per_1m: number
   cache_price_per_1m: number
+  cache_creation_price_per_1m: number
 }
 
 export interface UsedModelsResponse {
@@ -252,93 +447,12 @@ export interface PricingResponse {
   pricing: PricingEntry[]
 }
 
-export type UsageTimeRange = 'all' | '4h' | '8h' | '12h' | '24h' | 'today' | '7d' | '30d' | 'custom'
+export type KeyOverviewTimeRange = '4h' | '8h' | '12h' | '24h' | 'today' | 'yesterday' | '7d' | '30d'
+
+export type UsageTimeRange = KeyOverviewTimeRange | 'custom'
 
 export interface UsageFilterWindow {
   startMs?: number
   endMs?: number
   windowMinutes?: number
-}
-
-export type UsageSeriesDimension = 'all' | 'api' | 'model'
-
-export interface SummaryCardValue {
-  key: string
-  label: string
-  value: string
-  hint?: string
-  accent: string
-}
-
-export interface ApiSummaryItem {
-  apiName: string
-  totalRequests: number
-  successCount: number
-  failureCount: number
-  totalTokens: number
-  modelCount: number
-  totalCost: number
-  models: Array<{
-    modelName: string
-    totalRequests: number
-    successCount: number
-    failureCount: number
-    totalTokens: number
-    totalCost: number
-  }>
-}
-
-export interface ModelSummaryItem {
-  apiName: string
-  modelName: string
-  totalRequests: number
-  successCount: number
-  failureCount: number
-  totalTokens: number
-  averageLatencyMs: number
-  totalLatencyMs: number
-  successRate: number
-  totalCost: number
-}
-
-export interface EventRow {
-  timestamp: string
-  apiName: string
-  modelName: string
-  source: string
-  authIndex: string
-  failed: boolean
-  latencyMs: number
-  inputTokens: number
-  outputTokens: number
-  reasoningTokens: number
-  cachedTokens: number
-  totalTokens: number
-}
-
-export interface TrendPoint {
-  label: string
-  value: number
-}
-
-export interface TrendSeries {
-  key: string
-  label: string
-  color: string
-  data: TrendPoint[]
-}
-
-export interface TokenBreakdown {
-  inputTokens: number
-  outputTokens: number
-  reasoningTokens: number
-  cachedTokens: number
-}
-
-export interface RateStats {
-  rpm: number
-  tpm: number
-  requestCount: number
-  tokenCount: number
-  windowMinutes: number
 }

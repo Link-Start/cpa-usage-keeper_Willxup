@@ -2,19 +2,81 @@ package service
 
 import (
 	"testing"
-	"time"
 
+	"cpa-usage-keeper/internal/entities"
 	"cpa-usage-keeper/internal/repository/dto"
 )
 
-func TestBuildEventKeyIsStable(t *testing.T) {
-	timestamp := time.Date(2026, 4, 16, 12, 0, 0, 123, time.UTC)
-	tokens := dto.TokenStats{InputTokens: 1, OutputTokens: 2, ReasoningTokens: 3, CachedTokens: 4, TotalTokens: 10}
+func TestNormalizeUsageEventTokensUsesCodexStyleOutputForGeminiFamily(t *testing.T) {
+	for _, usageType := range []string{"gemini", "vertex", "gemini-cli", "gemini-cli-code-assist", "antigravity", "aistudio", "ai-studio"} {
+		t.Run(usageType, func(t *testing.T) {
+			event := NormalizeUsageEventTokens(entities.UsageEvent{
+				InputTokens:     11,
+				OutputTokens:    7,
+				ReasoningTokens: 3,
+				CachedTokens:    5,
+				TotalTokens:     21,
+			}, usageType)
 
-	key1 := BuildEventKey("provider-a", "claude-sonnet", timestamp, "source-a", "0", false, tokens)
-	key2 := BuildEventKey("provider-a", "claude-sonnet", timestamp, "source-a", "0", false, tokens)
+			if event.InputTokens != 11 || event.OutputTokens != 10 || event.ReasoningTokens != 3 || event.CachedTokens != 5 || event.TotalTokens != 21 {
+				t.Fatalf("expected %s to normalize to Codex-style output tokens, got %+v", usageType, event)
+			}
+		})
+	}
+}
 
-	if key1 != key2 {
-		t.Fatalf("expected stable event key, got %s and %s", key1, key2)
+func TestNormalizeUsageEventTokensBackfillsTotalWithCodexStyleOutput(t *testing.T) {
+	event := NormalizeUsageEventTokens(entities.UsageEvent{
+		InputTokens:     11,
+		OutputTokens:    7,
+		ReasoningTokens: 3,
+		CachedTokens:    5,
+	}, "gemini")
+
+	if event.InputTokens != 11 || event.OutputTokens != 10 || event.ReasoningTokens != 3 || event.TotalTokens != 21 {
+		t.Fatalf("expected Gemini missing total to use input plus normalized output, got %+v", event)
+	}
+}
+
+func TestNormalizeUsageEventTokensDoesNotDoubleCountCodexReasoningWhenTotalMissing(t *testing.T) {
+	event := NormalizeUsageEventTokens(entities.UsageEvent{
+		InputTokens:     11,
+		OutputTokens:    10,
+		ReasoningTokens: 3,
+		CachedTokens:    5,
+	}, "codex")
+
+	if event.InputTokens != 11 || event.OutputTokens != 10 || event.ReasoningTokens != 3 || event.TotalTokens != 21 {
+		t.Fatalf("expected Codex missing total to use input plus output, got %+v", event)
+	}
+}
+
+func TestNormalizeUsageEventTokensKeepsOpenAIStyleOutput(t *testing.T) {
+	for _, usageType := range []string{"codex", "openai", "custom"} {
+		t.Run(usageType, func(t *testing.T) {
+			event := NormalizeUsageEventTokens(entities.UsageEvent{
+				InputTokens:     11,
+				OutputTokens:    10,
+				ReasoningTokens: 3,
+				CachedTokens:    5,
+			}, usageType)
+
+			if event.InputTokens != 11 || event.OutputTokens != 10 || event.ReasoningTokens != 3 || event.CachedTokens != 5 || event.TotalTokens != 21 {
+				t.Fatalf("expected %s to keep Codex/OpenAI-style output tokens, got %+v", usageType, event)
+			}
+		})
+	}
+}
+
+func TestNormalizeXAIStyleTokensKeepsResponsesOutput(t *testing.T) {
+	tokens := normalizeXAIStyleTokens(dto.TokenStats{
+		InputTokens:     11,
+		OutputTokens:    10,
+		ReasoningTokens: 3,
+		CachedTokens:    5,
+	})
+
+	if tokens.InputTokens != 11 || tokens.OutputTokens != 10 || tokens.ReasoningTokens != 3 || tokens.CachedTokens != 5 || tokens.TotalTokens != 21 {
+		t.Fatalf("expected xAI Responses tokens to keep Codex-style output tokens, got %+v", tokens)
 	}
 }

@@ -10,18 +10,20 @@ import (
 	"cpa-usage-keeper/internal/cpa"
 	"cpa-usage-keeper/internal/entities"
 	"cpa-usage-keeper/internal/repository"
+	"cpa-usage-keeper/internal/timeutil"
 
 	"cpa-usage-keeper/internal/cpa/dto/authfiles"
 	"cpa-usage-keeper/internal/cpa/dto/providerconfig"
 	"cpa-usage-keeper/internal/cpa/dto/response"
-	"cpa-usage-keeper/internal/repository/dto"
 	servicedto "cpa-usage-keeper/internal/service/dto"
 	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
 )
 
+// MetadataFetcher 是 metadata 同步依赖的 CPA 只读接口，测试可以用它替换真实 CPA client。
 type MetadataFetcher interface {
 	FetchAuthFiles(ctx context.Context) (*response.AuthFilesResult, error)
+	FetchManagementAPIKeys(ctx context.Context) (*response.ManagementAPIKeysResult, error)
 	FetchGeminiAPIKeys(ctx context.Context) (*response.ProviderKeyConfigResult, error)
 	FetchClaudeAPIKeys(ctx context.Context) (*response.ProviderKeyConfigResult, error)
 	FetchCodexAPIKeys(ctx context.Context) (*response.ProviderKeyConfigResult, error)
@@ -29,17 +31,22 @@ type MetadataFetcher interface {
 	FetchOpenAICompatibility(ctx context.Context) (*response.OpenAICompatibilityResult, error)
 }
 
+// CPAClientFetcher 保留 CPA client 的聚合接口边界，避免业务同步代码直接依赖具体 client 类型。
 type CPAClientFetcher interface {
 	MetadataFetcher
 }
 
-const redisInboxProcessLimit = 1000
+const (
+	redisInboxProcessLimit                = 1000
+	redisUsageIdentityTypeLookupBatchSize = 500
+)
 
 const (
 	syncMetadataOptional = false
 	syncMetadataRequired = true
 )
 
+// SyncService 负责把 CPA metadata 和 Redis usage 队列同步到本地 SQLite。
 type SyncService struct {
 	db              *gorm.DB
 	client          CPAClientFetcher
@@ -50,6 +57,7 @@ type SyncService struct {
 	now             func() time.Time
 }
 
+// NewSyncService 按生产配置组装 CPA metadata client 和 Redis queue client。
 func NewSyncService(db *gorm.DB, cfg config.Config) *SyncService {
 	return NewSyncServiceWithOptions(db, SyncServiceOptions{
 		BaseURL: cfg.CPABaseURL,
@@ -68,6 +76,7 @@ func NewSyncService(db *gorm.DB, cfg config.Config) *SyncService {
 	})
 }
 
+// SyncServiceOptions 提供测试和局部调用需要替换的依赖。
 type SyncServiceOptions struct {
 	BaseURL         string
 	Client          CPAClientFetcher
@@ -77,6 +86,7 @@ type SyncServiceOptions struct {
 	Now             func() time.Time
 }
 
+// NewSyncServiceWithOptions 是统一构造入口，负责填充默认时钟、metadata fetcher 和 Redis 队列名。
 func NewSyncServiceWithOptions(db *gorm.DB, opts SyncServiceOptions) *SyncService {
 	now := opts.Now
 	if now == nil {
@@ -97,6 +107,7 @@ func NewSyncServiceWithOptions(db *gorm.DB, opts SyncServiceOptions) *SyncServic
 	}
 }
 
+// NewSyncServiceWithClient 兼容只需要 metadata 同步的调用方和测试。
 func NewSyncServiceWithClient(db *gorm.DB, baseURL string, client CPAClientFetcher) *SyncService {
 	return NewSyncServiceWithOptions(db, SyncServiceOptions{
 		BaseURL: baseURL,
@@ -104,51 +115,26 @@ func NewSyncServiceWithClient(db *gorm.DB, baseURL string, client CPAClientFetch
 	})
 }
 
-func (s *SyncService) SyncOnce(ctx context.Context) error {
-	_, err := s.SyncNow(ctx)
-	return err
-}
-
-func (s *SyncService) SyncNow(ctx context.Context) (*servicedto.SyncResult, error) {
-	if _, err := s.PullRedisUsageInbox(ctx); err != nil {
-		return nil, err
-	}
-	result, err := s.ProcessRedisUsageInbox(ctx)
-	return syncResultFromRedisBatch(result), err
-}
-
-func syncResultFromRedisBatch(result *servicedto.RedisBatchSyncResult) *servicedto.SyncResult {
-	if result == nil {
-		return nil
-	}
-	return &servicedto.SyncResult{
-		Status:         result.Status,
-		InsertedEvents: result.InsertedEvents,
-		DedupedEvents:  result.DedupedEvents,
-	}
-}
-
-func (s *SyncService) SyncStatus(ctx context.Context) (string, error) {
-	result, err := s.SyncNow(ctx)
-	if result == nil {
-		return "", err
-	}
-	return result.Status, err
-}
-
+// SyncMetadata 同步 CPA 的 auth files、管理 API keys 和 provider metadata，并在成功写入后刷新 usage identity 聚合。
 func (s *SyncService) SyncMetadata(ctx context.Context) error {
 	if err := s.validate(syncMetadataRequired); err != nil {
 		return err
 	}
 	logrus.Debug("metadata sync started")
-	fetchedAt := s.now().UTC()
+	// 同一轮 metadata 同步共用一个时间戳，保证 replaced/deleted 状态边界一致。
+	fetchedAt := timeutil.NormalizeStorageTime(s.now())
+	// 三类 metadata 先分别抓取，后续各自写库；某一类抓取失败不影响其它类先完成入库。
 	authFilesResult, authFilesErr := s.metadataFetcher.FetchAuthFiles(ctx)
+	apiKeysResult, apiKeysErr := s.metadataFetcher.FetchManagementAPIKeys(ctx)
 	providerConfig, fetchedProviderTypes, providerMetadataErr := fetchProviderMetadata(ctx, s.metadataFetcher)
+	// 写库阶段按来源拆开，便于保留部分成功结果并把错误合并返回给 runner 日志。
 	authSyncErr := syncAuthFiles(ctx, s.db, authFilesResult, authFilesErr, fetchedAt)
+	apiKeySyncErr := syncManagementAPIKeys(s.db, apiKeysResult, apiKeysErr, fetchedAt)
 	providerSyncErr, providerWarningErr := syncProviderMetadata(ctx, s.db, providerConfig, fetchedProviderTypes, providerMetadataErr, fetchedAt)
-	upsertErr := joinErrors(authSyncErr, providerSyncErr)
+	upsertErr := joinErrors(authSyncErr, apiKeySyncErr, providerSyncErr)
 	var aggregateErr error
 	if upsertErr == nil {
+		// 身份来源写入全部成功后再刷新 usage_identities 派生统计，避免基于半成品 metadata 聚合。
 		aggregateErr = repository.AggregateUsageIdentityStats(ctx, s.db, fetchedAt)
 		if aggregateErr != nil {
 			aggregateErr = fmt.Errorf("aggregate usage identity stats: %w", aggregateErr)
@@ -166,8 +152,7 @@ func (s *SyncService) SyncMetadata(ctx context.Context) error {
 	return err
 }
 
-// PullRedisUsageInbox 是 Redis 同步的拉取阶段：只 LPOP 队列消息并原样写入 redis_usage_inboxes。
-// 这个阶段不解码消息、不写 usage_events，保证 Redis 消费和本地处理职责分离。
+// PullRedisUsageInbox 是兼容测试和手动同步的旧拉取入口；生产远端 ingest 已由 poller 状态机接管。
 func (s *SyncService) PullRedisUsageInbox(ctx context.Context) (*servicedto.RedisInboxPullResult, error) {
 	if err := s.validate(syncMetadataOptional); err != nil {
 		return nil, err
@@ -175,8 +160,7 @@ func (s *SyncService) PullRedisUsageInbox(ctx context.Context) (*servicedto.Redi
 	if s.redisQueue == nil {
 		return nil, fmt.Errorf("sync service redis queue is nil")
 	}
-
-	fetchedAt := s.now().UTC()
+	fetchedAt := timeutil.NormalizeStorageTime(s.now())
 	messages, err := s.redisQueue.PopUsage(ctx)
 	if err != nil {
 		return &servicedto.RedisInboxPullResult{Status: "failed"}, fmt.Errorf("fetch redis usage: %w", err)
@@ -188,7 +172,6 @@ func (s *SyncService) PullRedisUsageInbox(ctx context.Context) (*servicedto.Redi
 	if len(messages) == 0 {
 		return &servicedto.RedisInboxPullResult{Empty: true, Status: "empty"}, nil
 	}
-
 	inboxRows, err := insertRedisInboxMessages(s.db, s.redisQueueKey, messages, fetchedAt)
 	if err != nil {
 		return &servicedto.RedisInboxPullResult{Status: "failed"}, fmt.Errorf("insert redis usage inbox: %w", err)
@@ -206,16 +189,27 @@ func (s *SyncService) ProcessRedisUsageInbox(ctx context.Context) (*servicedto.R
 	if err := s.validate(syncMetadataOptional); err != nil {
 		return nil, err
 	}
-	fetchedAt := s.now().UTC()
+	fetchedAt := timeutil.NormalizeStorageTime(s.now())
+	// process_failed 也在这里重试，避免临时 SQLite 锁或短暂解析外问题导致数据永久卡住。
 	processableRows, err := repository.ListProcessableRedisUsageInbox(s.db, redisInboxProcessLimit)
 	if err != nil {
 		return &servicedto.RedisBatchSyncResult{Status: "failed"}, fmt.Errorf("list processable redis usage inbox: %w", err)
 	}
 	if len(processableRows) == 0 {
+		// 空轮次先做轻量 cursor 检查，只有发现 usage_events 尚未聚合时才写派生统计。
+		pendingAggregation, err := repository.HasPendingUsageOverviewAggregation(ctx, s.db)
+		if err != nil {
+			return &servicedto.RedisBatchSyncResult{Empty: true, Status: "failed"}, err
+		}
+		if pendingAggregation {
+			if err := s.aggregateUsageEventStats(ctx, fetchedAt); err != nil {
+				return &servicedto.RedisBatchSyncResult{Empty: true, Status: "failed"}, err
+			}
+		}
 		return &servicedto.RedisBatchSyncResult{Empty: true, Status: "empty"}, nil
 	}
 	logrus.WithField("row_count", len(processableRows)).Debug("redis usage inbox rows found for processing")
-	return s.processRedisInboxRows(processableRows, fetchedAt)
+	return s.processRedisInboxRows(ctx, processableRows, fetchedAt)
 }
 
 // CleanupRedisUsageInbox 只清理 Redis inbox 表，供测试和单独维护入口使用；每日任务使用 CleanupStorage 统一执行。
@@ -236,28 +230,18 @@ func (s *SyncService) CleanupStorage(ctx context.Context) error {
 	return err
 }
 
-// SyncRedisBatch 保留为兼容入口：先处理本地存量 inbox，空了再拉一次 Redis 并立即处理。
-// 后台任务不要调用它，后台必须使用拆分后的 PullRedisUsageInbox、ProcessRedisUsageInbox 和 CleanupStorage。
-func (s *SyncService) SyncRedisBatch(ctx context.Context) (*servicedto.RedisBatchSyncResult, error) {
-	if result, err := s.ProcessRedisUsageInbox(ctx); err != nil || result == nil || !result.Empty {
-		return result, err
-	}
-	if _, err := s.PullRedisUsageInbox(ctx); err != nil {
-		return &servicedto.RedisBatchSyncResult{Status: "failed"}, err
-	}
-	return s.ProcessRedisUsageInbox(ctx)
-}
-
 // processRedisInboxRows 只从已落库的原始消息解码和写入事件，坏消息会标记为 decode_failed，不阻塞同批其它数据。
 // 可解码但入库失败的消息标记为 process_failed，后续 ProcessRedisUsageInbox 会按 id 顺序重试。
-func (s *SyncService) processRedisInboxRows(inboxRows []entities.RedisUsageInbox, fetchedAt time.Time) (*servicedto.RedisBatchSyncResult, error) {
+func (s *SyncService) processRedisInboxRows(ctx context.Context, inboxRows []entities.RedisUsageInbox, fetchedAt time.Time) (*servicedto.RedisBatchSyncResult, error) {
 	logrus.WithField("row_count", len(inboxRows)).Debug("redis usage inbox processing started")
 	validRows := make([]entities.RedisUsageInbox, 0, len(inboxRows))
 	events := make([]entities.UsageEvent, 0, len(inboxRows))
 	decodeErrs := make([]error, 0)
+	// 先完整解码本批数据，坏消息单独标记，不阻断同批其它可用消息。
 	for _, row := range inboxRows {
 		event, _, decodeErr := DecodeRedisUsageMessage(row.RawMessage, fetchedAt)
 		if decodeErr != nil {
+			logrus.WithError(decodeErr).WithField("inbox_id", row.ID).Error("redis usage message decode failed")
 			if markErr := repository.MarkRedisUsageInboxDecodeFailed(s.db, row.ID, decodeErr); markErr != nil {
 				return &servicedto.RedisBatchSyncResult{Status: "failed"}, fmt.Errorf("mark redis usage inbox decode failed: %w", markErr)
 			}
@@ -279,20 +263,44 @@ func (s *SyncService) processRedisInboxRows(inboxRows []entities.RedisUsageInbox
 		}
 		return &servicedto.RedisBatchSyncResult{Empty: true, Status: "empty"}, nil
 	}
+	var typeErr error
+	events, typeErr = normalizeRedisUsageEvents(ctx, s.db, events)
+	if typeErr != nil {
+		// type 查询失败代表当前无法可靠判断 provider 口径，不能当作“找不到 type”降级处理。
+		// 将已解码行标记为 process_failed，后续重试时再按真实 type 归一化入库。
+		markRedisInboxRowsProcessFailed(s.db, validRows, typeErr)
+		return &servicedto.RedisBatchSyncResult{Status: "failed"}, joinErrors(decodeErr, typeErr)
+	}
 
+	// usage_events 入库和 inbox processed 标记必须同事务提交，避免标记失败后同一 inbox 重试造成重复事件。
 	logrus.WithField("event_count", len(events)).Debug("redis usage events persistence started")
-	result, err := s.persistRedisUsageEvents(events)
+	var result *servicedto.SyncResult
+	err := s.db.Transaction(func(tx *gorm.DB) error {
+		var persistErr error
+		result, persistErr = s.persistRedisUsageEvents(tx, events)
+		if persistErr != nil {
+			return persistErr
+		}
+		// validRows 和 events 按同一循环 append，索引一一对应。
+		for i, row := range validRows {
+			if markErr := repository.MarkRedisUsageInboxProcessed(tx, row.ID, events[i].EventKey, fetchedAt); markErr != nil {
+				return fmt.Errorf("mark redis usage inbox processed: %w", markErr)
+			}
+		}
+		return nil
+	})
 	if result == nil {
 		markRedisInboxRowsProcessFailed(s.db, validRows, err)
 		return nil, err
 	}
-	if err != nil && result.Status == "failed" {
+	if err != nil {
 		markRedisInboxRowsProcessFailed(s.db, validRows, err)
-		return &servicedto.RedisBatchSyncResult{Status: result.Status}, err
+		return &servicedto.RedisBatchSyncResult{Status: "failed"}, err
 	}
-	for i, row := range validRows {
-		if markErr := repository.MarkRedisUsageInboxProcessed(s.db, row.ID, events[i].EventKey, fetchedAt); markErr != nil {
-			return &servicedto.RedisBatchSyncResult{Status: "failed"}, fmt.Errorf("mark redis usage inbox processed: %w", markErr)
+	if result.InsertedEvents > 0 {
+		// Redis process 是 usage_events 的高频写入入口，成功插入后串行刷新依赖事件表的增量统计。
+		if err := s.aggregateUsageEventStats(ctx, timeutil.NormalizeStorageTime(s.now())); err != nil {
+			return &servicedto.RedisBatchSyncResult{Status: "failed"}, err
 		}
 	}
 	logrus.WithFields(logrus.Fields{
@@ -302,6 +310,7 @@ func (s *SyncService) processRedisInboxRows(inboxRows []entities.RedisUsageInbox
 		"status":          result.Status,
 	}).Debug("redis usage inbox rows processed")
 
+	// 批次可部分成功：事件正常入库时仍返回 completed_with_warnings 暴露 decode 错误。
 	status := result.Status
 	returnErr := err
 	if decodeErr != nil {
@@ -319,15 +328,184 @@ func (s *SyncService) processRedisInboxRows(inboxRows []entities.RedisUsageInbox
 	}, returnErr
 }
 
-// persistRedisUsageEvents 写入 Redis inbox 解码出的 usage_events。
-func (s *SyncService) persistRedisUsageEvents(events []entities.UsageEvent) (*servicedto.SyncResult, error) {
-	var err error
-	events, err = alignUsageEventKeysWithExistingCanonicalEvents(s.db, events)
+type usageEventTypeResolver struct {
+	byIdentity map[usageEventIdentityKey]string
+}
+
+type usageEventIdentityKey struct {
+	authType entities.UsageIdentityAuthType
+	identity string
+}
+
+func normalizeRedisUsageEvents(ctx context.Context, db *gorm.DB, events []entities.UsageEvent) ([]entities.UsageEvent, error) {
+	resolver, err := buildUsageEventTypeResolver(ctx, db, events)
 	if err != nil {
-		return &servicedto.SyncResult{Status: "failed"}, fmt.Errorf("align usage events: %w", err)
+		return nil, err
 	}
+	normalized := make([]entities.UsageEvent, len(events))
+	for i, event := range events {
+		usageType := resolveUsageEventType(event, resolver)
+		if usageType == "" {
+			logrus.WithFields(logrus.Fields{
+				"auth_type":  event.AuthType,
+				"auth_index": event.AuthIndex,
+				"event_key":  event.EventKey,
+			}).Warn("usage identity type not found for redis usage event")
+			usageType = "openai"
+		}
+		normalized[i] = NormalizeUsageEventTokens(event, usageType)
+	}
+	return normalized, nil
+}
+
+func buildUsageEventTypeResolver(ctx context.Context, db *gorm.DB, events []entities.UsageEvent) (usageEventTypeResolver, error) {
+	resolver := usageEventTypeResolver{byIdentity: map[usageEventIdentityKey]string{}}
+	keys := redisUsageIdentityKeys(events)
+	if len(keys) == 0 {
+		return resolver, nil
+	}
+	if db == nil {
+		return resolver, fmt.Errorf("database is nil")
+	}
+	activeRows, err := loadRedisUsageIdentityTypeRows(ctx, db, keys, false)
+	if err != nil {
+		return resolver, fmt.Errorf("load active usage identity types for redis usage: %w", err)
+	}
+	addRedisUsageIdentityTypes(resolver.byIdentity, activeRows)
+
+	missing := missingRedisUsageIdentityKeys(keys, resolver.byIdentity)
+	if len(missing) == 0 {
+		return resolver, nil
+	}
+	deletedRows, err := loadRedisUsageIdentityTypeRows(ctx, db, missing, true)
+	if err != nil {
+		return resolver, fmt.Errorf("load deleted usage identity types for redis usage: %w", err)
+	}
+	addRedisUsageIdentityTypes(resolver.byIdentity, deletedRows)
+	return resolver, nil
+}
+
+// Redis usage payload 只有 auth_type/auth_index，这里按 keeper identity 类型批量查出真实 provider type。
+func loadRedisUsageIdentityTypeRows(ctx context.Context, db *gorm.DB, keys []usageEventIdentityKey, isDeleted bool) ([]entities.UsageIdentity, error) {
+	rows := make([]entities.UsageIdentity, 0)
+	keysByAuthType := groupRedisUsageIdentityKeysByAuthType(keys)
+	for authType, identities := range keysByAuthType {
+		for start := 0; start < len(identities); start += redisUsageIdentityTypeLookupBatchSize {
+			end := start + redisUsageIdentityTypeLookupBatchSize
+			if end > len(identities) {
+				end = len(identities)
+			}
+			var batchRows []entities.UsageIdentity
+			// Redis inbox 单批最多可达 1000+ 条，SELECT IN 必须单独限批，避免 SQLite 变量上限导致整批反复 process_failed。
+			if err := db.WithContext(ctx).
+				Select("auth_type, identity, type, is_deleted").
+				Where("auth_type = ? AND identity IN ? AND is_deleted = ?", authType, identities[start:end], isDeleted).
+				Find(&batchRows).Error; err != nil {
+				return nil, err
+			}
+			rows = append(rows, batchRows...)
+		}
+	}
+	return rows, nil
+}
+
+func addRedisUsageIdentityTypes(byIdentity map[usageEventIdentityKey]string, rows []entities.UsageIdentity) {
+	for _, row := range rows {
+		identity := strings.TrimSpace(row.Identity)
+		usageType := strings.TrimSpace(row.Type)
+		if identity != "" && usageType != "" {
+			byIdentity[usageEventIdentityKey{authType: row.AuthType, identity: identity}] = usageType
+		}
+	}
+}
+
+func redisUsageIdentityKeys(events []entities.UsageEvent) []usageEventIdentityKey {
+	seen := make(map[usageEventIdentityKey]struct{}, len(events))
+	keys := make([]usageEventIdentityKey, 0, len(events))
+	for _, event := range events {
+		authIndex := strings.TrimSpace(event.AuthIndex)
+		if authIndex == "" {
+			continue
+		}
+		authType, ok := redisUsageIdentityAuthType(event.AuthType)
+		if !ok {
+			continue
+		}
+		key := usageEventIdentityKey{authType: authType, identity: authIndex}
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		keys = append(keys, key)
+	}
+	return keys
+}
+
+func redisUsageIdentityAuthType(authType string) (entities.UsageIdentityAuthType, bool) {
+	switch normalizeRedisAuthType(authType) {
+	case "oauth":
+		return entities.UsageIdentityAuthTypeAuthFile, true
+	case "apikey":
+		return entities.UsageIdentityAuthTypeAIProvider, true
+	default:
+		return 0, false
+	}
+}
+
+func groupRedisUsageIdentityKeysByAuthType(keys []usageEventIdentityKey) map[entities.UsageIdentityAuthType][]string {
+	grouped := make(map[entities.UsageIdentityAuthType][]string)
+	for _, key := range keys {
+		grouped[key.authType] = append(grouped[key.authType], key.identity)
+	}
+	return grouped
+}
+
+func missingRedisUsageIdentityKeys(keys []usageEventIdentityKey, byIdentity map[usageEventIdentityKey]string) []usageEventIdentityKey {
+	missing := make([]usageEventIdentityKey, 0)
+	for _, key := range keys {
+		if _, ok := byIdentity[key]; ok {
+			continue
+		}
+		missing = append(missing, key)
+	}
+	return missing
+}
+
+// OAuth 优先信任已同步的 auth file type；查不到时再沿用历史 provider 兜底。
+func resolveUsageEventType(event entities.UsageEvent, resolver usageEventTypeResolver) string {
+	switch normalizeRedisAuthType(event.AuthType) {
+	case "oauth":
+		if authIndex := strings.TrimSpace(event.AuthIndex); authIndex != "" {
+			key := usageEventIdentityKey{authType: entities.UsageIdentityAuthTypeAuthFile, identity: authIndex}
+			if usageType := strings.TrimSpace(resolver.byIdentity[key]); usageType != "" {
+				return usageType
+			}
+		}
+		return strings.TrimSpace(event.Provider)
+	case "apikey":
+		key := usageEventIdentityKey{authType: entities.UsageIdentityAuthTypeAIProvider, identity: strings.TrimSpace(event.AuthIndex)}
+		return strings.TrimSpace(resolver.byIdentity[key])
+	default:
+		return "openai"
+	}
+}
+
+// aggregateUsageEventStats 串行追平 usage_events 派生统计；空 inbox 时也调用它补偿上次失败的聚合。
+func (s *SyncService) aggregateUsageEventStats(ctx context.Context, now time.Time) error {
+	if err := repository.AggregateUsageIdentityStats(ctx, s.db, now); err != nil {
+		return fmt.Errorf("aggregate usage identity stats after redis inbox processing: %w", err)
+	}
+	if err := repository.AggregateUsageOverviewStats(ctx, s.db, now); err != nil {
+		return fmt.Errorf("aggregate usage overview stats after redis inbox processing: %w", err)
+	}
+	return nil
+}
+
+// persistRedisUsageEvents 写入 Redis inbox 解码出的 usage_events。
+func (s *SyncService) persistRedisUsageEvents(db *gorm.DB, events []entities.UsageEvent) (*servicedto.SyncResult, error) {
 	logrus.WithField("event_count", len(events)).Debug("usage events insert started")
-	inserted, deduped, err := repository.InsertUsageEvents(s.db, events)
+	// InsertUsageEvents 当前不再按 request_id/event_key 去重，Redis 队列中每条消息都入库为独立事件。
+	inserted, deduped, err := repository.InsertUsageEvents(db, events)
 	if err != nil {
 		return &servicedto.SyncResult{Status: "failed"}, fmt.Errorf("insert usage events: %w", err)
 	}
@@ -338,102 +516,7 @@ func (s *SyncService) persistRedisUsageEvents(events []entities.UsageEvent) (*se
 	return &servicedto.SyncResult{Status: "completed", InsertedEvents: inserted, DedupedEvents: deduped}, nil
 }
 
-func alignUsageEventKeysWithExistingCanonicalEvents(db *gorm.DB, events []entities.UsageEvent) ([]entities.UsageEvent, error) {
-	if len(events) == 0 {
-		return events, nil
-	}
-	canonicalEventKeys := make(map[string]string, len(events))
-	consumedCanonicalKeys := make(map[string]struct{}, len(events))
-	for i := range events {
-		events[i].Timestamp = events[i].Timestamp.UTC()
-		canonicalKey := canonicalUsageEventKey(events[i])
-		incomingKey := strings.TrimSpace(events[i].EventKey)
-		if strings.TrimSpace(events[i].RequestID) != "" {
-			canonicalEventKeys[canonicalKey] = incomingKey
-			continue
-		}
-		if existingKey := canonicalEventKeys[canonicalKey]; existingKey != "" {
-			if incomingKey == canonicalKey {
-				events[i].EventKey = existingKey
-			} else if existingKey == canonicalKey {
-				if _, consumed := consumedCanonicalKeys[canonicalKey]; !consumed {
-					events[i].EventKey = existingKey
-					consumedCanonicalKeys[canonicalKey] = struct{}{}
-				}
-			}
-			continue
-		}
-
-		var existing entities.UsageEvent
-		result := db.Select("event_key").Where(
-			"TRIM(api_group_key) = ? AND TRIM(model) = ? AND timestamp = ? AND TRIM(source) = ? AND TRIM(auth_index) = ? AND failed = ? AND input_tokens = ? AND output_tokens = ? AND reasoning_tokens = ? AND cached_tokens = ? AND total_tokens = ?",
-			strings.TrimSpace(events[i].APIGroupKey),
-			strings.TrimSpace(events[i].Model),
-			events[i].Timestamp,
-			strings.TrimSpace(events[i].Source),
-			strings.TrimSpace(events[i].AuthIndex),
-			events[i].Failed,
-			events[i].InputTokens,
-			events[i].OutputTokens,
-			events[i].ReasoningTokens,
-			events[i].CachedTokens,
-			events[i].TotalTokens,
-		).Order("id ASC").Limit(1).Find(&existing)
-		if result.Error != nil {
-			return nil, fmt.Errorf("find equivalent usage event: %w", result.Error)
-		}
-		if result.RowsAffected == 0 {
-			canonicalEventKeys[canonicalKey] = incomingKey
-			continue
-		}
-		existingKey := strings.TrimSpace(existing.EventKey)
-		if existingKey != "" {
-			if incomingKey == canonicalKey {
-				events[i].EventKey = existingKey
-			} else if existingKey == canonicalKey {
-				alreadyConsumed, err := redisInboxAlreadyReferencesEventKey(db, canonicalKey)
-				if err != nil {
-					return nil, err
-				}
-				if !alreadyConsumed {
-					events[i].EventKey = existingKey
-					consumedCanonicalKeys[canonicalKey] = struct{}{}
-				}
-			}
-			canonicalEventKeys[canonicalKey] = existingKey
-		} else {
-			canonicalEventKeys[canonicalKey] = incomingKey
-		}
-	}
-	return events, nil
-}
-
-func redisInboxAlreadyReferencesEventKey(db *gorm.DB, eventKey string) (bool, error) {
-	var count int64
-	if err := db.Model(&entities.RedisUsageInbox{}).Where("status = ? AND usage_event_key = ?", repository.RedisUsageInboxStatusProcessed, eventKey).Count(&count).Error; err != nil {
-		return false, fmt.Errorf("count redis inbox references: %w", err)
-	}
-	return count > 0, nil
-}
-
-func canonicalUsageEventKey(event entities.UsageEvent) string {
-	return BuildEventKey(
-		event.APIGroupKey,
-		event.Model,
-		event.Timestamp,
-		event.Source,
-		event.AuthIndex,
-		event.Failed,
-		dto.TokenStats{
-			InputTokens:     event.InputTokens,
-			OutputTokens:    event.OutputTokens,
-			ReasoningTokens: event.ReasoningTokens,
-			CachedTokens:    event.CachedTokens,
-			TotalTokens:     event.TotalTokens,
-		},
-	)
-}
-
+// validate 只校验当前入口真正需要的依赖；Redis pull/process 不强制要求 metadata client。
 func (s *SyncService) validate(syncMetadata bool) error {
 	if s == nil {
 		return fmt.Errorf("sync service is nil")
@@ -442,6 +525,7 @@ func (s *SyncService) validate(syncMetadata bool) error {
 		return fmt.Errorf("sync service database is nil")
 	}
 	if syncMetadata {
+		// 老构造入口可能只传 client，没有单独传 metadataFetcher，这里在使用前补齐。
 		if s.metadataFetcher == nil && s.client != nil {
 			s.metadataFetcher = s.client
 		}
@@ -454,17 +538,10 @@ func (s *SyncService) validate(syncMetadata bool) error {
 
 // insertRedisInboxMessages 在解码前先把 Redis 原始消息落库，降低 LPOP 后本地处理失败导致的数据丢失风险。
 func insertRedisInboxMessages(db *gorm.DB, queueKey string, messages []string, poppedAt time.Time) ([]entities.RedisUsageInbox, error) {
-	inputs := make([]dto.RedisInboxInsert, 0, len(messages))
-	for _, message := range messages {
-		inputs = append(inputs, dto.RedisInboxInsert{
-			QueueKey:   queueKey,
-			RawMessage: message,
-			PoppedAt:   poppedAt,
-		})
-	}
-	return repository.InsertRedisUsageInboxMessages(db, inputs)
+	return repository.InsertRedisUsageInboxRawMessages(db, queueKey, messages, poppedAt)
 }
 
+// markRedisInboxRowsProcessFailed 记录可重试处理失败；达到仓储阈值后会转为 discarded 并打警告日志。
 func markRedisInboxRowsProcessFailed(db *gorm.DB, rows []entities.RedisUsageInbox, err error) {
 	if err == nil {
 		return
@@ -474,6 +551,7 @@ func markRedisInboxRowsProcessFailed(db *gorm.DB, rows []entities.RedisUsageInbo
 			logrus.WithError(markErr).WithField("inbox_id", row.ID).Warn("failed to mark redis usage inbox process failure")
 			continue
 		}
+		// 重新读取仓储更新后的状态，只在真正丢弃时输出包含定位字段的日志。
 		var stored entities.RedisUsageInbox
 		if loadErr := db.First(&stored, row.ID).Error; loadErr != nil {
 			logrus.WithError(loadErr).WithField("inbox_id", row.ID).Warn("failed to load redis usage inbox after process failure")
@@ -492,6 +570,7 @@ func markRedisInboxRowsProcessFailed(db *gorm.DB, rows []entities.RedisUsageInbo
 	}
 }
 
+// redisQueueKey 统一 Redis usage 队列名默认值，避免构造测试服务时重复传常量。
 func redisQueueKey(value string) string {
 	trimmed := strings.TrimSpace(value)
 	if trimmed == "" {
@@ -500,6 +579,7 @@ func redisQueueKey(value string) string {
 	return trimmed
 }
 
+// errorMessage 把可选错误转成仓储 DTO 使用的稳定字符串。
 func errorMessage(err error) string {
 	if err == nil {
 		return ""
@@ -507,6 +587,7 @@ func errorMessage(err error) string {
 	return strings.TrimSpace(err.Error())
 }
 
+// syncAuthFiles 将 CPA auth_files 映射为 OAuth 类 usage identities，并按 auth_type 整体替换。
 func syncAuthFiles(ctx context.Context, db *gorm.DB, result *response.AuthFilesResult, fetchErr error, now time.Time) error {
 	if fetchErr != nil {
 		return fmt.Errorf("fetch auth files: %w", fetchErr)
@@ -528,6 +609,23 @@ func syncAuthFiles(ctx context.Context, db *gorm.DB, result *response.AuthFilesR
 	return nil
 }
 
+// syncManagementAPIKeys 同步 CPA 管理 API key 清单；原值只在本地保存，对外查询时再脱敏。
+func syncManagementAPIKeys(db *gorm.DB, result *response.ManagementAPIKeysResult, fetchErr error, now time.Time) error {
+	if fetchErr != nil {
+		return fmt.Errorf("fetch management api keys: %w", fetchErr)
+	}
+	if db == nil {
+		return fmt.Errorf("database is nil")
+	}
+	if result == nil {
+		return fmt.Errorf("fetch management api keys: empty response")
+	}
+	if err := repository.SyncCPAAPIKeys(db, result.Payload.APIKeys, now); err != nil {
+		return fmt.Errorf("sync management api keys: %w", err)
+	}
+	return nil
+}
+
 type authFileUsageIdentityExtension func(authfiles.AuthFile, *entities.UsageIdentity)
 
 var authFileUsageIdentityExtensions = map[string]authFileUsageIdentityExtension{
@@ -540,9 +638,11 @@ func authFileUsageIdentity(file authfiles.AuthFile) entities.UsageIdentity {
 	if extend, ok := authFileUsageIdentityExtensions[strings.ToLower(strings.TrimSpace(file.Type))]; ok {
 		extend(file, &identity)
 	}
+	identity.ProjectID = resolveAuthFileProjectID(file)
 	return identity
 }
 
+// baseAuthFileUsageIdentity 写入所有 auth_files 共享的身份字段，特殊字段由扩展函数补充。
 func baseAuthFileUsageIdentity(file authfiles.AuthFile) entities.UsageIdentity {
 	return entities.UsageIdentity{
 		Name:         firstNonEmpty(file.Email, file.Label, file.Name, file.AuthIndex),
@@ -551,25 +651,30 @@ func baseAuthFileUsageIdentity(file authfiles.AuthFile) entities.UsageIdentity {
 		Identity:     file.AuthIndex,
 		Type:         file.Type,
 		Provider:     file.Provider,
+		Prefix:       file.Prefix,
+		FileName:     stringValue(file.Name),
+		FilePath:     stringValue(file.Path),
+		Priority:     file.Priority,
+		Disabled:     file.Disabled,
+		Note:         file.Note,
 	}
 }
 
 // Codex 的 ChatGPT id_token 字段只在 type=codex 且字段存在时写入；缺失字段保持 nil，入库后就是 NULL。
 func extendCodexAuthFileUsageIdentity(file authfiles.AuthFile, identity *entities.UsageIdentity) {
-	if file.IDToken == nil {
-		return
-	}
-	identity.AccountID = file.IDToken.AccountID
-	identity.ActiveStart = file.IDToken.ActiveStart
-	identity.ActiveUntil = file.IDToken.ActiveUntil
-	identity.PlanType = file.IDToken.PlanType
+	identity.AccountID = resolveCodexAccountID(file)
+	identity.ActiveStart = resolveCodexActiveStart(file)
+	identity.ActiveUntil = resolveCodexActiveUntil(file)
+	identity.PlanType = resolveCodexPlanType(file)
 }
 
+// fetchProviderMetadata 分别拉取各 AI provider 配置，并记录本轮实际成功返回的 provider 类型。
 func fetchProviderMetadata(ctx context.Context, fetcher MetadataFetcher) (providerconfig.ProviderMetadataConfig, []string, error) {
 	var cfg providerconfig.ProviderMetadataConfig
 	var fetchedProviderTypes []string
 	var errs []error
 
+	// 每个 provider 独立收集错误，避免单一来源失败导致其它来源 metadata 无法更新。
 	if result, err := fetcher.FetchGeminiAPIKeys(ctx); err != nil {
 		errs = append(errs, fmt.Errorf("fetch gemini api keys: %w", err))
 	} else if result == nil {
@@ -614,6 +719,7 @@ func fetchProviderMetadata(ctx context.Context, fetcher MetadataFetcher) (provid
 	return cfg, fetchedProviderTypes, joinErrors(errs...)
 }
 
+// syncProviderMetadata 用成功抓到的 provider 类型做替换；抓取警告延后返回，不阻止成功来源入库。
 func syncProviderMetadata(ctx context.Context, db *gorm.DB, cfg providerconfig.ProviderMetadataConfig, fetchedProviderTypes []string, fetchErr error, now time.Time) (error, error) {
 	if db == nil {
 		return fmt.Errorf("database is nil"), nil
@@ -630,6 +736,7 @@ func syncProviderMetadata(ctx context.Context, db *gorm.DB, cfg providerconfig.P
 	return nil, nil
 }
 
+// providerMetadataUsageIdentities 把扁平 provider metadata 转成 usage identity 记录。
 func providerMetadataUsageIdentities(inputs []servicedto.ProviderMetadataInput) []entities.UsageIdentity {
 	identities := make([]entities.UsageIdentity, 0, len(inputs))
 	for _, input := range inputs {
@@ -642,21 +749,27 @@ func providerMetadataUsageIdentities(inputs []servicedto.ProviderMetadataInput) 
 			Provider:     input.DisplayName,
 			LookupKey:    input.LookupKey,
 			Prefix:       input.Prefix,
+			BaseURL:      input.BaseURL,
+			Priority:     input.Priority,
+			Disabled:     input.Disabled,
+			Note:         input.Note,
 		})
 	}
 	return identities
 }
 
+// flattenProviderMetadata 将不同 provider 的 CPA 配置压平成统一输入，供仓储层按 provider 类型替换。
 func flattenProviderMetadata(cfg providerconfig.ProviderMetadataConfig) []servicedto.ProviderMetadataInput {
 	items := make([]servicedto.ProviderMetadataInput, 0)
 	seen := make(map[string]struct{})
 	// Provider metadata 只生成 auth-index 身份；prefix 作为同一身份的附加字段保存，不再生成独立行。
-	appendItem := func(lookupKey, prefix, providerType, displayName, authIndex string) {
+	appendItem := func(lookupKey, prefix, providerType, displayName, authIndex, baseURL string, priority *int, disabled *bool, note *string) {
 		lookupKey = strings.TrimSpace(lookupKey)
 		prefix = strings.TrimSpace(prefix)
 		providerType = strings.TrimSpace(providerType)
 		displayName = strings.TrimSpace(displayName)
 		authIndex = strings.TrimSpace(authIndex)
+		baseURL = strings.TrimSpace(baseURL)
 		if lookupKey == "" || providerType == "" || displayName == "" || authIndex == "" {
 			return
 		}
@@ -670,12 +783,16 @@ func flattenProviderMetadata(cfg providerconfig.ProviderMetadataConfig) []servic
 			ProviderType: providerType,
 			DisplayName:  displayName,
 			AuthIndex:    authIndex,
+			BaseURL:      baseURL,
+			Priority:     priority,
+			Disabled:     disabled,
+			Note:         note,
 		})
 	}
 	appendProviderEntries := func(providerType string, configs []providerconfig.ProviderKeyConfig) {
 		for _, cfg := range configs {
 			displayName := firstNonEmpty(cfg.Name, providerType)
-			appendItem(cfg.APIKey, cfg.Prefix, providerType, displayName, cfg.AuthIndex)
+			appendItem(cfg.APIKey, cfg.Prefix, providerType, displayName, cfg.AuthIndex, cfg.BaseURL, cfg.Priority, cfg.Disabled, cfg.Note)
 		}
 	}
 
@@ -684,16 +801,18 @@ func flattenProviderMetadata(cfg providerconfig.ProviderMetadataConfig) []servic
 	appendProviderEntries("codex", cfg.CodexAPIKeys)
 	appendProviderEntries("vertex", cfg.VertexAPIKeys)
 
+	// OpenAI compatibility 的 prefix/baseURL 在 provider 层，API key/auth_index 在 entry 层，需要组合后再落库。
 	for _, provider := range cfg.OpenAICompatibility {
 		displayName := firstNonEmpty(provider.Name, "openai")
 		for _, entry := range provider.APIKeyEntries {
-			appendItem(entry.APIKey, provider.Prefix, "openai", displayName, entry.AuthIndex)
+			appendItem(entry.APIKey, provider.Prefix, "openai", displayName, entry.AuthIndex, provider.BaseURL, provider.Priority, provider.Disabled, provider.Note)
 		}
 	}
 
 	return items
 }
 
+// firstNonEmpty 返回第一个非空字符串，用于统一处理 CPA 字段缺省优先级。
 func firstNonEmpty(values ...string) string {
 	for _, value := range values {
 		trimmed := strings.TrimSpace(value)
@@ -704,6 +823,7 @@ func firstNonEmpty(values ...string) string {
 	return ""
 }
 
+// joinErrors 合并多个独立同步错误，保留同一轮部分成功/部分失败的上下文。
 func joinErrors(errs ...error) error {
 	messages := make([]string, 0, len(errs))
 	for _, err := range errs {

@@ -20,8 +20,7 @@ type UsageFilter struct {
 	Model     string
 	Source    string
 	AuthIndex string
-	AuthType  string
-	Provider  string
+	APIKeyID  string
 	Result    string
 }
 
@@ -29,7 +28,6 @@ type UsageFilter struct {
 type UsageEventsPage struct {
 	Events     []UsageEventRecord
 	Models     []string
-	Sources    []string
 	TotalCount int64
 	Page       int
 	PageSize   int
@@ -38,63 +36,35 @@ type UsageEventsPage struct {
 
 // UsageEventFilterOptions 是 usage events 筛选项的服务层结果。
 type UsageEventFilterOptions struct {
-	Models  []string
-	Sources []string
+	Models []string
 }
 
 // UsageEventRecord 是单条 usage event 的服务层结果。
 type UsageEventRecord struct {
-	ID              uint
-	Timestamp       time.Time
-	APIGroupKey     string
-	Model           string
-	AuthType        string
-	Provider        string
-	Source          string
-	AuthIndex       string
-	Failed          bool
-	LatencyMS       int64
-	InputTokens     int64
-	OutputTokens    int64
-	ReasoningTokens int64
-	CachedTokens    int64
-	TotalTokens     int64
-}
-
-// UsageAnalysisModelStat 是按模型聚合的分析结果。
-type UsageAnalysisModelStat struct {
-	Model              string
-	TotalRequests      int64
-	SuccessCount       int64
-	FailureCount       int64
-	TotalTokens        int64
-	InputTokens        int64
-	OutputTokens       int64
-	ReasoningTokens    int64
-	CachedTokens       int64
-	TotalLatencyMS     int64
-	LatencySampleCount int64
-}
-
-// UsageAnalysisAPIStat 是按 API 聚合的分析结果。
-type UsageAnalysisAPIStat struct {
-	APIKey          string
-	DisplayName     string
-	TotalRequests   int64
-	SuccessCount    int64
-	FailureCount    int64
-	TotalTokens     int64
-	InputTokens     int64
-	OutputTokens    int64
-	ReasoningTokens int64
-	CachedTokens    int64
-	Models          []UsageAnalysisModelStat
-}
-
-// UsageAnalysisSnapshot 是 analysis 的服务层结果。
-type UsageAnalysisSnapshot struct {
-	APIs   []UsageAnalysisAPIStat
-	Models []UsageAnalysisModelStat
+	ID                  int64
+	Timestamp           time.Time
+	APIGroupKey         string
+	Model               string
+	ReasoningEffort     string
+	ExecutorType        string
+	Endpoint            string
+	AuthType            string
+	Provider            string
+	Source              string
+	AuthIndex           string
+	Failed              bool
+	LatencyMS           int64
+	TTFTMS              *int64
+	InputTokens         int64
+	OutputTokens        int64
+	ReasoningTokens     int64
+	CachedTokens        int64
+	CacheReadTokens     int64
+	CacheCreationTokens int64
+	TotalTokens         int64
+	CostUSD             float64
+	CostAvailable       bool
+	PricingStyle        string
 }
 
 // UsageOverviewSummary 是 overview summary 的服务层结果。

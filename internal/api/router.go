@@ -3,53 +3,52 @@ package api
 import (
 	"bytes"
 	"context"
-	"errors"
 	"io"
 	"io/fs"
-	"log/slog"
 	"net/http"
 	"path"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"cpa-usage-keeper/internal/poller"
+	"cpa-usage-keeper/internal/quota"
 	"cpa-usage-keeper/internal/service"
+	"cpa-usage-keeper/internal/timeutil"
 	"cpa-usage-keeper/internal/updatecheck"
 	"cpa-usage-keeper/internal/version"
 	"github.com/gin-gonic/gin"
 )
 
 const appBasePathPlaceholder = "__APP_BASE_PATH__"
-const manualSyncRateLimitWindow = time.Second
-
-type syncLimiter struct {
-	mu       sync.Mutex
-	window   time.Duration
-	lastSync time.Time
-}
-
-func (l *syncLimiter) allow(now time.Time) bool {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	if !l.lastSync.IsZero() && now.Sub(l.lastSync) < l.window {
-		return false
-	}
-	l.lastSync = now
-	return true
-}
 
 type StatusProvider interface {
 	Status() poller.Status
 }
 
-type SyncRunner interface {
-	SyncNow(ctx context.Context) error
+type ActiveStatusRecorder interface {
+	RecordActiveStatus(time.Time)
 }
 
-type syncUserMessageError interface {
-	UserMessage() string
+type QuotaProvider interface {
+	GetCachedQuota(context.Context, quota.CacheRequest) (quota.CacheResponse, error)
+	Refresh(context.Context, quota.RefreshRequest) (quota.RefreshResponse, error)
+	GetRefreshTaskByAuthIndex(context.Context, string) (quota.RefreshTaskResponse, error)
+	GetInspectionStatus(context.Context) (quota.InspectionStatus, error)
+	StartInspection(context.Context) (quota.InspectionStatus, error)
+}
+
+type StatusRouteConfig struct {
+	CPAPublicURL             string
+	ActiveRecorder           ActiveStatusRecorder
+	QuotaAutoRefreshEnabled  bool
+}
+
+type OptionalProviders struct {
+	UsageIdentity service.UsageIdentityProvider
+	Quota         QuotaProvider
+	CPAAPIKeys    service.CPAAPIKeyProvider
+	Status        StatusRouteConfig
 }
 
 func NewRouter(
@@ -60,7 +59,7 @@ func NewRouter(
 	authConfig AuthConfig,
 	authHandler *authHandler,
 	basePath string,
-	usageIdentityProviders ...service.UsageIdentityProvider,
+	optionalProviders ...OptionalProviders,
 ) *gin.Engine {
 	router := gin.New()
 	_ = router.SetTrustedProxies(nil)
@@ -81,20 +80,32 @@ func NewRouter(
 	authHandler.registerRoutes(authGroup)
 
 	var usageIdentityProvider service.UsageIdentityProvider
-	if len(usageIdentityProviders) > 0 {
-		usageIdentityProvider = usageIdentityProviders[0]
+	var quotaProvider QuotaProvider
+	var cpaAPIKeyProvider service.CPAAPIKeyProvider
+	var statusConfig StatusRouteConfig
+	if len(optionalProviders) > 0 {
+		usageIdentityProvider = optionalProviders[0].UsageIdentity
+		quotaProvider = optionalProviders[0].Quota
+		cpaAPIKeyProvider = optionalProviders[0].CPAAPIKeys
+		statusConfig = optionalProviders[0].Status
 	}
+	authHandler.setCPAAPIKeyProvider(cpaAPIKeyProvider)
 
-	protected := apiV1.Group("")
-	protected.Use(authHandler.middleware())
-	registerStatusRoutes(protected, statusProvider)
-	registerUpdateRoutes(protected, nil)
-	registerSyncRoutes(protected, statusProvider, &syncLimiter{window: manualSyncRateLimitWindow})
-	registerUsageOverviewRoute(protected, usageProvider)
-	registerUsageAnalysisRoute(protected, usageProvider)
-	registerUsageEventsRoute(protected, usageProvider, usageIdentityProvider)
-	registerUsageIdentityRoutes(protected, usageIdentityProvider)
-	registerPricingRoutes(protected, pricingProvider)
+	adminProtected := apiV1.Group("")
+	adminProtected.Use(authHandler.adminMiddleware())
+	registerStatusRoutes(adminProtected, statusProvider, statusConfig)
+	registerUpdateRoutes(adminProtected, nil)
+	registerUsageOverviewRoute(adminProtected, usageProvider)
+	registerUsageAnalysisRoute(adminProtected, usageProvider, cpaAPIKeyProvider)
+	registerUsageEventsRoute(adminProtected, usageProvider, usageIdentityProvider, cpaAPIKeyProvider)
+	registerUsageIdentityRoutes(adminProtected, usageIdentityProvider)
+	registerCPAAPIKeyRoutes(adminProtected, cpaAPIKeyProvider)
+	registerPricingRoutes(adminProtected, pricingProvider)
+	registerQuotaRoutes(adminProtected, quotaProvider)
+
+	keyViewerProtected := apiV1.Group("")
+	keyViewerProtected.Use(authHandler.apiKeyViewerMiddleware())
+	registerKeyOverviewRoute(keyViewerProtected, usageProvider, cpaAPIKeyProvider, authHandler)
 
 	if staticFS != nil {
 		if indexFile, err := staticFS.Open("index.html"); err == nil {
@@ -221,80 +232,52 @@ func stripBasePath(basePath, requestPath string) (string, bool) {
 }
 
 type statusResponse struct {
-	Running            bool       `json:"running"`
-	SyncRunning        bool       `json:"sync_running"`
-	Timezone           string     `json:"timezone"`
-	Version            string     `json:"version"`
-	UpdateCheckEnabled bool       `json:"updateCheckEnabled"`
-	LastRunAt          *time.Time `json:"last_run_at,omitempty"`
-	LastError          string     `json:"last_error,omitempty"`
-	LastWarning        string     `json:"last_warning,omitempty"`
-	LastStatus         string     `json:"last_status,omitempty"`
+	Running                   bool       `json:"running"`
+	SyncRunning               bool       `json:"sync_running"`
+	Timezone                  string     `json:"timezone"`
+	Version                   string     `json:"version"`
+	UpdateCheckEnabled        bool       `json:"updateCheckEnabled"`
+	QuotaAutoRefreshEnabled   bool       `json:"quotaAutoRefreshEnabled"`
+	CPAPublicURL              string     `json:"cpa_public_url,omitempty"`
+	LastRunAt                 *time.Time `json:"last_run_at,omitempty"`
+	LastError                 string     `json:"last_error,omitempty"`
+	LastWarning               string     `json:"last_warning,omitempty"`
+	LastStatus                string     `json:"last_status,omitempty"`
 }
 
-func registerStatusRoutes(router gin.IRoutes, statusProvider StatusProvider) {
+func registerStatusRoutes(router gin.IRoutes, statusProvider StatusProvider, config StatusRouteConfig) {
 	router.GET("/status", func(c *gin.Context) {
 		if statusProvider == nil {
-			c.JSON(http.StatusOK, buildStatusResponse(poller.Status{}))
+			c.JSON(http.StatusOK, buildStatusResponse(poller.Status{}, config))
 			return
 		}
 
-		c.JSON(http.StatusOK, buildStatusResponse(statusProvider.Status()))
+		c.JSON(http.StatusOK, buildStatusResponse(statusProvider.Status(), config))
+	})
+	router.GET("/status/active", func(c *gin.Context) {
+		if config.ActiveRecorder != nil {
+			// 前端可见页面用这个轻量心跳续约，避免限额自动刷新在无人查看后台时持续扫库和请求上游。
+			config.ActiveRecorder.RecordActiveStatus(time.Now())
+		}
+		c.Status(http.StatusNoContent)
 	})
 }
 
-func manualSyncErrorMessage(err error) string {
-	var userMessage syncUserMessageError
-	if errors.As(err, &userMessage) && userMessage.UserMessage() != "" {
-		return userMessage.UserMessage()
-	}
-	return "manual sync failed"
-}
-
-func registerSyncRoutes(router gin.IRoutes, statusProvider StatusProvider, limiter *syncLimiter) {
-	router.POST("/sync", func(c *gin.Context) {
-		if limiter != nil && !limiter.allow(time.Now()) {
-			c.JSON(http.StatusTooManyRequests, gin.H{"error": "sync rate limit exceeded"})
-			return
-		}
-
-		syncRunner, ok := statusProvider.(SyncRunner)
-		if !ok || syncRunner == nil {
-			writeInternalError(c, "sync runner is not configured", nil)
-			return
-		}
-
-		if err := syncRunner.SyncNow(c.Request.Context()); err != nil {
-			if errors.Is(err, poller.ErrSyncAlreadyRunning) {
-				c.JSON(http.StatusConflict, gin.H{"error": "sync already running"})
-				return
-			}
-			slog.Error("manual sync failed", "error", err)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": manualSyncErrorMessage(err)})
-			return
-		}
-
-		if statusProvider, ok := syncRunner.(StatusProvider); ok {
-			c.JSON(http.StatusOK, buildStatusResponse(statusProvider.Status()))
-			return
-		}
-		c.JSON(http.StatusOK, gin.H{"sync_running": false})
-	})
-}
-
-func buildStatusResponse(status poller.Status) statusResponse {
+func buildStatusResponse(status poller.Status, config StatusRouteConfig) statusResponse {
 	response := statusResponse{
-		Running:            status.Running,
-		SyncRunning:        status.SyncRunning,
-		Timezone:           time.Local.String(),
-		Version:            version.Version,
-		UpdateCheckEnabled: updatecheck.IsStableVersion(version.Version),
-		LastError:          status.LastError,
-		LastWarning:        status.LastWarning,
-		LastStatus:         status.LastStatus,
+		Running:                 status.Running,
+		SyncRunning:             status.SyncRunning,
+		Timezone:                time.Local.String(),
+		Version:                 version.Version,
+		UpdateCheckEnabled:      updatecheck.IsStableVersion(version.Version),
+		QuotaAutoRefreshEnabled: config.QuotaAutoRefreshEnabled,
+		CPAPublicURL:            config.CPAPublicURL,
+		LastError:               status.LastError,
+		LastWarning:             status.LastWarning,
+		LastStatus:              status.LastStatus,
 	}
 	if !status.LastRunAt.IsZero() {
-		lastRunAt := status.LastRunAt.UTC()
+		lastRunAt := timeutil.NormalizeStorageTime(status.LastRunAt)
 		response.LastRunAt = &lastRunAt
 	}
 	return response

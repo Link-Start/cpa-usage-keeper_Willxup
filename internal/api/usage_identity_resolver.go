@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"cpa-usage-keeper/internal/entities"
+	"cpa-usage-keeper/internal/helper"
 )
 
 type usageIdentityResolver struct {
@@ -41,32 +42,9 @@ type resolvedUsageIdentity struct {
 	Type        string
 }
 
-func usageIdentityDisplayName(item entities.UsageIdentity) string {
-	name := strings.TrimSpace(item.Name)
-	provider := strings.TrimSpace(item.Provider)
-	if item.AuthType != entities.UsageIdentityAuthTypeAIProvider {
-		if name != "" {
-			return name
-		}
-		return provider
-	}
-
-	prefix := strings.TrimSpace(item.Prefix)
-	switch {
-	case name != "" && prefix != "":
-		return name + "(" + prefix + ")"
-	case name != "":
-		return name
-	case prefix != "":
-		return prefix
-	default:
-		return provider
-	}
-}
-
 func resolvedUsageIdentityFromEntity(item entities.UsageIdentity) resolvedUsageIdentity {
 	return resolvedUsageIdentity{
-		DisplayName: usageIdentityDisplayName(item),
+		DisplayName: helper.UsageIdentityDisplayName(item),
 		Type:        strings.TrimSpace(item.Type),
 	}
 }

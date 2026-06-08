@@ -6,7 +6,6 @@ import "time"
 type UsageEventsPageRecord struct {
 	Events     []UsageEventRecord
 	Models     []string
-	Sources    []string
 	TotalCount int64
 	Page       int
 	PageSize   int
@@ -15,25 +14,33 @@ type UsageEventsPageRecord struct {
 
 // UsageEventFilterOptionsRecord 是 usage events 筛选项的仓储查询结果。
 type UsageEventFilterOptionsRecord struct {
-	Models  []string
-	Sources []string
+	Models []string
 }
 
 // UsageEventRecord 是单条 usage event 的查询结果。
 type UsageEventRecord struct {
-	ID              uint
-	Timestamp       time.Time
-	APIGroupKey     string
-	Model           string
-	AuthType        string
-	Provider        string
-	Source          string
-	AuthIndex       string
-	Failed          bool
-	LatencyMS       int64
-	InputTokens     int64
-	OutputTokens    int64
-	ReasoningTokens int64
-	CachedTokens    int64
-	TotalTokens     int64
+	ID                  int64
+	Timestamp           time.Time
+	APIGroupKey         string
+	Model               string
+	ReasoningEffort     string
+	ExecutorType        string
+	Endpoint            string
+	AuthType            string
+	Provider            string
+	Source              string
+	AuthIndex           string
+	Failed              bool
+	LatencyMS           int64
+	TTFTMS              *int64
+	InputTokens         int64
+	OutputTokens        int64
+	ReasoningTokens     int64
+	CachedTokens        int64
+	CacheReadTokens     int64
+	CacheCreationTokens int64
+	TotalTokens         int64
+	CostUSD             float64
+	CostAvailable       bool
+	PricingStyle        string
 }
