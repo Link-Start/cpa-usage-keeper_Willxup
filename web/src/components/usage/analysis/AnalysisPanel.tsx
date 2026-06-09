@@ -242,7 +242,6 @@ const setLatencyReferenceHover = (
   }
   if (chart.canvas) {
     chart.canvas.style.cursor = '';
-    chart.canvas.title = hover?.text ?? '';
   }
   args.changed = true;
 };
@@ -257,6 +256,7 @@ const getLatencyReferenceHover = (
   const yScale = chart.scales.y;
   if (!xScale || !yScale) return undefined;
   const { chartArea } = chart;
+  if (!chartArea) return undefined;
   const hovers: Array<LatencyReferenceHover & { distance: number }> = [];
 
   if (options.p95TTFTMS > 0) {
@@ -295,6 +295,7 @@ const getLatencyReferenceHover = (
 
 const drawLatencyReferenceHover = (chart: Chart<'scatter'>, hover: LatencyReferenceHover) => {
   const { ctx, chartArea } = chart;
+  if (!chartArea) return;
   const paddingX = 8;
   const height = 24;
   const gap = 12;
@@ -342,6 +343,7 @@ const latencyDiagnosticsPlugin: Plugin<'scatter'> = {
     const yScale = chart.scales.y;
     if (!xScale || !yScale) return;
     const { ctx, chartArea } = chart;
+    if (!chartArea) return;
     ctx.save();
     // p95 参考线覆盖在样本点上，辅助快速区分首字慢和总耗时慢。
     const hover = latencyReferenceHoverStates.get(chart);
@@ -794,20 +796,30 @@ const emptyLatencyDiagnostics = (): AnalysisLatencyDiagnostics => ({
   max_latency_ms: 0,
 });
 
-const getPositiveLatencyValues = (values: number[]) => values.filter((value) => Number.isFinite(value) && value > 0);
-
-const getLatencyLogAxisBounds = (values: number[]) => {
-  const positiveValues = getPositiveLatencyValues(values);
-  if (positiveValues.length === 0) {
+const getLatencyLogAxisBounds = (values: Iterable<number>) => {
+  let minValue = Number.POSITIVE_INFINITY;
+  let maxValue = 0;
+  for (const value of values) {
+    if (!Number.isFinite(value) || value <= 0) continue;
+    if (value < minValue) minValue = value;
+    if (value > maxValue) maxValue = value;
+  }
+  if (!Number.isFinite(minValue) || maxValue <= 0) {
     return { min: 1, max: 10 };
   }
-  const minValue = Math.min(...positiveValues);
-  const maxValue = Math.max(...positiveValues);
   return {
     min: Math.max(1, Math.floor(minValue / 1.35)),
     max: Math.max(10, Math.ceil(maxValue * 1.18)),
   };
 };
+
+function* getLatencyAxisValues(diagnostics: AnalysisLatencyDiagnostics, axis: 'ttft' | 'latency'): Generator<number> {
+  yield axis === 'ttft' ? diagnostics.max_ttft_ms : diagnostics.max_latency_ms;
+  yield axis === 'ttft' ? diagnostics.p95_ttft_ms : diagnostics.p95_latency_ms;
+  for (const point of diagnostics.points) {
+    yield axis === 'ttft' ? point.ttft_ms : point.latency_ms;
+  }
+}
 
 function buildLatencyDiagnosticsChartData(diagnostics: AnalysisLatencyDiagnostics, label: string, colors: LatencyThemeColors): ChartData<'scatter', LatencyScatterPoint[], string> {
   return {
@@ -850,8 +862,8 @@ function buildLatencyDiagnosticsChartOptions({
   };
   colors: LatencyThemeColors;
 }): ChartOptions<'scatter'> {
-  const xBounds = getLatencyLogAxisBounds([diagnostics.max_ttft_ms, diagnostics.p95_ttft_ms, ...diagnostics.points.map((point) => point.ttft_ms)]);
-  const yBounds = getLatencyLogAxisBounds([diagnostics.max_latency_ms, diagnostics.p95_latency_ms, ...diagnostics.points.map((point) => point.latency_ms)]);
+  const xBounds = getLatencyLogAxisBounds(getLatencyAxisValues(diagnostics, 'ttft'));
+  const yBounds = getLatencyLogAxisBounds(getLatencyAxisValues(diagnostics, 'latency'));
   const plugins = {
     legend: { display: false },
     tooltip: {

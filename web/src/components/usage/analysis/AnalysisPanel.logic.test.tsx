@@ -411,7 +411,7 @@ describe('AnalysisPanel token chart data', () => {
     latencyPlugin?.afterEvent?.(fakeChart as never, ttftHoverArgs as never, {} as never);
     expect(ttftHoverArgs.changed).toBe(true);
     expect(fakeCanvas.style.cursor).toBe('');
-    expect(fakeCanvas.title).toBe('usage_stats.analysis_latency_p95_ttft: 300ms');
+    expect(fakeCanvas.title).toBe('');
     latencyPlugin?.afterDatasetsDraw?.(fakeChart as never, {} as never, {} as never);
     expect(lineStrokes.some((stroke) => stroke.strokeStyle === '#38bdf8' && stroke.lineWidth > 1.4)).toBe(true);
 
@@ -426,9 +426,15 @@ describe('AnalysisPanel token chart data', () => {
     latencyPlugin?.afterEvent?.(fakeChart as never, latencyHoverArgs as never, {} as never);
     expect(latencyHoverArgs.changed).toBe(true);
     expect(fakeCanvas.style.cursor).toBe('');
-    expect(fakeCanvas.title).toBe('usage_stats.analysis_latency_p95_latency: 1.4s');
+    expect(fakeCanvas.title).toBe('');
     latencyPlugin?.afterDatasetsDraw?.(fakeChart as never, {} as never, {} as never);
     expect(lineStrokes.some((stroke) => stroke.strokeStyle === '#fb7185' && stroke.lineWidth > 1.4)).toBe(true);
+
+    const chartWithoutArea = {
+      ...fakeChart,
+      chartArea: undefined,
+    };
+    expect(() => latencyPlugin?.afterDatasetsDraw?.(chartWithoutArea as never, {} as never, {} as never)).not.toThrow();
 
     const outArgs = {
       event: { type: 'mouseout', x: null, y: null, native: null },
@@ -441,6 +447,33 @@ describe('AnalysisPanel token chart data', () => {
     expect(outArgs.changed).toBe(true);
     expect(fakeCanvas.style.cursor).toBe('');
     expect(fakeCanvas.title).toBe('');
+  });
+
+  it('builds latency diagnostics log bounds without spreading large point arrays', () => {
+    const points = Array.from({ length: 150_000 }, (_, index) => ({
+      ttft_ms: index + 1,
+      latency_ms: (index + 1) * 2,
+    }));
+    const analysis: AnalysisResponse = {
+      ...emptyAnalysis,
+      latency_diagnostics: {
+        total_points: points.length,
+        sampled: true,
+        p95_ttft_ms: 142_500,
+        p95_latency_ms: 285_000,
+        max_ttft_ms: 150_000,
+        max_latency_ms: 300_000,
+        points,
+        density: [],
+      },
+    };
+
+    expect(() => renderToStaticMarkup(<AnalysisPanel analysis={analysis} loading={false} isDark={false} isMobile={false} />)).not.toThrow();
+    const latencyScatterIndex = chartCapture.scatterData.findIndex((data) => data.datasets[0]?.label === 'usage_stats.analysis_latency_samples');
+    expect(latencyScatterIndex).toBeGreaterThanOrEqual(0);
+    const latencyScatterOptions = chartCapture.scatterOptions[latencyScatterIndex];
+    expect((latencyScatterOptions.scales?.x as { max?: number }).max).toBeGreaterThan(150_000);
+    expect((latencyScatterOptions.scales?.y as { max?: number }).max).toBeGreaterThan(300_000);
   });
 
   it('uses theme-aware lighter colors for latency diagnostics', () => {
