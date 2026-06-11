@@ -80,7 +80,7 @@ func readRepositorySourceFile(t *testing.T, name string) string {
 	if err != nil {
 		t.Fatalf("read %s: %v", name, err)
 	}
-	return string(content)
+	return normalizeSourceForSnippetAssertions(content)
 }
 
 func readServiceSourceFile(t *testing.T, name string) string {
@@ -89,5 +89,10 @@ func readServiceSourceFile(t *testing.T, name string) string {
 	if err != nil {
 		t.Fatalf("read service %s: %v", name, err)
 	}
-	return string(content)
+	return normalizeSourceForSnippetAssertions(content)
+}
+
+func normalizeSourceForSnippetAssertions(content []byte) string {
+	// Windows CI 可能以 CRLF 读取源码，投影断言统一按 LF 片段匹配。
+	return strings.ReplaceAll(string(content), "\r\n", "\n")
 }
