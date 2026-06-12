@@ -57,12 +57,16 @@ func (s *RedisPullSource) Pull(ctx context.Context) ([]string, error) {
 	}
 	// PopUsage 现在是 Redis-only；是否降级 HTTP 完全由 RedisIngestRunner 决定。
 	s.mu.Lock()
-	// 锁覆盖首次探测和已选 key 拉取，避免并发 goroutine 分别消费 usage/queue。
-	defer s.mu.Unlock()
 	if s.selected != nil {
+		// 已固化路径只需要锁内复制 client，避免 Redis I/O 阻塞 SourceName 读取来源。
+		selected := s.selected
+		// 释放 RedisPullSource 状态锁后再做网络拉取；runner 的 opMu 仍负责串行化真实消费。
+		s.mu.Unlock()
 		// 首次成功后只使用已固化 key，不再在 usage/queue 之间循环尝试。
-		return s.selected.client.PopUsage(ctx)
+		return selected.client.PopUsage(ctx)
 	}
+	// 未固化前锁覆盖整个探测过程，避免并发 goroutine 分别消费 usage/queue。
+	defer s.mu.Unlock()
 
 	// pullErrs 收集本轮最多两个候选错误，最终返回给 runner 做降级判断。
 	var pullErrs []error
