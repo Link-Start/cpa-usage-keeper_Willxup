@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { ApiError, deletePricing, fetchPricing, fetchUsedModels, updatePricing } from '@/lib/api';
-import type { ModelPrice, PricingEntry, PricingStyle } from '@/lib/types';
+import { ApiError, deletePricing, fetchPricing, fetchPricingSyncPreview, fetchUsedModels, updatePricing } from '@/lib/api';
+import type { ModelPrice, PricingEntry, PricingStyle, PricingSyncPreviewResponse } from '@/lib/types';
 import { useNotificationStore } from '@/stores';
 
 export interface UsePricingDataOptions {
@@ -17,6 +17,7 @@ export interface UsePricingDataReturn {
   lastRefreshedAt: Date | null;
   loadPricing: () => Promise<void>;
   setModelPrices: (prices: Record<string, ModelPrice>) => Promise<void>;
+  previewPricingSync: () => Promise<PricingSyncPreviewResponse>;
 }
 
 const normalizePricingStyle = (style: PricingStyle | string | undefined): PricingStyle =>
@@ -139,6 +140,17 @@ export function usePricingData(options: UsePricingDataOptions = {}): UsePricingD
     }
   }, [modelPrices, showNotification, t]);
 
+  const previewPricingSync = useCallback(async () => {
+    try {
+      return await fetchPricingSyncPreview();
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 401) {
+        onAuthRequiredRef.current?.();
+      }
+      throw error;
+    }
+  }, []);
+
   return {
     modelNames,
     modelPrices,
@@ -147,5 +159,6 @@ export function usePricingData(options: UsePricingDataOptions = {}): UsePricingD
     lastRefreshedAt,
     loadPricing,
     setModelPrices,
+    previewPricingSync,
   };
 }

@@ -5,8 +5,8 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Modal } from '@/components/ui/Modal';
 import { Select, type SelectOption } from '@/components/ui/Select';
-import { IconCheck } from '@/components/ui/icons';
-import type { ModelPrice, PricingStyle } from '@/lib/types';
+import { IconCheck, IconRefreshCw } from '@/components/ui/icons';
+import type { ModelPrice, PricingStyle, PricingSyncMatch, PricingSyncPreviewResponse } from '@/lib/types';
 import styles from '@/pages/UsagePage.module.scss';
 
 const formatDisplayName = (value: string): string => {
@@ -18,9 +18,24 @@ const formatDisplayName = (value: string): string => {
 export interface PriceSettingsCardProps {
   modelNames: string[];
   modelPrices: Record<string, ModelPrice>;
-  onPricesChange: (prices: Record<string, ModelPrice>) => void;
+  onPricesChange: (prices: Record<string, ModelPrice>) => void | Promise<void>;
+  onSyncPreview?: () => Promise<PricingSyncPreviewResponse>;
   onNotice?: (kind: 'success' | 'info' | 'error', message: string) => void;
   loading?: boolean;
+}
+
+interface PricingSyncDraft {
+  model: string;
+  matchedModel: string;
+  matchType: string;
+  sourceProviderId: string;
+  sourceProviderName: string;
+  selected: boolean;
+  style: PricingStyle;
+  prompt: string;
+  completion: string;
+  cache: string;
+  cacheCreation: string;
 }
 
 function PriceSettingsTitle({ title, subtitle }: { title: string; subtitle: string }) {
@@ -45,6 +60,44 @@ const parseCachePriceValue = (value: string, style: PricingStyle, prompt: number
 const parseCacheCreationPriceValue = (value: string, style: PricingStyle): number | null => {
   if (style !== 'claude') return 0;
   return value.trim() === '' ? 0 : parsePriceValue(value);
+};
+
+const priceToInputValue = (value: number | undefined): string => (
+  typeof value === 'number' && Number.isFinite(value) ? value.toString() : ''
+);
+
+const normalizePricingStyle = (style: PricingStyle | string | undefined): PricingStyle => (
+  style === 'claude' ? 'claude' : 'openai'
+);
+
+const syncMatchToDraft = (match: PricingSyncMatch): PricingSyncDraft => ({
+  model: match.model,
+  matchedModel: match.matched_model,
+  matchType: match.match_type,
+  sourceProviderId: match.source_provider_id,
+  sourceProviderName: match.source_provider_name,
+  selected: true,
+  style: normalizePricingStyle(match.pricing_style),
+  prompt: priceToInputValue(match.prompt_price_per_1m),
+  completion: priceToInputValue(match.completion_price_per_1m),
+  cache: priceToInputValue(match.cache_price_per_1m),
+  cacheCreation: priceToInputValue(match.cache_creation_price_per_1m),
+});
+
+const syncDraftToModelPrice = (draft: PricingSyncDraft): ModelPrice | null => {
+  const prompt = parsePriceValue(draft.prompt);
+  const completion = parsePriceValue(draft.completion);
+  if (prompt === null || completion === null) return null;
+  const cache = parseCachePriceValue(draft.cache, draft.style, prompt);
+  const cacheCreation = parseCacheCreationPriceValue(draft.cacheCreation, draft.style);
+  if (cache === null || cacheCreation === null) return null;
+  return {
+    style: draft.style,
+    prompt,
+    completion,
+    cache,
+    cacheCreation,
+  };
 };
 
 const pricingStyleOptions = (t: (key: string) => string): SelectOption[] => [
@@ -81,6 +134,7 @@ export function PriceSettingsCard({
   modelNames,
   modelPrices,
   onPricesChange,
+  onSyncPreview,
   onNotice,
   loading = false
 }: PriceSettingsCardProps) {
@@ -101,6 +155,12 @@ export function PriceSettingsCard({
   const [editCompletion, setEditCompletion] = useState('');
   const [editCache, setEditCache] = useState('');
   const [editCacheCreation, setEditCacheCreation] = useState('');
+
+  const [syncOpen, setSyncOpen] = useState(false);
+  const [syncLoading, setSyncLoading] = useState(false);
+  const [syncApplying, setSyncApplying] = useState(false);
+  const [syncPreview, setSyncPreview] = useState<PricingSyncPreviewResponse | null>(null);
+  const [syncDrafts, setSyncDrafts] = useState<PricingSyncDraft[]>([]);
 
   const handleSavePrice = () => {
     if (!selectedModel) return;
@@ -183,6 +243,67 @@ export function PriceSettingsCard({
     }
   };
 
+  const handleOpenSyncPreview = async () => {
+    if (!onSyncPreview || syncLoading) return;
+    setSyncLoading(true);
+    try {
+      const preview = await onSyncPreview();
+      const drafts = (preview.matches ?? []).map(syncMatchToDraft);
+      setSyncPreview({
+        ...preview,
+        matches: preview.matches ?? [],
+        unmatched_models: preview.unmatched_models ?? [],
+      });
+      setSyncDrafts(drafts);
+      setSyncOpen(true);
+      if (drafts.length === 0) {
+        onNotice?.('info', t('usage_stats.model_price_sync_no_matches'));
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '';
+      onNotice?.('error', `${t('usage_stats.model_price_sync_failed')}${message ? `: ${message}` : ''}`);
+    } finally {
+      setSyncLoading(false);
+    }
+  };
+
+  const handleUpdateSyncDraft = (index: number, patch: Partial<PricingSyncDraft>) => {
+    setSyncDrafts((current) => current.map((draft, draftIndex) => (
+      draftIndex === index ? { ...draft, ...patch } : draft
+    )));
+  };
+
+  const handleSetAllSyncDrafts = (selected: boolean) => {
+    setSyncDrafts((current) => current.map((draft) => ({ ...draft, selected })));
+  };
+
+  const handleApplySyncDrafts = async () => {
+    const selectedDrafts = syncDrafts.filter((draft) => draft.selected);
+    if (selectedDrafts.length === 0) {
+      onNotice?.('error', t('usage_stats.model_price_sync_none_selected'));
+      return;
+    }
+
+    const newPrices = { ...modelPrices };
+    for (const draft of selectedDrafts) {
+      const price = syncDraftToModelPrice(draft);
+      if (!price) {
+        onNotice?.('error', t('usage_stats.model_price_sync_invalid', { model: formatDisplayName(draft.model) }));
+        return;
+      }
+      newPrices[draft.model] = price;
+    }
+
+    setSyncApplying(true);
+    try {
+      await Promise.resolve(onPricesChange(newPrices));
+      onNotice?.('success', t('usage_stats.model_price_sync_apply_success', { count: selectedDrafts.length }));
+      setSyncOpen(false);
+    } finally {
+      setSyncApplying(false);
+    }
+  };
+
   const options = useMemo(
     () => buildPricingModelOptions(
       modelNames,
@@ -193,6 +314,10 @@ export function PriceSettingsCard({
     [modelNames, modelPrices, t]
   );
   const styleOptions = useMemo(() => pricingStyleOptions(t), [t]);
+  const selectedSyncCount = useMemo(
+    () => syncDrafts.filter((draft) => draft.selected).length,
+    [syncDrafts]
+  );
 
   return (
     <>
@@ -210,6 +335,22 @@ export function PriceSettingsCard({
             <div className={styles.hint}>{t('common.loading')}</div>
           ) : (
             <>
+              {onSyncPreview && (
+                <div className={styles.pricingToolbar}>
+                  <div className={styles.pricingToolbarMeta}>
+                    <span>{t('usage_stats.model_price_sync_source')}: Models.dev</span>
+                  </div>
+                  <Button
+                    variant="secondary"
+                    className={styles.usagePillAction}
+                    onClick={() => void handleOpenSyncPreview()}
+                    loading={syncLoading}
+                  >
+                    <IconRefreshCw size={14} />
+                    {t('usage_stats.model_price_sync')}
+                  </Button>
+                </div>
+              )}
               <div className={styles.priceForm}>
                 <div className={styles.formRow}>
                   <div className={styles.formField}>
@@ -403,6 +544,189 @@ export function PriceSettingsCard({
                 className={styles.usagePillControl}
               />
             </div>
+          )}
+        </div>
+      </Modal>
+
+      <Modal
+        open={syncOpen}
+        title={t('usage_stats.model_price_sync_title')}
+        onClose={() => {
+          if (!syncApplying) {
+            setSyncOpen(false);
+          }
+        }}
+        closeDisabled={syncApplying}
+        footer={
+          <div className={styles.priceActions}>
+            <Button
+              variant="secondary"
+              className={styles.usagePillAction}
+              onClick={() => setSyncOpen(false)}
+              disabled={syncApplying}
+            >
+              {t('common.cancel')}
+            </Button>
+            <Button
+              variant="primary"
+              className={styles.usagePillAction}
+              onClick={() => void handleApplySyncDrafts()}
+              loading={syncApplying}
+              disabled={selectedSyncCount === 0}
+            >
+              {t('usage_stats.model_price_sync_update_selected', { count: selectedSyncCount })}
+            </Button>
+          </div>
+        }
+        width={940}
+      >
+        <div className={styles.syncModalBody}>
+          <div className={styles.syncSummaryRow}>
+            <span>
+              {t('usage_stats.model_price_sync_source')}: {syncPreview?.source || 'Models.dev'}
+            </span>
+            <span>
+              {t('usage_stats.model_price_sync_matched')}: {syncDrafts.length}
+            </span>
+            <span>
+              {t('usage_stats.model_price_sync_unmatched')}: {syncPreview?.unmatched_models?.length ?? 0}
+            </span>
+          </div>
+
+          {syncDrafts.length > 0 ? (
+            <>
+              <div className={styles.syncBatchActions}>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  className={styles.usagePillAction}
+                  onClick={() => handleSetAllSyncDrafts(true)}
+                  disabled={syncApplying}
+                >
+                  {t('usage_stats.model_price_sync_select_all')}
+                </Button>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  className={styles.usagePillAction}
+                  onClick={() => handleSetAllSyncDrafts(false)}
+                  disabled={syncApplying}
+                >
+                  {t('usage_stats.model_price_sync_select_none')}
+                </Button>
+              </div>
+
+              <div className={styles.syncDraftList}>
+                {syncDrafts.map((draft, index) => {
+                  const existing = Boolean(modelPrices[draft.model]);
+                  return (
+                    <div key={`${draft.model}-${draft.matchedModel}`} className={styles.syncDraftItem}>
+                      <label className={styles.syncDraftCheck}>
+                        <input
+                          type="checkbox"
+                          checked={draft.selected}
+                          disabled={syncApplying}
+                          onChange={(event) => handleUpdateSyncDraft(index, { selected: event.target.checked })}
+                          aria-label={t('usage_stats.model_price_sync_toggle', { model: formatDisplayName(draft.model) })}
+                        />
+                      </label>
+                      <div className={styles.syncDraftContent}>
+                        <div className={styles.syncDraftHeader}>
+                          <div className={styles.syncDraftModelBlock}>
+                            <span className={styles.priceModel}>{formatDisplayName(draft.model)}</span>
+                            <span className={styles.syncDraftMatched}>
+                              {t('usage_stats.model_price_sync_matched_model', { model: formatDisplayName(draft.matchedModel) })}
+                            </span>
+                            <span className={styles.syncDraftMatched}>
+                              {t('usage_stats.model_price_sync_provider', {
+                                provider: formatDisplayName(draft.sourceProviderName || draft.sourceProviderId),
+                                id: formatDisplayName(draft.sourceProviderId),
+                              })}
+                            </span>
+                          </div>
+                          <div className={styles.syncDraftBadges}>
+                            <span>{draft.matchType}</span>
+                            {existing && <span>{t('usage_stats.model_price_sync_existing')}</span>}
+                          </div>
+                        </div>
+                        <div className={styles.syncDraftGrid}>
+                          <div className={styles.formField}>
+                            <label>{t('usage_stats.model_price_style')}</label>
+                            <Select
+                              value={draft.style}
+                              options={styleOptions}
+                              onChange={(value) => handleUpdateSyncDraft(index, { style: value === 'claude' ? 'claude' : 'openai' })}
+                              className={styles.usagePillControl}
+                            />
+                          </div>
+                          <div className={styles.formField}>
+                            <label>{t('usage_stats.model_price_prompt')} ($/1M)</label>
+                            <Input
+                              type="number"
+                              value={draft.prompt}
+                              onChange={(event) => handleUpdateSyncDraft(index, { prompt: event.target.value })}
+                              placeholder="0.00"
+                              step="0.0001"
+                              className={styles.usagePillControl}
+                            />
+                          </div>
+                          <div className={styles.formField}>
+                            <label>{t('usage_stats.model_price_completion')} ($/1M)</label>
+                            <Input
+                              type="number"
+                              value={draft.completion}
+                              onChange={(event) => handleUpdateSyncDraft(index, { completion: event.target.value })}
+                              placeholder="0.00"
+                              step="0.0001"
+                              className={styles.usagePillControl}
+                            />
+                          </div>
+                          <div className={styles.formField}>
+                            <label>{t(draft.style === 'claude' ? 'usage_stats.model_price_cache_read' : 'usage_stats.model_price_cache')} ($/1M)</label>
+                            <Input
+                              type="number"
+                              value={draft.cache}
+                              onChange={(event) => handleUpdateSyncDraft(index, { cache: event.target.value })}
+                              placeholder="0.00"
+                              step="0.0001"
+                              className={styles.usagePillControl}
+                            />
+                          </div>
+                          {draft.style === 'claude' && (
+                            <div className={styles.formField}>
+                              <label>{t('usage_stats.model_price_cache_write')} ($/1M)</label>
+                              <Input
+                                type="number"
+                                value={draft.cacheCreation}
+                                onChange={(event) => handleUpdateSyncDraft(index, { cacheCreation: event.target.value })}
+                                placeholder="0.00"
+                                step="0.0001"
+                                className={styles.usagePillControl}
+                              />
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </>
+          ) : (
+            <div className={styles.hint}>{t('usage_stats.model_price_sync_no_matches')}</div>
+          )}
+
+          {(syncPreview?.unmatched_models?.length ?? 0) > 0 && (
+            <details className={styles.syncUnmatched}>
+              <summary>
+                {t('usage_stats.model_price_sync_unmatched')}: {syncPreview?.unmatched_models.length}
+              </summary>
+              <div className={styles.syncUnmatchedList}>
+                {syncPreview?.unmatched_models.map((model) => (
+                  <span key={model}>{formatDisplayName(model)}</span>
+                ))}
+              </div>
+            </details>
           )}
         </div>
       </Modal>

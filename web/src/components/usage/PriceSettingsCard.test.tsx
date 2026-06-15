@@ -46,6 +46,27 @@ describe('PriceSettingsCard', () => {
     expect(html).toContain('Cache Write');
     expect(html).toContain('$3.7500/1M');
   });
+
+  it('shows the sync prices action when sync preview is available', () => {
+    const html = renderToStaticMarkup(
+      <PriceSettingsCard
+        modelNames={['gpt-4o']}
+        modelPrices={{}}
+        onPricesChange={() => undefined}
+        onSyncPreview={async () => ({
+          source: 'Models.dev',
+          source_url: 'https://models.dev/api.json',
+          metadata_models: 1,
+          matches: [],
+          unmatched_models: [],
+        })}
+        loading={false}
+      />,
+    );
+
+    expect(html).toContain('Sync Prices');
+    expect(html).toContain('Models.dev');
+  });
 });
 
 describe('buildPricingModelOptions', () => {
