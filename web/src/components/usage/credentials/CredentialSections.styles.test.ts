@@ -95,18 +95,24 @@ describe('Credential section styles', () => {
     expect(credentialHealthSource).toContain('bucket.successCount')
     expect(credentialHealthSource).toContain('bucket.failureCount')
     expect(credentialHealthSource).toContain('credentialHealthTooltip')
-    expect(credentialHealthSource).toMatch(/<button[\s\S]*?type="button"[\s\S]*?className=\{`\$\{styles\.credentialHealthCell/)
+    expect(credentialHealthSource).toMatch(/<span[\s\S]*?role="listitem"[\s\S]*?className=\{`\$\{styles\.credentialHealthCell/)
     expect(credentialStyles).toMatch(/\.credentialHealthCell\s*\{[\s\S]*?position:\s*relative;/)
     expect(credentialStyles).toMatch(/\.credentialHealthCell\s*\{[\s\S]*?border:\s*0;/)
     expect(credentialStyles).toMatch(/\.credentialHealthCell\s*\{[\s\S]*?transition:\s*transform 0\.16s ease/)
+    expect(credentialStyles).toMatch(/\.credentialHealthCell\s*\{[\s\S]*?border-radius:\s*3px;/)
     expect(credentialStyles).toMatch(/\.credentialHealthCell:hover[\s\S]*?transform:\s*translateY\(-2px\) scale\(1\.2\);/)
-    expect(credentialStyles).toMatch(/\.credentialHealthCell:focus-visible[\s\S]*?outline:\s*2px solid var\(--primary-color\);/)
     expect(credentialStyles).toMatch(/\.credentialHealthTooltip\s*\{[\s\S]*?position:\s*absolute;/)
     expect(credentialStyles).toMatch(/\.credentialHealthTooltip\s*\{[\s\S]*?font-size:\s*10px;/)
     expect(credentialStyles).toMatch(/\.credentialHealthTooltip\s*\{[\s\S]*?font-weight:\s*400;/)
     expect(credentialStyles).toMatch(/\.credentialHealthTooltip\s*\{[\s\S]*?opacity:\s*0;/)
     expect(credentialStyles).toMatch(/\.credentialHealthCell:hover \.credentialHealthTooltip[\s\S]*?opacity:\s*1;/)
-    expect(credentialStyles).toMatch(/\.credentialHealthCell:focus-visible \.credentialHealthTooltip[\s\S]*?opacity:\s*1;/)
+    expect(credentialStyles).not.toMatch(/\.credentialHealthCell:focus-visible/)
+    expect(credentialHealthSource).not.toMatch(/<button[\s\S]*?credentialHealthCell/)
+  })
+
+  it('keeps shared credential table headers out of narrow row stacking', () => {
+    expect(credentialStyles).toMatch(/@include tablet\s*\{[\s\S]*?\.credentialTableHeader\.authFileCredentialRow[\s\S]*?display:\s*none;/)
+    expect(credentialStyles).toMatch(/@include tablet\s*\{[\s\S]*?\.credentialTableHeader\.aiProviderCredentialRow[\s\S]*?display:\s*none;/)
   })
 
   it('stacks Auth Files quota error status above the message', () => {

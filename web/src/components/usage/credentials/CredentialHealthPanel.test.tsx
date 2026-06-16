@@ -41,7 +41,8 @@ describe('CredentialHealthPanel', () => {
         />,
       )
 
-      expect(html.match(/<button/g)).toHaveLength(30)
+      expect(html).not.toContain('<button')
+      expect(html.match(/role="tooltip"/g)).toHaveLength(30)
       expect(html).toContain('usage_stats.credentials_health_last_5h')
       expect(html).toContain('0.0%')
       expect(html).toContain('usage_stats.credentials_health_ok')
@@ -87,7 +88,8 @@ describe('CredentialHealthPanel', () => {
       />,
     )
 
-    expect(html.match(/<button/g)).toHaveLength(30)
+    expect(html).not.toContain('<button')
+    expect(html.match(/role="tooltip"/g)).toHaveLength(30)
     expect(html).toContain('66.7%')
     expect(html).toContain('usage_stats.credentials_health_ok')
     expect(html).toContain('usage_stats.credentials_health_fail')

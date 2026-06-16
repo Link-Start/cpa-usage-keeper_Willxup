@@ -66,15 +66,16 @@ export function CredentialHealthPanel({ displayName, health, lastUsedAt, statsUp
         </div>
         <div
           className={styles.credentialHealthGrid}
+          role="list"
           aria-label={t('usage_stats.credentials_health_grid_aria', { name: displayName })}
         >
           {buckets.map((bucket, index) => {
             const timeRange = `${bucket.startLabel} - ${bucket.endLabel}`
             const status = formatHealthBucketLabel(bucket.state, t)
             return (
-              <button
+              <span
                 key={`health-${index}`}
-                type="button"
+                role="listitem"
                 className={`${styles.credentialHealthCell} ${healthCellStateClassName[bucket.state]}`.trim()}
                 aria-label={t('usage_stats.credentials_health_bucket_aria', {
                   timeRange,
@@ -101,7 +102,7 @@ export function CredentialHealthPanel({ displayName, health, lastUsedAt, statsUp
                     <span>{bucket.successRateLabel}</span>
                   </span>
                 </span>
-              </button>
+              </span>
             )
           })}
         </div>
