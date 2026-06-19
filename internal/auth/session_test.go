@@ -154,7 +154,8 @@ func TestPersistentSessionManagerLoadsSessionAfterRestart(t *testing.T) {
 		t.Fatalf("expected persisted token hash %q, got %q", sessionTokenHash(token), row.TokenHash)
 	}
 
-	restarted := NewPersistentSessionManager(2*time.Hour, store)
+	restartedStore := &trackingSessionStore{store: store}
+	restarted := NewPersistentSessionManager(2*time.Hour, restartedStore)
 	restarted.now = func() time.Time { return baseTime.Add(time.Minute) }
 	session, ok := restarted.Get(token)
 	if !ok {
@@ -165,6 +166,20 @@ func TestPersistentSessionManagerLoadsSessionAfterRestart(t *testing.T) {
 	}
 	if !session.ExpiresAt.Equal(expiresAt) {
 		t.Fatalf("expected persisted expiry %s, got %s", expiresAt, session.ExpiresAt)
+	}
+	if restartedStore.getCalls != 1 {
+		t.Fatalf("expected first restart lookup to load from store once, got %d", restartedStore.getCalls)
+	}
+
+	session, ok = restarted.Get(token)
+	if !ok {
+		t.Fatal("expected cached persisted session to validate")
+	}
+	if session.CPAAPIKeyID != 42 {
+		t.Fatalf("unexpected cached session metadata: %+v", session)
+	}
+	if restartedStore.getCalls != 1 {
+		t.Fatalf("expected cached restart lookup not to hit store again, got %d calls", restartedStore.getCalls)
 	}
 }
 
@@ -209,4 +224,26 @@ func openSessionStoreTestDatabase(t *testing.T) *gorm.DB {
 		}
 	})
 	return db
+}
+
+type trackingSessionStore struct {
+	store    SessionStore
+	getCalls int
+}
+
+func (s *trackingSessionStore) Save(token string, session Session) error {
+	return s.store.Save(token, session)
+}
+
+func (s *trackingSessionStore) Get(token string) (Session, bool, error) {
+	s.getCalls++
+	return s.store.Get(token)
+}
+
+func (s *trackingSessionStore) Delete(token string) error {
+	return s.store.Delete(token)
+}
+
+func (s *trackingSessionStore) DeleteExpired(now time.Time) error {
+	return s.store.DeleteExpired(now)
 }

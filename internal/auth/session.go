@@ -68,14 +68,14 @@ func (s *GormSessionStore) Delete(token string) error {
 	if s == nil || s.db == nil {
 		return fmt.Errorf("auth session store is not configured")
 	}
-	return s.db.Where("token_hash = ?", sessionTokenHash(token)).Delete(&entities.AuthSession{}).Error
+	return s.db.Unscoped().Where("token_hash = ?", sessionTokenHash(token)).Delete(&entities.AuthSession{}).Error
 }
 
 func (s *GormSessionStore) DeleteExpired(now time.Time) error {
 	if s == nil || s.db == nil {
 		return fmt.Errorf("auth session store is not configured")
 	}
-	return s.db.Where("expires_at <= ?", timeutil.FormatStorageTime(now)).Delete(&entities.AuthSession{}).Error
+	return s.db.Unscoped().Where("expires_at <= ?", timeutil.FormatStorageTime(now)).Delete(&entities.AuthSession{}).Error
 }
 
 func authSessionFromRow(row entities.AuthSession) (Session, error) {
@@ -189,6 +189,19 @@ func (m *SessionManager) getPersisted(token string) (Session, bool) {
 	if m.store == nil {
 		return Session{}, false
 	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if session, ok := m.sessions[token]; ok {
+		if !session.ExpiresAt.After(m.now()) {
+			delete(m.sessions, token)
+			if err := m.store.Delete(token); err != nil {
+				panic(fmt.Errorf("delete auth session: %w", err))
+			}
+			return Session{}, false
+		}
+		return session, true
+	}
+
 	session, ok, err := m.store.Get(token)
 	if err != nil {
 		panic(fmt.Errorf("load auth session: %w", err))
@@ -197,9 +210,12 @@ func (m *SessionManager) getPersisted(token string) (Session, bool) {
 		return Session{}, false
 	}
 	if !session.ExpiresAt.After(m.now()) {
-		m.Delete(token)
+		if err := m.store.Delete(token); err != nil {
+			panic(fmt.Errorf("delete auth session: %w", err))
+		}
 		return Session{}, false
 	}
+	m.sessions[token] = session
 	return session, true
 }
 
