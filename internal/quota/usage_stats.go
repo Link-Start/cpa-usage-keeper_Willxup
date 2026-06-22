@@ -19,6 +19,9 @@ type usageWindowStatsProvider interface {
 }
 
 func (s *Service) attachWindowUsageStats(ctx context.Context, authIndex string, response CheckResponse, now time.Time) CheckResponse {
+	if s == nil {
+		return response
+	}
 	calculator, err := repository.NewUsageWindowStatsCalculator(ctx, s.db)
 	if err != nil {
 		return response

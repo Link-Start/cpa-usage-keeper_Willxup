@@ -1,6 +1,7 @@
 package service
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -132,8 +133,7 @@ func (d queuedUsageDetail) toUsageHeaderSnapshot(event entities.UsageEvent) *quo
 }
 
 func decodeRedisUsageResponseHeaders(raw json.RawMessage) (http.Header, bool) {
-	trimmed := strings.TrimSpace(string(raw))
-	if trimmed == "" || trimmed == "null" {
+	if rawJSONMessageIsEmptyOrNull(raw) {
 		return nil, false
 	}
 	var headers http.Header
@@ -154,6 +154,11 @@ func decodeRedisUsageResponseHeaders(raw json.RawMessage) (http.Header, bool) {
 		return nil, false
 	}
 	return headers, true
+}
+
+func rawJSONMessageIsEmptyOrNull(raw json.RawMessage) bool {
+	trimmed := bytes.TrimSpace(raw)
+	return len(trimmed) == 0 || (len(trimmed) == 4 && trimmed[0] == 'n' && trimmed[1] == 'u' && trimmed[2] == 'l' && trimmed[3] == 'l')
 }
 
 func decodeRedisUsageHeaderValues(raw json.RawMessage) []string {

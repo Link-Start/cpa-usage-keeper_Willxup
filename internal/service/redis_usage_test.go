@@ -1,6 +1,7 @@
 package service
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
@@ -124,6 +125,19 @@ func TestDecodeRedisUsageMessageWithHeadersSkipsMalformedHeadersWithoutBlockingE
 	}
 	if snapshot != nil {
 		t.Fatalf("expected malformed headers to skip quota snapshot, got %+v", snapshot)
+	}
+}
+
+func TestDecodeRedisUsageResponseHeadersSkipsNullWithoutAllocating(t *testing.T) {
+	raw := json.RawMessage(" \nnull\t")
+	allocs := testing.AllocsPerRun(1000, func() {
+		headers, ok := decodeRedisUsageResponseHeaders(raw)
+		if ok || headers != nil {
+			t.Fatalf("expected null response_headers to be skipped, got ok=%v headers=%+v", ok, headers)
+		}
+	})
+	if allocs != 0 {
+		t.Fatalf("expected null response_headers check to avoid allocations, got %.2f", allocs)
 	}
 }
 

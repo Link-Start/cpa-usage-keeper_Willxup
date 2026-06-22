@@ -2,6 +2,8 @@ package quota
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -243,6 +245,30 @@ func TestApplyUsageHeaderSnapshotUpdatesRecentCompletedCacheAndRefreshesWindowUs
 	task := service.refreshTasks["codex-auth"]
 	if task.Quota == nil || len(task.Quota.Quota) != 1 || task.Quota.Quota[0].UsedPercent == nil || *task.Quota.Quota[0].UsedPercent != 4 {
 		t.Fatalf("expected recent header progress to update cache, got %+v", task)
+	}
+}
+
+func TestApplyUsageHeaderSnapshotsSkipsBatchWhenWindowStatsProviderUnavailable(t *testing.T) {
+	db := openQuotaTestDatabase(t)
+	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "codex-auth", Provider: "codex", Type: "codex", AuthType: entities.UsageIdentityAuthTypeAuthFile})
+	callbackName := "test:fail_header_batch_window_stats_provider"
+	if err := db.Callback().Query().After("gorm:query").Register(callbackName, func(tx *gorm.DB) {
+		if queryMentionsTable(tx.Statement.SQL.String(), "model_price_settings") {
+			tx.AddError(fmt.Errorf("forced model price settings failure"))
+		}
+	}); err != nil {
+		t.Fatalf("register query callback returned error: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Callback().Query().Remove(callbackName) })
+	service := NewServiceWithRegistry(db, NewProviderRegistry(nil))
+	defer service.StopRefreshTasks()
+
+	service.applyUsageHeaderSnapshots(context.Background(), []UsageHeaderSnapshot{
+		codexUsageHeaderSnapshot("codex-auth", time.Date(2026, 6, 22, 11, 0, 0, 0, time.Local), "4"),
+	})
+
+	if _, err := service.GetRefreshTaskByAuthIndex(context.Background(), "codex-auth"); !errors.Is(err, ErrTaskNotFound) {
+		t.Fatalf("expected provider failure to skip the whole header batch, got err=%v", err)
 	}
 }
 

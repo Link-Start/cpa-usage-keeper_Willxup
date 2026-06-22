@@ -167,6 +167,10 @@ func (s *Service) applyUsageHeaderSnapshots(ctx context.Context, snapshots []Usa
 		return
 	}
 	statsProvider := s.usageHeaderWindowStatsProvider(ctx)
+	if statsProvider == nil {
+		// 批量 header 更新必须与窗口 token/cost 使用同一统计基础；统计器不可用时整批跳过，避免写入半套 cache。
+		return
+	}
 	for _, snapshot := range snapshots {
 		authIndex := strings.TrimSpace(snapshot.AuthIndex)
 		identity, ok := identityByAuthIndex[authIndex]
