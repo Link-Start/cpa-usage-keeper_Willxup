@@ -19,6 +19,7 @@ const analysisPanelSource = readSource(new URL('../components/usage/analysis/Ana
 const analysisPanelStyles = readSource(new URL('../components/usage/analysis/AnalysisPanel.module.scss', import.meta.url))
 const overviewRealtimePanelSource = readSource(new URL('../components/usage/OverviewRealtimePanel.tsx', import.meta.url))
 const statCardsSource = readSource(new URL('../components/usage/StatCards.tsx', import.meta.url))
+const dailyAveragePanelSource = readSource(new URL('../components/usage/DailyAveragePanel.tsx', import.meta.url))
 
 const requestEventColumnDefinitionBlock = (columnId: string) => {
   const start = requestEventsSource.indexOf(`id: '${columnId}',`)
@@ -43,6 +44,24 @@ describe('UsagePage toolbar styles', () => {
     expect(statCardsSource).toContain("key: 'cache-rate'")
     expect(statCardsSource).toContain("accent: '#14b8a6'")
     expect(statCardsSource.match(/accent:\s*'#[0-9a-f]{6}'/g)).toHaveLength(new Set(statCardsSource.match(/accent:\s*'#[0-9a-f]{6}'/g)).size)
+  })
+
+  it('places the Daily Average panel above stat cards with animated responsive styling', () => {
+    const usageDailyAverageIndex = usagePageSource.indexOf('<DailyAveragePanel usage={dailyAveragePanelUsage} loading={overviewDisplayLoading} reserveVisible={reserveDailyAveragePanel} />')
+    const keyDailyAverageIndex = keyOverviewPageSource.indexOf('<DailyAveragePanel usage={dailyAveragePanelUsage} loading={overviewDisplayLoading} reserveVisible={reserveDailyAveragePanel} />')
+    expect(usageDailyAverageIndex).toBeGreaterThanOrEqual(0)
+    expect(keyDailyAverageIndex).toBeGreaterThanOrEqual(0)
+    expect(usageDailyAverageIndex).toBeLessThan(usagePageSource.indexOf('<StatCards'))
+    expect(keyDailyAverageIndex).toBeLessThan(keyOverviewPageSource.indexOf('<StatCards'))
+    expect(dailyAveragePanelSource).toContain('buildDailyAverageMetrics')
+    expect(dailyAveragePanelSource).not.toContain('dailyAverageIdentityIcon')
+    expect(usagePageStyles).toMatch(/\.dailyAveragePanel\s*\{[\s\S]*?transition:[\s\S]*?opacity/)
+    expect(usagePageStyles).toMatch(/\.dailyAveragePanelEntering\s*\{[\s\S]*?transform:\s*translateY\(-6px\);/)
+    expect(usagePageStyles).toMatch(/\.dailyAveragePanelVisible\s*\{[\s\S]*?opacity:\s*1;/)
+    expect(usagePageStyles).toMatch(/\.dailyAverageMetrics\s*\{[\s\S]*?grid-template-columns:\s*repeat\(3, minmax\(0, 1fr\)\);/)
+    expect(usagePageStyles).toMatch(/@include mobile\s*\{[\s\S]*?\.dailyAverageMetrics\s*\{[\s\S]*?grid-template-columns:\s*repeat\(2, minmax\(0, 1fr\)\);/)
+    expect(usagePageStyles).toMatch(/\.dailyAverageMetricCost\s*\{[\s\S]*?grid-column:\s*1 \/ -1;/)
+    expect(usagePageStyles).toContain('@media (prefers-reduced-motion: reduce)')
   })
 
   it('renders the realtime overview panel below Request Health Timeline with the planned responsive grid', () => {

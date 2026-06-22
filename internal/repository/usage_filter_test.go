@@ -1099,6 +1099,17 @@ func TestBuildUsageOverviewWithFilterUsesExactPresetWindowMinutes(t *testing.T) 
 			if overview.Summary.WindowMinutes != tc.expectMinutes {
 				t.Fatalf("expected %d minute window, got %+v", tc.expectMinutes, overview.Summary)
 			}
+			if tc.rangeName == "24h" {
+				if overview.Summary.DailyAverageRequests != nil || overview.Summary.DailyAverageTokens != nil || overview.Summary.DailyAverageCost != nil || overview.Summary.DailyAverageRangeDays != nil {
+					t.Fatalf("expected 24h overview not to expose daily averages, got %+v", overview.Summary)
+				}
+			}
+			if tc.rangeName == "7d" {
+				assertFloat64PtrClose(t, overview.Summary.DailyAverageRequests, 1.0/7.0)
+				assertFloat64PtrClose(t, overview.Summary.DailyAverageTokens, 25.0/7.0)
+				assertFloat64PtrClose(t, overview.Summary.DailyAverageCost, overview.Summary.TotalCost/7.0)
+				assertFloat64PtrClose(t, overview.Summary.DailyAverageRangeDays, 7.0)
+			}
 			if len(overview.Series.Requests) != 1 || overview.Series.Requests[tc.expectBucketKey] != 1 {
 				t.Fatalf("unexpected request series for %s: %+v", tc.rangeName, overview.Series.Requests)
 			}
@@ -1108,6 +1119,69 @@ func TestBuildUsageOverviewWithFilterUsesExactPresetWindowMinutes(t *testing.T) 
 				t.Fatalf("DELETE %s returned error: %v", table, err)
 			}
 		}
+	}
+}
+
+func TestFinalizeUsageOverviewDailyAverageCustomWindowBoundaries(t *testing.T) {
+	start := time.Date(2026, 4, 16, 0, 0, 0, 0, time.UTC)
+	cases := []struct {
+		name          string
+		end           time.Time
+		expectAverage bool
+		expectDays    float64
+	}{
+		{
+			name:          "custom one day hides daily averages",
+			end:           start.Add(24 * time.Hour),
+			expectAverage: false,
+		},
+		{
+			name:          "custom two days exposes daily averages",
+			end:           start.Add(48 * time.Hour),
+			expectAverage: true,
+			expectDays:    2,
+		},
+		{
+			name:          "custom slightly over one day exposes daily averages",
+			end:           start.Add(24*time.Hour + time.Minute),
+			expectAverage: true,
+			expectDays:    1441.0 / 1440.0,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			overview := buildUsageOverviewFromEventsForTest([]entities.UsageEvent{{
+				EventKey:    "event-" + strings.ReplaceAll(tc.name, " ", "-"),
+				APIGroupKey: "provider-a",
+				Model:       "claude-sonnet",
+				Timestamp:   tc.end,
+				TotalTokens: 1440,
+				InputTokens: 1440,
+			}}, dto.UsageQueryFilter{Range: "custom", StartTime: &start, EndTime: &tc.end}, nil)
+
+			if !tc.expectAverage {
+				if overview.Summary.DailyAverageRequests != nil || overview.Summary.DailyAverageTokens != nil || overview.Summary.DailyAverageCost != nil || overview.Summary.DailyAverageRangeDays != nil {
+					t.Fatalf("expected custom one-day overview not to expose daily averages, got %+v", overview.Summary)
+				}
+				return
+			}
+
+			assertFloat64PtrClose(t, overview.Summary.DailyAverageRangeDays, tc.expectDays)
+			assertFloat64PtrClose(t, overview.Summary.DailyAverageRequests, 1.0/tc.expectDays)
+			assertFloat64PtrClose(t, overview.Summary.DailyAverageTokens, 1440.0/tc.expectDays)
+			assertFloat64PtrClose(t, overview.Summary.DailyAverageCost, 0)
+		})
+	}
+}
+
+func assertFloat64PtrClose(t *testing.T, actual *float64, expected float64) {
+	t.Helper()
+	if actual == nil {
+		t.Fatalf("expected %.8f, got nil", expected)
+	}
+	if diff := math.Abs(*actual - expected); diff > 0.0000001 {
+		t.Fatalf("expected %.8f, got %.8f", expected, *actual)
 	}
 }
 

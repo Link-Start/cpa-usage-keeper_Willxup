@@ -2246,9 +2246,20 @@ func finalizeUsageOverview(overview *dto.UsageOverviewRecord) {
 		overview.Summary.RPM = float64(overview.Summary.RequestCount) / float64(overview.Summary.WindowMinutes)
 		overview.Summary.TPM = float64(overview.Summary.TokenCount) / float64(overview.Summary.WindowMinutes)
 	}
+	if overview.Summary.WindowMinutes > usageOverviewDailyAverageDayMinutes {
+		days := float64(overview.Summary.WindowMinutes) / float64(usageOverviewDailyAverageDayMinutes)
+		overview.Summary.DailyAverageRequests = usageOverviewFloat64Ptr(float64(overview.Summary.RequestCount) / days)
+		overview.Summary.DailyAverageTokens = usageOverviewFloat64Ptr(float64(overview.Summary.TokenCount) / days)
+		overview.Summary.DailyAverageCost = usageOverviewFloat64Ptr(overview.Summary.TotalCost / days)
+		overview.Summary.DailyAverageRangeDays = usageOverviewFloat64Ptr(days)
+	}
 	if total := overview.Health.TotalSuccess + overview.Health.TotalFailure; total > 0 {
 		overview.Health.SuccessRate = (float64(overview.Health.TotalSuccess) / float64(total)) * 100
 	}
+}
+
+func usageOverviewFloat64Ptr(value float64) *float64 {
+	return &value
 }
 
 // normalizeUsageOverviewDimension 统一 usage 统计中的空维度 key。
@@ -2273,7 +2284,10 @@ func loadPriceSettingsByModel(db *gorm.DB) (map[string]entities.ModelPriceSettin
 	return result, nil
 }
 
-const usageOverviewDailyBucketThresholdMinutes int64 = 7 * 24 * 60
+const (
+	usageOverviewDailyAverageDayMinutes      int64 = 24 * 60
+	usageOverviewDailyBucketThresholdMinutes int64 = 7 * 24 * 60
+)
 
 // computeWindowMinutes 计算 Overview 窗口分钟数，非整分钟向上取整。
 func computeWindowMinutes(filter dto.UsageQueryFilter) int64 {
