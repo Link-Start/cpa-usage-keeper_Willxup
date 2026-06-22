@@ -1523,7 +1523,6 @@ func usageOverviewHealthBlockIndex(blocks []dto.UsageOverviewHealthBlockRecord, 
 }
 
 const usageOverviewRealtimeBucketCount = 30
-const usageOverviewRealtimeParticleMaxBins = 6
 
 type usageOverviewRealtimeBucket struct {
 	bucketStart    time.Time
@@ -1612,8 +1611,8 @@ func buildUsageOverviewRealtime(db *gorm.DB, filter dto.UsageQueryFilter, pricin
 			// current usage 的请求数同样包含成功和失败，token 后续只由成功请求累计。
 			applyUsageOverviewRealtimeRequest(realtimeEvent, modelUsage, apiKeyUsage, authFileUsage, aiProviderUsage, identityLookup)
 		}
-		// TTFT 缺失时不补 0，避免 percentile 被无样本 bucket 拉低。
-		if event.TTFTMS != nil {
+		// TTFT 缺失或非正数时不补 0，避免 log 分布和 percentile 被无效样本拉低。
+		if event.TTFTMS != nil && *event.TTFTMS > 0 {
 			bucket.ttftSamples = append(bucket.ttftSamples, *event.TTFTMS)
 		}
 		// Latency 只有正数才作为样本。
@@ -1958,15 +1957,16 @@ func finalizeUsageOverviewRealtime(window, span time.Duration, buckets []usageOv
 	aggregationBucketCount := usageOverviewRealtimeAggregationBucketCount(span, aggregationWindow)
 	aggregationMinutes := aggregationWindow.Minutes()
 	for index := visibleStartIndex; index < len(buckets); index++ {
-		bucket := aggregateUsageOverviewRealtimeBucket(buckets, index, aggregationBucketCount)
-		bucketKey := timeutil.FormatStorageTime(bucket.bucketStart)
-		ttftP50, ttftP95 := usageOverviewRealtimePercentilePair(bucket.ttftSamples, 0.50, 0.95)
-		latencyP50, latencyP95 := usageOverviewRealtimePercentilePair(bucket.latencySamples, 0.50, 0.95)
+		rollingBucket := aggregateUsageOverviewRealtimeBucket(buckets, index, aggregationBucketCount)
+		rawBucket := buckets[index]
+		bucketKey := timeutil.FormatStorageTime(rollingBucket.bucketStart)
+		ttftP50, ttftP95 := usageOverviewRealtimePercentilePair(rollingBucket.ttftSamples, 0.50, 0.95)
+		latencyP50, latencyP95 := usageOverviewRealtimePercentilePair(rollingBucket.latencySamples, 0.50, 0.95)
 		tokenVelocity = append(tokenVelocity, dto.RealtimeTokenVelocityPointRecord{
 			Bucket:          bucketKey,
-			TokensPerMinute: float64(bucket.tokens) / aggregationMinutes,
-			Tokens:          bucket.tokens,
-			CostUSD:         usageOverviewRealtimeCostPtr(bucket.costUSD, bucket.costAvailable),
+			TokensPerMinute: float64(rollingBucket.tokens) / aggregationMinutes,
+			Tokens:          rollingBucket.tokens,
+			CostUSD:         usageOverviewRealtimeCostPtr(rollingBucket.costUSD, rollingBucket.costAvailable),
 		})
 		responseLevel = append(responseLevel, dto.RealtimeResponseLevelPointRecord{
 			Bucket:       bucketKey,
@@ -1977,24 +1977,24 @@ func finalizeUsageOverviewRealtime(window, span time.Duration, buckets []usageOv
 		})
 		responseDistribution.TTFT.AverageLine = append(responseDistribution.TTFT.AverageLine, dto.RealtimeResponseAveragePointRecord{
 			Bucket: bucketKey,
-			AvgMS:  usageOverviewRealtimeAverage(bucket.ttftSamples),
+			AvgMS:  usageOverviewRealtimeAverage(rollingBucket.ttftSamples),
 		})
-		responseDistribution.TTFT.Particles = append(responseDistribution.TTFT.Particles, usageOverviewRealtimeDistributionParticles(bucketKey, bucket.ttftSamples)...)
+		responseDistribution.TTFT.Particles = appendUsageOverviewRealtimeDistributionParticles(responseDistribution.TTFT.Particles, bucketKey, rawBucket.ttftSamples)
 		responseDistribution.Latency.AverageLine = append(responseDistribution.Latency.AverageLine, dto.RealtimeResponseAveragePointRecord{
 			Bucket: bucketKey,
-			AvgMS:  usageOverviewRealtimeAverage(bucket.latencySamples),
+			AvgMS:  usageOverviewRealtimeAverage(rollingBucket.latencySamples),
 		})
-		responseDistribution.Latency.Particles = append(responseDistribution.Latency.Particles, usageOverviewRealtimeDistributionParticles(bucketKey, bucket.latencySamples)...)
+		responseDistribution.Latency.Particles = appendUsageOverviewRealtimeDistributionParticles(responseDistribution.Latency.Particles, bucketKey, rawBucket.latencySamples)
 		requestLevel = append(requestLevel, dto.RealtimeRequestLevelPointRecord{
 			Bucket:            bucketKey,
-			RequestsPerMinute: float64(bucket.requests) / aggregationMinutes,
-			Requests:          bucket.requests,
+			RequestsPerMinute: float64(rollingBucket.requests) / aggregationMinutes,
+			Requests:          rollingBucket.requests,
 		})
 		cacheLevel = append(cacheLevel, dto.RealtimeCacheLevelPointRecord{
 			Bucket:       bucketKey,
-			CacheRate:    usageOverviewRealtimeCacheRate(bucket.cachedTokens, bucket.inputTokens),
-			CachedTokens: bucket.cachedTokens,
-			InputTokens:  bucket.inputTokens,
+			CacheRate:    usageOverviewRealtimeCacheRate(rollingBucket.cachedTokens, rollingBucket.inputTokens),
+			CachedTokens: rollingBucket.cachedTokens,
+			InputTokens:  rollingBucket.inputTokens,
 		})
 	}
 	return dto.UsageOverviewRealtimeRecord{
@@ -2026,67 +2026,15 @@ func usageOverviewRealtimeAverage(samples []int64) *float64 {
 	return &value
 }
 
-func usageOverviewRealtimeDistributionParticles(bucket string, samples []int64) []dto.RealtimeResponseParticleRecord {
-	if len(samples) == 0 {
-		return []dto.RealtimeResponseParticleRecord{}
-	}
-	minValue, maxValue := samples[0], samples[0]
-	for _, sample := range samples[1:] {
-		if sample < minValue {
-			minValue = sample
-		}
-		if sample > maxValue {
-			maxValue = sample
-		}
-	}
-	binCount := usageOverviewRealtimeParticleBinCount(len(samples))
-	if minValue == maxValue || binCount == 1 {
-		return []dto.RealtimeResponseParticleRecord{{
-			Bucket: bucket,
-			MS:     minValue,
-			Count:  int64(len(samples)),
-		}}
-	}
-	counts := make([]int64, binCount)
-	sums := make([]int64, binCount)
-	valueSpan := maxValue - minValue + 1
+func appendUsageOverviewRealtimeDistributionParticles(dst []dto.RealtimeResponseParticleRecord, bucket string, samples []int64) []dto.RealtimeResponseParticleRecord {
 	for _, sample := range samples {
-		binIndex := int(((sample - minValue) * int64(binCount)) / valueSpan)
-		if binIndex < 0 {
-			binIndex = 0
-		}
-		if binIndex >= binCount {
-			binIndex = binCount - 1
-		}
-		counts[binIndex]++
-		sums[binIndex] += sample
-	}
-	particles := make([]dto.RealtimeResponseParticleRecord, 0, binCount)
-	for index, count := range counts {
-		if count == 0 {
-			continue
-		}
-		particles = append(particles, dto.RealtimeResponseParticleRecord{
+		dst = append(dst, dto.RealtimeResponseParticleRecord{
 			Bucket: bucket,
-			MS:     sums[index] / count,
-			Count:  count,
+			MS:     sample,
+			Count:  1,
 		})
 	}
-	return particles
-}
-
-func usageOverviewRealtimeParticleBinCount(sampleCount int) int {
-	if sampleCount <= 1 {
-		return 1
-	}
-	binCount := int(math.Ceil(math.Sqrt(float64(sampleCount))))
-	if binCount < 1 {
-		return 1
-	}
-	if binCount > usageOverviewRealtimeParticleMaxBins {
-		return usageOverviewRealtimeParticleMaxBins
-	}
-	return binCount
+	return dst
 }
 
 func usageOverviewRealtimeCostPtr(cost float64, available bool) *float64 {

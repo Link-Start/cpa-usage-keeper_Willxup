@@ -1243,12 +1243,14 @@ func TestBuildUsageOverviewRealtimeWithFilterBuildsRealtimeBlockFromRecentCache(
 	now := time.Date(2026, 6, 9, 12, 0, 0, 0, time.UTC)
 	ttft100 := int64(100)
 	ttft200 := int64(200)
+	ttftZero := int64(0)
 	cache := newEmptyUsageRecentEventCache(UsageRecentEventCacheOptions{Now: func() time.Time { return now }})
 	t.Cleanup(cache.Close)
 	cache.appendEvents([]entities.UsageEvent{
 		{APIGroupKey: "provider-a", Model: "gpt-5", AuthType: "oauth", AuthIndex: "auth-file-1", Timestamp: now.Add(-16 * time.Minute), InputTokens: 900, TotalTokens: 900},
 		{APIGroupKey: "provider-a", Model: "gpt-5", AuthType: "oauth", AuthIndex: "auth-file-1", Timestamp: now.Add(-4*time.Minute - 50*time.Second), InputTokens: 100, OutputTokens: 60, CachedTokens: 20, TotalTokens: 120, LatencyMS: 500, TTFTMS: &ttft100},
 		{APIGroupKey: "provider-a", Model: "gpt-5", AuthType: "oauth", AuthIndex: "auth-file-1", Timestamp: now.Add(-4*time.Minute - 45*time.Second), InputTokens: 50, OutputTokens: 40, CachedTokens: 5, TotalTokens: 80, LatencyMS: 700, TTFTMS: &ttft200},
+		{APIGroupKey: "provider-a", Model: "gpt-5", AuthType: "oauth", AuthIndex: "auth-file-1", Timestamp: now.Add(-4*time.Minute - 40*time.Second), InputTokens: 10, OutputTokens: 10, TotalTokens: 20, LatencyMS: 650, TTFTMS: &ttftZero},
 		{APIGroupKey: "provider-a", Model: "gpt-5", AuthType: "oauth", AuthIndex: "auth-file-1", Timestamp: now.Add(-4*time.Minute - 30*time.Second), Failed: true, InputTokens: 1000, TotalTokens: 1000, LatencyMS: 900},
 		{APIGroupKey: "provider-a", Model: "claude-sonnet", AuthType: "apikey", Provider: "OpenAI Provider", AuthIndex: "provider-1", Timestamp: now.Add(-20 * time.Second), InputTokens: 100, OutputTokens: 25, TotalTokens: 50, LatencyMS: 300},
 		{APIGroupKey: "provider-b", Model: "gpt-5", AuthType: "oauth", AuthIndex: "auth-file-2", Timestamp: now.Add(-10 * time.Second), InputTokens: 700, TotalTokens: 700, LatencyMS: 100},
@@ -1280,11 +1282,11 @@ func TestBuildUsageOverviewRealtimeWithFilterBuildsRealtimeBlockFromRecentCache(
 	}
 
 	firstUsageBucket := realtime.TokenVelocity[20]
-	if firstUsageBucket.Bucket != "2026-06-09T11:55:00Z" || firstUsageBucket.Tokens != 200 || math.Abs(firstUsageBucket.TokensPerMinute-(200.0/3.0)) > 0.000000001 {
+	if firstUsageBucket.Bucket != "2026-06-09T11:55:00Z" || firstUsageBucket.Tokens != 220 || math.Abs(firstUsageBucket.TokensPerMinute-(220.0/3.0)) > 0.000000001 {
 		t.Fatalf("unexpected first token velocity bucket: %+v", firstUsageBucket)
 	}
 	carriedUsageBucket := realtime.TokenVelocity[25]
-	if carriedUsageBucket.Tokens != 200 || math.Abs(carriedUsageBucket.TokensPerMinute-(200.0/3.0)) > 0.000000001 {
+	if carriedUsageBucket.Tokens != 220 || math.Abs(carriedUsageBucket.TokensPerMinute-(220.0/3.0)) > 0.000000001 {
 		t.Fatalf("expected token velocity to carry over the 3m sliding window, got %+v", carriedUsageBucket)
 	}
 	expiredUsageBucket := realtime.TokenVelocity[26]
@@ -1307,28 +1309,42 @@ func TestBuildUsageOverviewRealtimeWithFilterBuildsRealtimeBlockFromRecentCache(
 	if realtime.ResponseDistribution.TTFT.AverageLine[21].AvgMS == nil || math.Abs(*realtime.ResponseDistribution.TTFT.AverageLine[21].AvgMS-150) > 0.000000001 {
 		t.Fatalf("expected ttft average line to use sliding samples, got %+v", realtime.ResponseDistribution.TTFT.AverageLine[21])
 	}
-	if realtime.ResponseDistribution.Latency.AverageLine[21].AvgMS == nil || math.Abs(*realtime.ResponseDistribution.Latency.AverageLine[21].AvgMS-700) > 0.000000001 {
+	if realtime.ResponseDistribution.Latency.AverageLine[21].AvgMS == nil || math.Abs(*realtime.ResponseDistribution.Latency.AverageLine[21].AvgMS-687.5) > 0.000000001 {
 		t.Fatalf("expected latency average line to include failed request latency, got %+v", realtime.ResponseDistribution.Latency.AverageLine[21])
 	}
 	if realtime.ResponseDistribution.TTFT.AverageLine[26].AvgMS != nil ||
 		realtime.ResponseDistribution.Latency.AverageLine[26].AvgMS == nil || math.Abs(*realtime.ResponseDistribution.Latency.AverageLine[26].AvgMS-900) > 0.000000001 {
 		t.Fatalf("expected failed request latency distribution without ttft after sliding carry, got ttft=%+v latency=%+v", realtime.ResponseDistribution.TTFT.AverageLine[26], realtime.ResponseDistribution.Latency.AverageLine[26])
 	}
-	if len(realtime.ResponseDistribution.TTFT.Particles) == 0 || len(realtime.ResponseDistribution.Latency.Particles) == 0 {
-		t.Fatalf("expected response distribution particles to be populated, got ttft=%+v latency=%+v", realtime.ResponseDistribution.TTFT.Particles, realtime.ResponseDistribution.Latency.Particles)
+	expectedTTFTParticles := []dto.RealtimeResponseParticleRecord{
+		{Bucket: "2026-06-09T11:55:00Z", MS: 100, Count: 1},
+		{Bucket: "2026-06-09T11:55:00Z", MS: 200, Count: 1},
 	}
-	if realtime.RequestLevel[21].Requests != 3 || realtime.RequestLevel[21].RequestsPerMinute != 1 {
+	if !reflect.DeepEqual(realtime.ResponseDistribution.TTFT.Particles, expectedTTFTParticles) {
+		t.Fatalf("expected response distribution TTFT particles to map one usage event to one point, got %+v", realtime.ResponseDistribution.TTFT.Particles)
+	}
+	expectedLatencyParticles := []dto.RealtimeResponseParticleRecord{
+		{Bucket: "2026-06-09T11:55:00Z", MS: 500, Count: 1},
+		{Bucket: "2026-06-09T11:55:00Z", MS: 700, Count: 1},
+		{Bucket: "2026-06-09T11:55:00Z", MS: 650, Count: 1},
+		{Bucket: "2026-06-09T11:55:30Z", MS: 900, Count: 1},
+		{Bucket: "2026-06-09T11:59:30Z", MS: 300, Count: 1},
+	}
+	if !reflect.DeepEqual(realtime.ResponseDistribution.Latency.Particles, expectedLatencyParticles) {
+		t.Fatalf("expected response distribution latency particles to map one usage event to one point, got %+v", realtime.ResponseDistribution.Latency.Particles)
+	}
+	if realtime.RequestLevel[21].Requests != 4 || math.Abs(realtime.RequestLevel[21].RequestsPerMinute-(4.0/3.0)) > 0.000000001 {
 		t.Fatalf("expected request level to use the 3m sliding window, got %+v", realtime.RequestLevel[21])
 	}
 	if realtime.RequestLevel[26].Requests != 1 || math.Abs(realtime.RequestLevel[26].RequestsPerMinute-(1.0/3.0)) > 0.000000001 {
 		t.Fatalf("expected failed request to remain visible inside the sliding window, got %+v", realtime.RequestLevel[26])
 	}
-	if realtime.CacheLevel[20].InputTokens != 150 || realtime.CacheLevel[20].CachedTokens != 25 ||
-		realtime.CacheLevel[20].CacheRate == nil || math.Abs(*realtime.CacheLevel[20].CacheRate-(25.0/150.0)*100) > 0.000000001 {
+	if realtime.CacheLevel[20].InputTokens != 160 || realtime.CacheLevel[20].CachedTokens != 25 ||
+		realtime.CacheLevel[20].CacheRate == nil || math.Abs(*realtime.CacheLevel[20].CacheRate-(25.0/160.0)*100) > 0.000000001 {
 		t.Fatalf("unexpected cache level bucket: %+v", realtime.CacheLevel[20])
 	}
-	if realtime.CacheLevel[25].InputTokens != 150 || realtime.CacheLevel[25].CachedTokens != 25 ||
-		realtime.CacheLevel[25].CacheRate == nil || math.Abs(*realtime.CacheLevel[25].CacheRate-(25.0/150.0)*100) > 0.000000001 {
+	if realtime.CacheLevel[25].InputTokens != 160 || realtime.CacheLevel[25].CachedTokens != 25 ||
+		realtime.CacheLevel[25].CacheRate == nil || math.Abs(*realtime.CacheLevel[25].CacheRate-(25.0/160.0)*100) > 0.000000001 {
 		t.Fatalf("expected cache level to carry over the sliding window, got %+v", realtime.CacheLevel[25])
 	}
 	if realtime.CacheLevel[26].CacheRate != nil || realtime.CacheLevel[26].InputTokens != 0 || realtime.CacheLevel[26].CachedTokens != 0 {
@@ -1337,19 +1353,19 @@ func TestBuildUsageOverviewRealtimeWithFilterBuildsRealtimeBlockFromRecentCache(
 
 	if len(realtime.CurrentUsage.Models) != 2 ||
 		realtime.CurrentUsage.Models[0].Key != "gpt-5" ||
-		realtime.CurrentUsage.Models[0].Tokens != 200 ||
-		math.Abs(realtime.CurrentUsage.Models[0].Share-80) > 0.000000001 {
+		realtime.CurrentUsage.Models[0].Tokens != 220 ||
+		math.Abs(realtime.CurrentUsage.Models[0].Share-(220.0/270.0)*100) > 0.000000001 {
 		t.Fatalf("unexpected realtime model usage: %+v", realtime.CurrentUsage.Models)
 	}
 	if len(realtime.CurrentUsage.APIKeys) != 1 ||
 		realtime.CurrentUsage.APIKeys[0].Key != "provider-a" ||
-		realtime.CurrentUsage.APIKeys[0].Requests != 4 ||
-		realtime.CurrentUsage.APIKeys[0].Tokens != 250 {
+		realtime.CurrentUsage.APIKeys[0].Requests != 5 ||
+		realtime.CurrentUsage.APIKeys[0].Tokens != 270 {
 		t.Fatalf("unexpected realtime api key usage: %+v", realtime.CurrentUsage.APIKeys)
 	}
 	if len(realtime.CurrentUsage.AuthFiles) != 1 ||
 		realtime.CurrentUsage.AuthFiles[0].Label != "Claude Account" ||
-		realtime.CurrentUsage.AuthFiles[0].Tokens != 200 {
+		realtime.CurrentUsage.AuthFiles[0].Tokens != 220 {
 		t.Fatalf("unexpected realtime auth file usage: %+v", realtime.CurrentUsage.AuthFiles)
 	}
 	if len(realtime.CurrentUsage.AIProviders) != 1 ||
