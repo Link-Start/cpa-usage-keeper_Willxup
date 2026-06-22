@@ -2325,11 +2325,25 @@ func isUsageOverviewShortHealthRange(value string) bool {
 	}
 }
 
+func isUsageOverviewCalendarDayHealthRange(value string) bool {
+	switch value {
+	case "today", "yesterday":
+		return true
+	default:
+		return false
+	}
+}
+
 // usageOverviewHealthWindow 返回 health grid 的展示窗口，可能和查询窗口不同。
 func usageOverviewHealthWindow(filter dto.UsageQueryFilter, totalBlocks int, span time.Duration) (time.Time, time.Time) {
 	end := timeutil.NormalizeStorageTime(time.Now())
 	if filter.EndTime != nil {
 		end = timeutil.NormalizeStorageTime(*filter.EndTime)
+	}
+	if isUsageOverviewCalendarDayHealthRange(filter.Range) && filter.StartTime != nil {
+		// today/yesterday 的 health 轴跟随本地自然日展示；统计窗口仍在后续 exact window 中按 queryNow/end 截断。
+		start := timeutil.NormalizeStorageTime(*filter.StartTime)
+		return start, start.AddDate(0, 0, 1)
 	}
 	if isUsageOverviewShortHealthRange(filter.Range) {
 		return end.Add(-usageOverviewHealthPresetWindow), end

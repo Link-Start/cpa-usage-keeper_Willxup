@@ -845,6 +845,70 @@ func TestBuildUsageOverviewWithFilterBuilds24hHealthGridFor24hRange(t *testing.T
 	}
 }
 
+func TestBuildUsageOverviewWithFilterKeepsCalendarDayHealthWindow(t *testing.T) {
+	withRepositoryTestLocation(t, "Asia/Shanghai")
+
+	db, err := OpenDatabase(config.Config{SQLitePath: filepath.Join(t.TempDir(), "usage-overview-health-calendar-day.db")})
+	if err != nil {
+		t.Fatalf("OpenDatabase returned error: %v", err)
+	}
+	closeTestDatabase(t, db)
+
+	location := time.Local
+	queryNow := time.Date(2026, 6, 22, 15, 30, 0, 0, location)
+	todayStart := time.Date(2026, 6, 22, 0, 0, 0, 0, location)
+	todayEnd := todayStart.AddDate(0, 0, 1).Add(-time.Nanosecond)
+	yesterdayStart := todayStart.AddDate(0, 0, -1)
+	yesterdayEnd := todayStart.Add(-time.Nanosecond)
+
+	for _, tc := range []struct {
+		name        string
+		rangeName   string
+		start       time.Time
+		end         time.Time
+		wantStart   time.Time
+		wantEnd     time.Time
+		wantMinutes int64
+	}{
+		{
+			name:        "today keeps midnight to next midnight after future end clamp",
+			rangeName:   "today",
+			start:       todayStart,
+			end:         todayEnd,
+			wantStart:   todayStart,
+			wantEnd:     todayStart.AddDate(0, 0, 1),
+			wantMinutes: int64(queryNow.Sub(todayStart) / time.Minute),
+		},
+		{
+			name:        "yesterday keeps previous midnight to current midnight",
+			rangeName:   "yesterday",
+			start:       yesterdayStart,
+			end:         yesterdayEnd,
+			wantStart:   yesterdayStart,
+			wantEnd:     todayStart,
+			wantMinutes: 24 * 60,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			overview, err := BuildUsageOverviewWithFilterAndRecentCache(db, dto.UsageQueryFilter{
+				Range:     tc.rangeName,
+				StartTime: &tc.start,
+				EndTime:   &tc.end,
+				QueryNow:  &queryNow,
+			}, nil)
+			if err != nil {
+				t.Fatalf("BuildUsageOverviewWithFilterAndRecentCache returned error: %v", err)
+			}
+			if !overview.Health.WindowStart.Equal(tc.wantStart) || !overview.Health.WindowEnd.Equal(tc.wantEnd) {
+				t.Fatalf("expected %s health window %s - %s, got %s - %s", tc.rangeName, tc.wantStart, tc.wantEnd, overview.Health.WindowStart, overview.Health.WindowEnd)
+			}
+			if overview.Summary.WindowMinutes != tc.wantMinutes {
+				t.Fatalf("expected %s query window minutes %d, got %+v", tc.rangeName, tc.wantMinutes, overview.Summary)
+			}
+		})
+	}
+}
+
 func TestCalculateUsageEventCostDoesNotDoubleChargeReasoningTokens(t *testing.T) {
 	event := entities.UsageEvent{
 		InputTokens:     1_000_000,
