@@ -272,6 +272,23 @@ func TestApplyUsageHeaderSnapshotsSkipsBatchWhenWindowStatsProviderUnavailable(t
 	}
 }
 
+func TestApplyUsageHeaderSnapshotsAllowsNilService(t *testing.T) {
+	// nil service 模拟防御性调用路径，确保批量 apply 和其它 Service 方法一样安全 no-op。
+	var service *Service
+	// recover 捕获 panic，把 nil receiver 崩溃转成明确的测试失败。
+	defer func() {
+		// 非 nil recovered 说明当前实现仍然解引用了 nil service。
+		if recovered := recover(); recovered != nil {
+			t.Fatalf("expected nil service batch apply to no-op, got panic: %v", recovered)
+		}
+	}()
+
+	// 非空 snapshot 批次会越过 len(snapshots)==0 分支，真实覆盖 review 指出的 nil receiver 路径。
+	service.applyUsageHeaderSnapshots(context.Background(), []UsageHeaderSnapshot{
+		codexUsageHeaderSnapshot("codex-auth", time.Date(2026, 6, 22, 11, 0, 0, 0, time.Local), "4"),
+	})
+}
+
 func TestApplyUsageHeaderSnapshotWarnsOnIdentityDatabaseError(t *testing.T) {
 	hook := logrustest.NewGlobal()
 	defer hook.Reset()

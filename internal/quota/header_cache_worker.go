@@ -194,8 +194,8 @@ func (s *Service) stopUsageHeaderSnapshotWorker() {
 }
 
 func (s *Service) applyUsageHeaderSnapshots(ctx context.Context, snapshots []UsageHeaderSnapshot) {
-	// 没有快照时直接返回，保持批量 apply 和 flush 空批语义一致。
-	if len(snapshots) == 0 {
+	// nil service 或没有快照时直接返回，保持批量 apply 和 flush 空批语义一致。
+	if s == nil || len(snapshots) == 0 {
 		return
 	}
 	// 批量查询活跃 Codex Auth File 身份，避免每个 snapshot 单独查一次 usage_identities。
