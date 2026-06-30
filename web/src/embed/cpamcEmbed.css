@@ -11,10 +11,6 @@
   min-height: auto;
 }
 
-.app-frame[data-embed='cpamc'] [data-keeper-action='back-to-cpa'] {
-  display: none !important;
-}
-
 .app-frame[data-embed='cpamc'] .app-footer {
   padding: 12px 20px 14px;
   border-top: 1px solid color-mix(in srgb, var(--border) 68%, transparent);

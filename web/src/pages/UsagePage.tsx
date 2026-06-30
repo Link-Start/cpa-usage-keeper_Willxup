@@ -1787,7 +1787,6 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                       target="_blank"
                       rel="noreferrer"
                       aria-label={t('usage_stats.back_to_cpa_aria')}
-                      data-keeper-action="back-to-cpa"
                     >
                       <span>{t('usage_stats.back_to_cpa')}</span>
                       <span className={styles.backToCpaIcon} aria-hidden="true">

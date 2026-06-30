@@ -4,7 +4,7 @@ const CPAMC_READY_MESSAGE = 'cpa-usage-keeper:ready';
 const currentSearch = () => (typeof window === 'undefined' ? '' : window.location.search);
 
 export const isCPAMCEmbed = (search = currentSearch()): boolean => {
-  const params = new URLSearchParams(search.startsWith('?') ? search.slice(1) : search);
+  const params = new URLSearchParams(search);
   return params.get('embed') === CPAMC_EMBED_QUERY_VALUE;
 };
 

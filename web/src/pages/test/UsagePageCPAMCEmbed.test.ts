@@ -7,7 +7,6 @@ describe('UsagePage CPAMC embed behavior', () => {
   it('does not render the Back to CPA link in CPAMC embed mode', () => {
     expect(usagePageSource).toContain("import { isCPAMCEmbed } from '@/embed/cpamcEmbed';");
     expect(usagePageSource).toMatch(/const isEmbeddedInCPAMC = isCPAMCEmbed\(\);/);
-    expect(usagePageSource).toContain("data-keeper-action=\"back-to-cpa\"");
     expect(usagePageSource).toMatch(/\{\(!isEmbeddedInCPAMC && cpaManagementURL\) && \(/);
   });
 });

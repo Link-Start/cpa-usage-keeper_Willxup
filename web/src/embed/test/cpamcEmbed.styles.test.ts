@@ -6,6 +6,7 @@ const embedStylesSource = readFileSync(new URL('../cpamcEmbed.css', import.meta.
 describe('CPAMC embed styles', () => {
   it('keeps page overrides scoped under the CPAMC embed root', () => {
     expect(embedStylesSource).toContain(".app-frame[data-embed='cpamc']");
+    expect(embedStylesSource).not.toContain('back-to-cpa');
     expect(embedStylesSource).not.toMatch(/^\.app-footer\s*\{/m);
     expect(embedStylesSource).not.toMatch(/^\[data-keeper-page=/m);
 
