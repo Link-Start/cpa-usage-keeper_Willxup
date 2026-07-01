@@ -45,6 +45,15 @@ describe('i18n resources', () => {
     expect(i18n.getResource('zh-TW', 'translation', 'usage_stats.credentials_column_activity')).toBe('活動');
   });
 
+  it('keeps session source labels available in every language', () => {
+    expect(i18n.getResource('en', 'translation', 'usage_stats.session_settings_source_standard')).toBe('Standalone');
+    expect(i18n.getResource('en', 'translation', 'usage_stats.session_settings_source_embed')).toBe('CPAMC Embed');
+    expect(i18n.getResource('zh', 'translation', 'usage_stats.session_settings_source_standard')).toBe('独立访问');
+    expect(i18n.getResource('zh', 'translation', 'usage_stats.session_settings_source_embed')).toBe('CPAMC 嵌入');
+    expect(i18n.getResource('zh-TW', 'translation', 'usage_stats.session_settings_source_standard')).toBe('獨立訪問');
+    expect(i18n.getResource('zh-TW', 'translation', 'usage_stats.session_settings_source_embed')).toBe('CPAMC 嵌入');
+  });
+
   it('keeps credential health chart labels available in every language', () => {
     expect(i18n.getResource('en', 'translation', 'usage_stats.credentials_health_last_5h')).toBe('Last 5h');
     expect(i18n.getResource('en', 'translation', 'usage_stats.credentials_health_ok')).toBe('OK');
