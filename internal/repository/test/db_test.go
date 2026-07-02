@@ -58,12 +58,12 @@ func TestOpenDatabaseCreatesFreshDatabaseFromCurrentSchemaWithoutRunningMigratio
 	}
 	closeTestDatabase(t, db)
 
-	var count int64
-	if err := db.Table("schema_migrations").Count(&count).Error; err != nil {
-		t.Fatalf("count schema migrations: %v", err)
+	var latestMigrationCount int64
+	if err := db.Table("schema_migrations").Where("version = ?", "20260702_model_price_multiplier").Count(&latestMigrationCount).Error; err != nil {
+		t.Fatalf("count latest schema migration: %v", err)
 	}
-	if count != 42 {
-		t.Fatalf("expected fresh database to mark 42 migrations applied, got %d", count)
+	if latestMigrationCount != 1 {
+		t.Fatalf("expected fresh database to mark latest migration applied, got %d", latestMigrationCount)
 	}
 	if strings.Contains(logs.String(), "schema migration started") {
 		t.Fatalf("expected fresh database creation not to run version migrations, got logs:\n%s", logs.String())

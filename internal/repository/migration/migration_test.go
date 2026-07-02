@@ -410,6 +410,78 @@ func TestRunAddsModelPriceMultiplierDefaultToExistingPricing(t *testing.T) {
 	}
 }
 
+func TestRunBackfillsModelPriceMultiplierWhenColumnAlreadyExists(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(testSQLiteDSN(filepath.Join(t.TempDir(), "model-price-multiplier-existing-column.db"))), &gorm.Config{NowFunc: func() time.Time {
+		return time.Date(2026, 7, 2, 0, 0, 0, 0, time.UTC)
+	}})
+	if err != nil {
+		t.Fatalf("open sqlite database: %v", err)
+	}
+	defer closeOpenedDatabase(t, db)
+
+	if err := MarkAllAsApplied(db); err != nil {
+		t.Fatalf("mark all migrations applied: %v", err)
+	}
+	if err := db.Exec("DELETE FROM schema_migrations WHERE version = ?", migrationModelPriceMultiplier).Error; err != nil {
+		t.Fatalf("mark target migration pending %s: %v", migrationModelPriceMultiplier, err)
+	}
+	if err := db.Exec(`CREATE TABLE model_price_settings (
+		id integer PRIMARY KEY,
+		model text,
+		pricing_style text NOT NULL DEFAULT 'openai',
+		prompt_price_per1_m real,
+		completion_price_per1_m real,
+		cache_price_per1_m real,
+		cache_creation_price_per1_m real NOT NULL DEFAULT 0,
+		price_multiplier real,
+		created_at datetime,
+		updated_at datetime
+	)`).Error; err != nil {
+		t.Fatalf("create partially migrated model_price_settings table: %v", err)
+	}
+	if err := db.Exec(`INSERT INTO model_price_settings (
+		id,
+		model,
+		pricing_style,
+		prompt_price_per1_m,
+		completion_price_per1_m,
+		cache_price_per1_m,
+		cache_creation_price_per1_m,
+		price_multiplier
+	) VALUES (?, ?, ?, ?, ?, ?, ?, ?), (?, ?, ?, ?, ?, ?, ?, ?)`,
+		int64(1), "legacy-null", "openai", 3.0, 15.0, 0.3, 0.0, nil,
+		int64(2), "explicit-zero", "openai", 3.0, 15.0, 0.3, 0.0, 0.0,
+	).Error; err != nil {
+		t.Fatalf("seed partially migrated model price settings: %v", err)
+	}
+
+	if err := Run(db); err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+
+	var nullBackfill *float64
+	if err := db.Table("model_price_settings").Select("price_multiplier").Where("model = ?", "legacy-null").Scan(&nullBackfill).Error; err != nil {
+		t.Fatalf("load null multiplier backfill: %v", err)
+	}
+	if nullBackfill == nil || *nullBackfill != 1 {
+		t.Fatalf("expected NULL price multiplier to backfill to 1, got %+v", nullBackfill)
+	}
+	var zeroMultiplier *float64
+	if err := db.Table("model_price_settings").Select("price_multiplier").Where("model = ?", "explicit-zero").Scan(&zeroMultiplier).Error; err != nil {
+		t.Fatalf("load explicit zero multiplier: %v", err)
+	}
+	if zeroMultiplier == nil || *zeroMultiplier != 0 {
+		t.Fatalf("expected explicit zero price multiplier to stay 0, got %+v", zeroMultiplier)
+	}
+	var count int64
+	if err := db.Table("schema_migrations").Where("version = ?", migrationModelPriceMultiplier).Count(&count).Error; err != nil {
+		t.Fatalf("count model price multiplier migration: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("expected migration %s to be recorded once, got %d", migrationModelPriceMultiplier, count)
+	}
+}
+
 func openDatabaseWithFailingMigrationRecord(t *testing.T, version string) *gorm.DB {
 	t.Helper()
 	db, err := gorm.Open(sqlite.Open(testSQLiteDSN(filepath.Join(t.TempDir(), "app.db"))), &gorm.Config{})

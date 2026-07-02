@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { updatePricing } from '../api';
+import { deletePricing, updatePricing } from '../api';
 
 const headerValue = (init: RequestInit | undefined, name: string): string | null => new Headers(init?.headers).get(name);
 
@@ -50,5 +50,22 @@ describe('pricing API client', () => {
       price_multiplier: 1,
     });
     expect(body).not.toHaveProperty('pricing');
+  });
+
+  it('deletes one model through the pricing endpoint without sending a request body', async () => {
+    vi.stubGlobal('window', { __APP_BASE_PATH__: undefined });
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+      ok: true,
+    } as Response);
+
+    await deletePricing('openai/gpt-4.1');
+
+    const [url, init] = fetchMock.mock.calls[0];
+    const parsed = new URL(String(url), 'http://localhost');
+
+    expect(parsed.pathname).toBe('/api/v1/pricing');
+    expect(parsed.searchParams.get('model')).toBe('openai/gpt-4.1');
+    expect(init).toMatchObject({ credentials: 'include', method: 'DELETE' });
+    expect(init?.body).toBeUndefined();
   });
 });
