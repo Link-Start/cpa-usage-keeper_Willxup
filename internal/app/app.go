@@ -114,8 +114,9 @@ func NewWithConfig(cfg config.Config) (*App, error) {
 	quotaService := quota.NewServiceWithOptions(db, cpaClient, quota.ServiceOptions{RefreshWorkerLimit: cfg.QuotaRefreshWorkerLimit})
 	// syncService 仍然是 metadata 和 usage 处理共享的业务服务入口。
 	syncService := service.NewSyncServiceWithOptions(db, service.SyncServiceOptions{
-		BaseURL: cfg.CPABaseURL,
-		Client:  cpaClient,
+		BaseURL:                   cfg.CPABaseURL,
+		Client:                    cpaClient,
+		CleanupUsageEventsEnabled: cfg.CleanupUsageEventsEnabled,
 		// usage_events 事务提交后通过这个缓存做非阻塞增量追加，供 Overview realtime 和右边界补偿复用。
 		RecentUsageEvents: recentUsageCache,
 		// Redis usage response_headers 提交后异步 patch quota cache，不参与 usage_events 入库事务。

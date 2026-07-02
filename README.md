@@ -34,7 +34,7 @@ It relies on [CLIProxyAPI (CPA)](https://github.com/router-for-me/CLIProxyAPI) a
 
 - Thanks to [CLIProxyAPI (CPA)](https://github.com/router-for-me/CLIProxyAPI) for providing the upstream CPA foundation and data source this project builds on.
 - Thanks to [@YouShouldBetOnMe](https://github.com/YouShouldBetOnMe) for supporting CPA Usage Keeper.
-- Thanks to the CPA discussion group, [NodeSeek](https://nodeseek.com), and [Linux Do](https://linux.do) communities for their discussions and feedback.
+- Thanks to the CPA discussion group for their discussions and feedback.
 
 ## Quick Start
 
@@ -315,6 +315,7 @@ Scheduled Auth Files quota refresh is configured from the gear button in the Aut
 | `LOG_LEVEL` | No | `info` | Log level |
 | `LOG_FILE_ENABLED` | No | `true` | Write persistent log files |
 | `LOG_RETENTION_DAYS` | No | `7` | Log retention days; `0` disables cleanup |
+| `CLEANUP_USAGE_EVENTS_ENABLED` | No | `false` | Delete expired raw `usage_events` during daily maintenance; when enabled, rows before 00:00 on the first day of the previous month are deleted |
 | `BACKUP_ENABLED` | No | `true` | Enable SQLite database backups |
 | `BACKUP_INTERVAL` | No | `24h` | Database backup interval |
 | `BACKUP_RETENTION_DAYS` | No | `7` | Backup retention days |
