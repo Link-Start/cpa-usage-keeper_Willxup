@@ -461,13 +461,13 @@ describe('AuthFileCredentialsSection inspection controls', () => {
     expect(isAutoRefreshSettingsControlDisabled({ loading: false, saving: false, loaded: true })).toBe(false)
   })
 
-  it('keeps fallback auto refresh settings visible but unsaveable after a load failure', () => {
+  it('allows fallback auto refresh settings to be saved after a load failure', () => {
     const fallback = resolveQuotaAutoRefreshSettingsLoadFailure(new Error('settings table missing'), 'load failed')
 
     expect(fallback.settings).toEqual({ enabled: false, schedule: null })
     expect(fallback.error).toBe('settings table missing')
-    expect(isAutoRefreshSettingsControlDisabled({ loading: false, saving: false, loaded: fallback.loaded })).toBe(true)
-    expect(isAutoRefreshSettingsSaveDisabled({ loading: false, saving: false, loaded: fallback.loaded })).toBe(true)
+    expect(isAutoRefreshSettingsControlDisabled({ loading: false, saving: false, loaded: fallback.loaded })).toBe(false)
+    expect(isAutoRefreshSettingsSaveDisabled({ loading: false, saving: false, loaded: fallback.loaded })).toBe(false)
   })
 
   it('keeps auto refresh controls in a separate modal with the Auth Files switch style', () => {

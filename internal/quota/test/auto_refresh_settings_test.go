@@ -6,6 +6,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"cpa-usage-keeper/internal/entities"
 	. "cpa-usage-keeper/internal/quota"
@@ -72,6 +73,30 @@ func TestUpdateAutoRefreshSettingsSignalsScheduler(t *testing.T) {
 	case <-autoRefreshSettingsChanged(service):
 	default:
 		t.Fatal("expected settings update to signal the auto refresh scheduler")
+	}
+}
+
+func TestUpdateAutoRefreshSettingsResetsScheduleAnchor(t *testing.T) {
+	service := newQuotaServiceWithRegistry(t, openQuotaTestDatabase(t), NewProviderRegistry(nil))
+	now := time.Date(2026, 5, 26, 10, 30, 0, 0, time.Local)
+	setLastAutoRefreshRoundAt(service, now.Add(-time.Hour))
+	setLastAutoRefreshAttemptAt(service, now.Add(-30*time.Minute))
+
+	_, err := service.UpdateAutoRefreshSettings(context.Background(), AutoRefreshSettings{
+		Enabled:  true,
+		Schedule: &AutoRefreshSchedule{Unit: AutoRefreshScheduleUnitDay, Value: 30},
+	})
+	if err != nil {
+		t.Fatalf("UpdateAutoRefreshSettings returned error: %v", err)
+	}
+
+	delay := nextAutoRefreshDelay(service, AutoRefreshSettings{
+		Enabled:  true,
+		Schedule: &AutoRefreshSchedule{Unit: AutoRefreshScheduleUnitDay, Value: 30},
+	}, now)
+	want := time.Date(2026, 5, 27, 0, 0, 0, 0, time.Local).Sub(now)
+	if delay != want {
+		t.Fatalf("expected updated day schedule to use fresh first-run midnight delay, got %s want %s", delay, want)
 	}
 }
 

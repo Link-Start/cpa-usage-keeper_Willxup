@@ -140,11 +140,10 @@ func TestStartAutoRefreshWakesWhenSettingsChange(t *testing.T) {
 	service.SetRefreshContext(ctx)
 	setRefreshCooldown(service, func(time.Duration) {})
 	now := time.Date(2026, 5, 26, 12, 0, 0, 0, time.Local)
-	setLastAutoRefreshRoundAt(service, now)
 	setAutoRefreshNow(service, func() time.Time { return now })
 	if _, err := service.UpdateAutoRefreshSettings(context.Background(), AutoRefreshSettings{
 		Enabled:  true,
-		Schedule: &AutoRefreshSchedule{Unit: AutoRefreshScheduleUnitDay, Value: 30},
+		Schedule: &AutoRefreshSchedule{Unit: AutoRefreshScheduleUnitHour, Value: 24},
 	}); err != nil {
 		t.Fatalf("UpdateAutoRefreshSettings initial returned error: %v", err)
 	}
@@ -171,10 +170,10 @@ func TestStartAutoRefreshWakesWhenSettingsChange(t *testing.T) {
 		t.Fatal("expected long day schedule not to run before settings change")
 	case <-time.After(50 * time.Millisecond):
 	}
-	now = now.Add(2 * time.Minute)
+	now = time.Date(2026, 5, 26, 23, 59, 59, int(999*time.Millisecond), time.Local)
 	if _, err := service.UpdateAutoRefreshSettings(context.Background(), AutoRefreshSettings{
 		Enabled:  true,
-		Schedule: &AutoRefreshSchedule{Unit: AutoRefreshScheduleUnitMinute, Value: 1},
+		Schedule: &AutoRefreshSchedule{Unit: AutoRefreshScheduleUnitDay, Value: 1},
 	}); err != nil {
 		t.Fatalf("UpdateAutoRefreshSettings shortened returned error: %v", err)
 	}

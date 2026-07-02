@@ -571,11 +571,11 @@ export function isAutoRefreshSettingsControlDisabled({
   return loading || saving || !loaded
 }
 
-export function resolveQuotaAutoRefreshSettingsLoadFailure(nextError: unknown, fallbackMessage: string): { settings: QuotaAutoRefreshSettings; error: string; loaded: false } {
+export function resolveQuotaAutoRefreshSettingsLoadFailure(nextError: unknown, fallbackMessage: string): { settings: QuotaAutoRefreshSettings; error: string; loaded: true } {
   return {
     settings: { enabled: false, schedule: null },
     error: nextError instanceof Error && nextError.message ? nextError.message : fallbackMessage,
-    loaded: false,
+    loaded: true,
   }
 }
 

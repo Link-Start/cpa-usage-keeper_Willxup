@@ -162,6 +162,17 @@ func (s *Service) markAutoRefreshRoundStartedAt(now time.Time) {
 	s.lastAutoRefreshRoundAt = now
 }
 
+func (s *Service) resetAutoRefreshScheduleAnchor() {
+	if s == nil {
+		return
+	}
+	// 配置更新后下一次调度按新配置的首次触发语义计算，不能沿用旧轮次或失败退避锚点。
+	s.autoRefreshMu.Lock()
+	defer s.autoRefreshMu.Unlock()
+	s.lastAutoRefreshRoundAt = time.Time{}
+	s.lastAutoRefreshAttemptAt = time.Time{}
+}
+
 func (s *Service) finishAutoRefreshRound() {
 	// 释放轮次状态前加锁，和 beginAutoRefreshRound 的读写保持一致。
 	s.autoRefreshMu.Lock()

@@ -109,6 +109,7 @@ func (s *Service) UpdateAutoRefreshSettings(ctx context.Context, settings AutoRe
 	}); err != nil {
 		return AutoRefreshSettings{}, err
 	}
+	s.resetAutoRefreshScheduleAnchor()
 	s.notifyAutoRefreshSettingsChanged()
 
 	return AutoRefreshSettings{Enabled: settings.Enabled, Schedule: normalizedSchedule}, nil
