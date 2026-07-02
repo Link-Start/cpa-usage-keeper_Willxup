@@ -520,7 +520,7 @@ func TestCleanupStorageCleansUsageEventsBeforePreviousMonthStart(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("InsertUsageEvents returned error: %v", err)
 	}
-	result, err := repository.CleanupStorage(db, now)
+	result, err := repository.CleanupStorage(db, now, repository.CleanupStorageOptions{CleanupUsageEvents: true})
 	if err != nil {
 		t.Fatalf("CleanupStorage returned error: %v", err)
 	}
@@ -556,7 +556,7 @@ func TestCleanupStorageCleansUsageEventsWithoutOverviewCheckpointGuard(t *testin
 		t.Fatalf("seed overview checkpoint: %v", err)
 	}
 
-	result, err := repository.CleanupStorage(db, now)
+	result, err := repository.CleanupStorage(db, now, repository.CleanupStorageOptions{CleanupUsageEvents: true})
 	if err != nil {
 		t.Fatalf("CleanupStorage returned error: %v", err)
 	}
@@ -601,7 +601,7 @@ func TestCleanupStorageCleansUsageEventsWithoutIdentityCheckpointGuard(t *testin
 		t.Fatalf("seed usage identity: %v", err)
 	}
 
-	result, err := repository.CleanupStorage(db, now)
+	result, err := repository.CleanupStorage(db, now, repository.CleanupStorageOptions{CleanupUsageEvents: true})
 	if err != nil {
 		t.Fatalf("CleanupStorage returned error: %v", err)
 	}
