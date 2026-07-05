@@ -65,6 +65,14 @@ func normalizeClaudeTokens(tokens dto.TokenStats) dto.TokenStats {
 
 func normalizeOpenAIStyleTokens(tokens dto.TokenStats) dto.TokenStats {
 	tokens = clampTokenStats(tokens)
+	// Models routed via OpenAI-compatible gateway (e.g. Gemini) may report
+	// output_tokens without reasoning_tokens included. Detect via token
+	// arithmetic and fold to maintain the unified Codex-style storage format.
+	if tokens.ReasoningTokens > 0 &&
+		tokens.TotalTokens > 0 &&
+		tokens.InputTokens+tokens.OutputTokens+tokens.ReasoningTokens == tokens.TotalTokens {
+		tokens.OutputTokens += tokens.ReasoningTokens
+	}
 	return fillCodexStyleTotalTokens(tokens)
 }
 
