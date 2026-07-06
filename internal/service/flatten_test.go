@@ -51,7 +51,7 @@ func TestNormalizeUsageEventTokensDoesNotDoubleCountCodexReasoningWhenTotalMissi
 	}
 }
 
-func TestNormalizeUsageEventTokensKeepsOpenAIStyleOutput(t *testing.T) {
+func TestNormalizeUsageEventTokensKeepsAlreadyIncludedOutputWhenTotalMissing(t *testing.T) {
 	for _, usageType := range []string{"codex", "openai", "custom"} {
 		t.Run(usageType, func(t *testing.T) {
 			event := NormalizeUsageEventTokens(entities.UsageEvent{
@@ -68,6 +68,20 @@ func TestNormalizeUsageEventTokensKeepsOpenAIStyleOutput(t *testing.T) {
 	}
 }
 
+func TestNormalizeUsageEventTokensDoesNotFoldCodexWhenCompatibilityWouldFold(t *testing.T) {
+	event := NormalizeUsageEventTokens(entities.UsageEvent{
+		InputTokens:     11,
+		OutputTokens:    7,
+		ReasoningTokens: 3,
+		CachedTokens:    5,
+		TotalTokens:     21,
+	}, "codex")
+
+	if event.InputTokens != 11 || event.OutputTokens != 7 || event.ReasoningTokens != 3 || event.CachedTokens != 5 || event.TotalTokens != 21 {
+		t.Fatalf("expected codex normalization to keep output unchanged, got %+v", event)
+	}
+}
+
 func TestNormalizeXAIStyleTokensKeepsResponsesOutput(t *testing.T) {
 	tokens := normalizeXAIStyleTokens(dto.TokenStats{
 		InputTokens:     11,
@@ -81,8 +95,8 @@ func TestNormalizeXAIStyleTokensKeepsResponsesOutput(t *testing.T) {
 	}
 }
 
-func TestNormalizeUsageEventTokensFoldsGeminiStyleReasoningForOpenAICompatible(t *testing.T) {
-	for _, usageType := range []string{"openai-compatible", "openai_compatibility"} {
+func TestNormalizeUsageEventTokensFoldsGeminiStyleReasoningForOpenAICompatibility(t *testing.T) {
+	for _, usageType := range []string{"openai", "openai-compatible", "openai_compatibility"} {
 		t.Run(usageType, func(t *testing.T) {
 			event := NormalizeUsageEventTokens(entities.UsageEvent{
 				InputTokens:     11,
@@ -99,8 +113,8 @@ func TestNormalizeUsageEventTokensFoldsGeminiStyleReasoningForOpenAICompatible(t
 	}
 }
 
-func TestNormalizeUsageEventTokensKeepsCodexStyleOutputForOpenAICompatible(t *testing.T) {
-	for _, usageType := range []string{"openai-compatible", "openai_compatibility"} {
+func TestNormalizeUsageEventTokensKeepsCodexStyleOutputForOpenAICompatibility(t *testing.T) {
+	for _, usageType := range []string{"openai", "openai-compatible", "openai_compatibility"} {
 		t.Run(usageType, func(t *testing.T) {
 			event := NormalizeUsageEventTokens(entities.UsageEvent{
 				InputTokens:     11,
@@ -117,8 +131,8 @@ func TestNormalizeUsageEventTokensKeepsCodexStyleOutputForOpenAICompatible(t *te
 	}
 }
 
-func TestNormalizeUsageEventTokensDoesNotFoldOpenAIStyleReasoningWhenTotalPresent(t *testing.T) {
-	for _, usageType := range []string{"codex", "openai"} {
+func TestNormalizeUsageEventTokensDoesNotFoldCodexReasoningWhenTotalPresent(t *testing.T) {
+	for _, usageType := range []string{"codex"} {
 		t.Run(usageType, func(t *testing.T) {
 			event := NormalizeUsageEventTokens(entities.UsageEvent{
 				InputTokens:     11,
@@ -129,7 +143,7 @@ func TestNormalizeUsageEventTokensDoesNotFoldOpenAIStyleReasoningWhenTotalPresen
 			}, usageType)
 
 			if event.InputTokens != 11 || event.OutputTokens != 10 || event.ReasoningTokens != 3 || event.CachedTokens != 5 || event.TotalTokens != 21 {
-				t.Fatalf("expected %s strict normalization to keep output unchanged, got %+v", usageType, event)
+				t.Fatalf("expected %s normalization to keep output unchanged, got %+v", usageType, event)
 			}
 		})
 	}
