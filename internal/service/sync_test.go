@@ -1194,7 +1194,7 @@ func TestProcessRedisUsageInboxUsesStrictTokensForKimiAndMissingType(t *testing.
 		},
 		{
 			Source:     redisUsageInboxTestSource,
-			RawMessage: `{"timestamp":"2026-04-27T08:00:00Z","provider":"Unknown","auth_type":"apikey","auth_index":"missing-auth-index","model":"unknown-model","request_id":"missing-type-default-style","tokens":{"input_tokens":100,"output_tokens":30,"cached_tokens":20,"cache_read_tokens":20,"cache_creation_tokens":10}}`,
+			RawMessage: `{"timestamp":"2026-04-27T08:00:00Z","provider":"Unknown","auth_type":"apikey","auth_index":"missing-auth-index","model":"unknown-model","request_id":"missing-type-default-style","tokens":{"input_tokens":100,"output_tokens":30,"reasoning_tokens":5,"cached_tokens":20,"cache_read_tokens":20,"cache_creation_tokens":10,"total_tokens":135}}`,
 			PoppedAt:   time.Date(2026, 4, 27, 8, 0, 0, 0, time.UTC),
 		},
 	})
@@ -1206,9 +1206,23 @@ func TestProcessRedisUsageInboxUsesStrictTokensForKimiAndMissingType(t *testing.
 	if _, err := service.ProcessRedisUsageInbox(context.Background()); err != nil {
 		t.Fatalf("ProcessRedisUsageInbox returned error: %v", err)
 	}
-	for _, eventKey := range []string{"kimi-openai-style", "missing-type-default-style"} {
+	cases := map[string]struct {
+		outputTokens    int64
+		reasoningTokens int64
+		totalTokens     int64
+	}{
+		"kimi-openai-style":          {outputTokens: 30, totalTokens: 130},
+		"missing-type-default-style": {outputTokens: 30, reasoningTokens: 5, totalTokens: 135},
+	}
+	for eventKey, expected := range cases {
 		event := loadUsageEventByKey(t, db, eventKey)
-		if event.InputTokens != 100 || event.CachedTokens != 20 || event.CacheReadTokens != 20 || event.CacheCreationTokens != 10 || event.OutputTokens != 30 || event.TotalTokens != 130 {
+		if event.InputTokens != 100 ||
+			event.CachedTokens != 20 ||
+			event.CacheReadTokens != 20 ||
+			event.CacheCreationTokens != 10 ||
+			event.OutputTokens != expected.outputTokens ||
+			event.ReasoningTokens != expected.reasoningTokens ||
+			event.TotalTokens != expected.totalTokens {
 			t.Fatalf("expected %s to use strict token normalization, got %+v", eventKey, event)
 		}
 	}
