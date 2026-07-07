@@ -244,8 +244,9 @@ const compositionTooltipPointerPlugin: Plugin<'doughnut'> = {
       compositionTooltipPointers.delete(chart);
       return;
     }
-    if (!Number.isFinite(event.x) || !Number.isFinite(event.y)) return;
-    compositionTooltipPointers.set(chart, { x: event.x, y: event.y });
+    const { x, y } = event;
+    if (typeof x !== 'number' || typeof y !== 'number' || !Number.isFinite(x) || !Number.isFinite(y)) return;
+    compositionTooltipPointers.set(chart, { x, y });
   },
 };
 
