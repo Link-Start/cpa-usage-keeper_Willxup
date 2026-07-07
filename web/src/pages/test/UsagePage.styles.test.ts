@@ -46,6 +46,17 @@ describe('UsagePage toolbar styles', () => {
     expect(keyOverviewPageStyles).toMatch(/\.pageFrame\s*\{[\s\S]*?width:\s*min\(var\(--keeper-page-max-width, 1245px\), 100%\);/)
   })
 
+  it('uses shell density variables for dashboard spacing without root zoom', () => {
+    expect(usagePageStyles).toMatch(/\.pageShell\s*\{[\s\S]*?padding:\s*var\(--keeper-page-padding-top, 28px\) var\(--keeper-page-padding-x, 20px\) var\(--keeper-page-padding-bottom, 48px\);/)
+    expect(keyOverviewPageStyles).toMatch(/\.pageShell\s*\{[\s\S]*?padding:\s*var\(--keeper-page-padding-top, 28px\) var\(--keeper-page-padding-x, 20px\) var\(--keeper-page-padding-bottom, 48px\);/)
+    expect(usagePageStyles).toMatch(/\.pageFrame\s*\{[\s\S]*?gap:\s*var\(--keeper-page-frame-gap, 18px\);/)
+    expect(keyOverviewPageStyles).toMatch(/\.pageFrame\s*\{[\s\S]*?gap:\s*var\(--keeper-page-frame-gap, 18px\);/)
+    expect(usagePageStyles).toMatch(/\.topBar\s*\{[\s\S]*?padding:\s*var\(--keeper-top-bar-padding-y, 18px\) var\(--keeper-top-bar-padding-x, 20px\);/)
+    expect(keyOverviewPageStyles).toMatch(/\.topBar\s*\{[\s\S]*?padding:\s*var\(--keeper-top-bar-padding-y, 18px\) var\(--keeper-top-bar-padding-x, 20px\);/)
+    expect(usagePageStyles).toMatch(/\.eyebrow\s*\{[\s\S]*?min-height:\s*var\(--keeper-toolbar-control-height, 42px\);/)
+    expect(keyOverviewPageStyles).toMatch(/\.eyebrow\s*\{[\s\S]*?min-height:\s*var\(--keeper-toolbar-control-height, 42px\);/)
+  })
+
   it('pins top notices to the viewport instead of the scrolled page body', () => {
     const noticeBlock = usagePageStyles.match(/\.updateCheckToast\s*\{[\s\S]*?\n\}/)?.[0] ?? ''
 
@@ -301,7 +312,8 @@ describe('UsagePage toolbar styles', () => {
     expect(analysisPanelSource).toContain("const activeContentKey = `${activeTab?.id ?? 'empty'}:${items.map((item) => item.key).join('|')}`")
     expect(analysisPanelSource).toContain('<Doughnut key={`chart-${activeContentKey}`} data={chartData} options={chartOptions} plugins={[compositionTooltipPointerPlugin]} />')
     expect(analysisPanelSource).toContain("id: 'analysis-composition-tooltip-pointer'")
-    expect(analysisPanelSource).toContain('<Scatter data={chartData} options={chartOptions} />')
+    expect(analysisPanelSource).toContain('<Scatter data={chartData} options={chartOptions} plugins={[modelEfficiencyTooltipPointerPlugin]} />')
+    expect(analysisPanelSource).toContain("id: 'analysis-model-efficiency-tooltip-pointer'")
     expect(analysisPanelSource).toContain("cost: '#14b8a6'")
     expect(analysisPanelSource).toContain('ticks: { color: chartTheme.textSecondary')
     expect(analysisPanelSource).toContain('analysis_cost_per_million_tokens')

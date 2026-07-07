@@ -68,6 +68,15 @@ type FloatingTooltipState = {
   y: number;
   placement: 'above' | 'below';
 };
+type ViewportPoint = {
+  x: number;
+  y: number;
+};
+type ChartTooltipPointer = {
+  chartX: number;
+  chartY: number;
+  viewport?: ViewportPoint;
+};
 type CostBreakdownSegmentKey = 'input' | 'output' | 'cached';
 type CostBreakdownSegment = {
   key: CostBreakdownSegmentKey;
@@ -180,7 +189,8 @@ const MODEL_EFFICIENCY_OUTLIER_RATIO = 8;
 const MODEL_EFFICIENCY_AXIS_PADDING_FACTOR = 2.5;
 const LATENCY_REFERENCE_HIT_RADIUS_PX = 8;
 const EMPTY_COMPOSITION_ITEMS: AnalysisCompositionItem[] = [];
-const compositionTooltipPointers = new WeakMap<Chart, { x: number; y: number }>();
+const compositionTooltipPointers = new WeakMap<Chart, ChartTooltipPointer>();
+const modelEfficiencyTooltipPointers = new WeakMap<Chart, ChartTooltipPointer>();
 const latencyReferenceHoverStates = new WeakMap<Chart<'scatter'>, LatencyReferenceHover>();
 const FULL_CIRCLE = Math.PI * 2;
 type TokenLabels = {
@@ -236,6 +246,48 @@ const drawTokenAverageLinePlugin: Plugin<'bar'> = {
   },
 };
 
+const toFiniteNumber = (value: unknown): number | undefined => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : undefined;
+};
+
+const getNativeViewportPoint = (event: unknown): ViewportPoint | undefined => {
+  if (!event || typeof event !== 'object') return undefined;
+  const native = (event as { native?: unknown }).native;
+  if (!native || typeof native !== 'object') return undefined;
+  const x = toFiniteNumber((native as { clientX?: unknown }).clientX);
+  const y = toFiniteNumber((native as { clientY?: unknown }).clientY);
+  return x === undefined || y === undefined ? undefined : { x, y };
+};
+
+const getChartTooltipPointer = (event: unknown): ChartTooltipPointer | undefined => {
+  if (!event || typeof event !== 'object') return undefined;
+  const chartX = toFiniteNumber((event as { x?: unknown }).x);
+  const chartY = toFiniteNumber((event as { y?: unknown }).y);
+  if (chartX === undefined || chartY === undefined) return undefined;
+  return {
+    chartX,
+    chartY,
+    viewport: getNativeViewportPoint(event),
+  };
+};
+
+const getTooltipViewportAnchor = (
+  chart: Chart,
+  tooltip: Pick<TooltipModel<'doughnut' | 'scatter'>, 'caretX' | 'caretY'>,
+  pointer: ChartTooltipPointer | undefined,
+): ViewportPoint | undefined => {
+  if (pointer?.viewport) return pointer.viewport;
+  const canvasRect = chart.canvas?.getBoundingClientRect();
+  if (!canvasRect) return undefined;
+  const anchorX = pointer?.chartX ?? tooltip.caretX ?? canvasRect.width / 2;
+  const anchorY = pointer?.chartY ?? tooltip.caretY ?? canvasRect.height / 2;
+  return {
+    x: canvasRect.left + anchorX,
+    y: canvasRect.top + anchorY,
+  };
+};
+
 const compositionTooltipPointerPlugin: Plugin<'doughnut'> = {
   id: 'analysis-composition-tooltip-pointer',
   beforeEvent: (chart, args) => {
@@ -244,9 +296,23 @@ const compositionTooltipPointerPlugin: Plugin<'doughnut'> = {
       compositionTooltipPointers.delete(chart);
       return;
     }
-    const { x, y } = event;
-    if (typeof x !== 'number' || typeof y !== 'number' || !Number.isFinite(x) || !Number.isFinite(y)) return;
-    compositionTooltipPointers.set(chart, { x, y });
+    const pointer = getChartTooltipPointer(event);
+    if (!pointer) return;
+    compositionTooltipPointers.set(chart, pointer);
+  },
+};
+
+const modelEfficiencyTooltipPointerPlugin: Plugin<'scatter'> = {
+  id: 'analysis-model-efficiency-tooltip-pointer',
+  beforeEvent: (chart, args) => {
+    const { event } = args;
+    if (event.type === 'mouseout') {
+      modelEfficiencyTooltipPointers.delete(chart);
+      return;
+    }
+    const pointer = getChartTooltipPointer(event);
+    if (!pointer) return;
+    modelEfficiencyTooltipPointers.set(chart, pointer);
   },
 };
 
@@ -312,8 +378,8 @@ const isCompositionPointerInsidePaintedArc = (chart: Chart, dataIndex: number, i
   if (!arc) return false;
   if (itemCount <= 1 || COMPOSITION_DONUT_SPACING <= 0) return true;
 
-  const dx = pointer.x - arc.x;
-  const dy = pointer.y - arc.y;
+  const dx = pointer.chartX - arc.x;
+  const dy = pointer.chartY - arc.y;
   const radius = Math.sqrt((dx * dx) + (dy * dy));
   if (radius < arc.innerRadius || radius > arc.outerRadius) return false;
 
@@ -932,21 +998,19 @@ function createCompositionTooltipHandler({
     const maxWidth = Math.min(COMPOSITION_TOOLTIP_MAX_WIDTH, viewportWidth - COMPOSITION_TOOLTIP_VIEWPORT_PADDING * 2);
     tooltipEl.style.opacity = '1';
     tooltipEl.style.maxWidth = `${maxWidth}px`;
-    const canvasRect = chart.canvas?.getBoundingClientRect();
-    if (!canvasRect) {
+    const pointer = compositionTooltipPointers.get(chart);
+    const anchor = getTooltipViewportAnchor(chart, tooltip, pointer);
+    if (!anchor) {
       tooltipEl.style.opacity = '0';
       return;
     }
     const tooltipWidth = tooltipEl.offsetWidth || COMPOSITION_TOOLTIP_MAX_WIDTH;
     const tooltipHeight = tooltipEl.offsetHeight || 120;
-    const pointer = compositionTooltipPointers.get(chart);
-    const anchorX = pointer?.x ?? tooltip.caretX ?? canvasRect.width / 2;
-    const anchorY = pointer?.y ?? tooltip.caretY ?? canvasRect.height / 2;
-    const rawRightSideLeft = canvasRect.left + anchorX + COMPOSITION_TOOLTIP_CURSOR_OFFSET;
+    const rawRightSideLeft = anchor.x + COMPOSITION_TOOLTIP_CURSOR_OFFSET;
     const left = rawRightSideLeft + tooltipWidth <= viewportWidth - COMPOSITION_TOOLTIP_VIEWPORT_PADDING
       ? rawRightSideLeft
-      : Math.max(COMPOSITION_TOOLTIP_VIEWPORT_PADDING, canvasRect.left + anchorX - tooltipWidth - COMPOSITION_TOOLTIP_CURSOR_OFFSET);
-    const rawTop = canvasRect.top + anchorY - tooltipHeight / 2;
+      : Math.max(COMPOSITION_TOOLTIP_VIEWPORT_PADDING, anchor.x - tooltipWidth - COMPOSITION_TOOLTIP_CURSOR_OFFSET);
+    const rawTop = anchor.y - tooltipHeight / 2;
     const top = Math.max(
       COMPOSITION_TOOLTIP_VIEWPORT_PADDING,
       Math.min(rawTop, viewportHeight - tooltipHeight - COMPOSITION_TOOLTIP_VIEWPORT_PADDING),
@@ -1681,16 +1745,24 @@ function createModelEfficiencyTooltipHandler({
     }
 
     const viewportWidth = typeof window === 'undefined' ? 1024 : window.innerWidth;
+    const viewportHeight = typeof window === 'undefined' ? 768 : window.innerHeight;
     const maxWidth = Math.min(MODEL_EFFICIENCY_TOOLTIP_MAX_WIDTH, viewportWidth - MODEL_EFFICIENCY_TOOLTIP_VIEWPORT_PADDING * 2);
     tooltipEl.style.opacity = '1';
     tooltipEl.style.maxWidth = `${maxWidth}px`;
-    const canvasRect = chart.canvas.getBoundingClientRect();
+    const anchor = getTooltipViewportAnchor(chart, tooltip, modelEfficiencyTooltipPointers.get(chart));
+    if (!anchor) {
+      tooltipEl.style.opacity = '0';
+      return;
+    }
     const tooltipWidth = tooltipEl.offsetWidth || MODEL_EFFICIENCY_TOOLTIP_MAX_WIDTH;
     const tooltipHeight = tooltipEl.offsetHeight || 160;
-    const rawLeft = canvasRect.left + tooltip.caretX + MODEL_EFFICIENCY_TOOLTIP_CURSOR_OFFSET;
+    const rawLeft = anchor.x + MODEL_EFFICIENCY_TOOLTIP_CURSOR_OFFSET;
     const left = Math.max(MODEL_EFFICIENCY_TOOLTIP_VIEWPORT_PADDING, Math.min(rawLeft, viewportWidth - tooltipWidth - MODEL_EFFICIENCY_TOOLTIP_VIEWPORT_PADDING));
-    const rawTop = canvasRect.top + tooltip.caretY - tooltipHeight / 2;
-    const top = Math.max(MODEL_EFFICIENCY_TOOLTIP_VIEWPORT_PADDING, rawTop);
+    const rawTop = anchor.y - tooltipHeight / 2;
+    const top = Math.max(
+      MODEL_EFFICIENCY_TOOLTIP_VIEWPORT_PADDING,
+      Math.min(rawTop, viewportHeight - tooltipHeight - MODEL_EFFICIENCY_TOOLTIP_VIEWPORT_PADDING),
+    );
     tooltipEl.style.left = `${left}px`;
     tooltipEl.style.top = `${top}px`;
   };
@@ -1798,7 +1870,7 @@ function ModelEfficiencyCard({ rows, loading, isDark, isMobile }: { rows: Analys
         <div className={styles.modelEfficiencyBody}>
           {hasPricedData ? (
             <div className={styles.efficiencyChartFrame}>
-              <Scatter data={chartData} options={chartOptions} />
+              <Scatter data={chartData} options={chartOptions} plugins={[modelEfficiencyTooltipPointerPlugin]} />
             </div>
           ) : (
             <div className={styles.emptyState}>{t('usage_stats.no_data')}</div>

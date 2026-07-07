@@ -420,6 +420,79 @@ describe('AnalysisPanel token chart data', () => {
     ]);
   });
 
+  it('positions the usage distribution tooltip from the native viewport pointer when available', () => {
+    const analysis: AnalysisResponse = {
+      ...emptyAnalysis,
+      api_key_composition: [{
+        key: '1',
+        label: 'Primary Key',
+        total_tokens: 1000,
+        requests: 4,
+        percent: 100,
+        input_tokens: 700,
+        output_tokens: 200,
+        cached_tokens: 50,
+        reasoning_tokens: 50,
+        cost_usd: 0.42,
+        cost_available: true,
+      }],
+    };
+
+    renderToStaticMarkup(<AnalysisPanel analysis={analysis} loading={false} isDark={false} isMobile={false} />);
+
+    const elements = new Map<string, FakeElement>();
+    const fakeDocument = createFakeDocument(elements);
+    vi.stubGlobal('document', fakeDocument);
+    vi.stubGlobal('window', { innerWidth: 1024, innerHeight: 768 });
+
+    const fakeChart = {
+      data: { datasets: [{ data: [1000] }] },
+      canvas: {
+        getBoundingClientRect: () => ({
+          left: 100,
+          top: 80,
+          right: 400,
+          bottom: 380,
+          width: 300,
+          height: 300,
+        }),
+      },
+      getDatasetMeta: () => ({
+        data: [{
+          x: 150,
+          y: 150,
+          innerRadius: 70,
+          outerRadius: 140,
+          startAngle: 0,
+          endAngle: Math.PI * 2,
+          circumference: Math.PI * 2,
+        }],
+      }),
+    };
+
+    chartCapture.doughnutPlugins?.[0]?.beforeEvent?.(fakeChart as never, {
+      event: { type: 'mousemove', x: 140, y: 240, native: { clientX: 460, clientY: 320 } },
+      replay: false,
+      changed: false,
+      cancelable: false,
+      inChartArea: true,
+    } as never, undefined as never);
+    chartCapture.doughnutOptions?.plugins?.tooltip?.external?.({
+      chart: fakeChart,
+      tooltip: {
+        opacity: 1,
+        caretX: 260,
+        caretY: 30,
+        dataPoints: [{ dataIndex: 0 }],
+      },
+    } as never);
+
+    const tooltipElement = elements.get('analysis-composition-tooltip');
+    expect(tooltipElement?.style.opacity).toBe('1');
+    expect(tooltipElement?.style.left).toBe('472px');
+    expect(tooltipElement?.style.top).toBe('240px');
+  });
+
   it('keeps two-item usage distribution donuts visually segmented', () => {
     const analysis: AnalysisResponse = {
       ...emptyAnalysis,
@@ -1217,6 +1290,67 @@ describe('AnalysisPanel token chart data', () => {
       'usage_stats.analysis_cost_per_million_tokens: $1.00',
       'usage_stats.requests_count: 6',
     ]);
+  });
+
+  it('positions the model efficiency tooltip from the native viewport pointer', () => {
+    const analysis: AnalysisResponse = {
+      ...emptyAnalysis,
+      model_efficiency: [
+        {
+          model: 'gpt-4o',
+          requests: 4,
+          input_tokens: 1000,
+          output_tokens: 300,
+          cached_tokens: 100,
+          reasoning_tokens: 20,
+          total_tokens: 2_000_000,
+          cost_usd: 2,
+          cost_available: true,
+          cost_per_request_usd: 0.5,
+          output_tokens_per_request: 80,
+          cache_rate: 0.1,
+        },
+      ],
+    };
+
+    renderToStaticMarkup(<AnalysisPanel analysis={analysis} loading={false} isDark={false} isMobile={false} />);
+
+    const elements = new Map<string, FakeElement>();
+    const fakeDocument = createFakeDocument(elements);
+    vi.stubGlobal('document', fakeDocument);
+    vi.stubGlobal('window', { innerWidth: 1024, innerHeight: 768 });
+
+    const modelScatterIndex = chartCapture.scatterData.findIndex((data) => data.datasets[0]?.label === 'usage_stats.analysis_model_efficiency_title');
+    expect(modelScatterIndex).toBeGreaterThanOrEqual(0);
+    const pointerPlugin = chartCapture.scatterPlugins[modelScatterIndex]?.find((plugin) => plugin.id === 'analysis-model-efficiency-tooltip-pointer');
+    expect(pointerPlugin).toBeTruthy();
+
+    const fakeChart = {
+      canvas: {
+        getBoundingClientRect: () => ({ left: 10, top: 20, right: 310, bottom: 320, width: 300, height: 300 }),
+      },
+    };
+    pointerPlugin?.beforeEvent?.(fakeChart as never, {
+      event: { type: 'mousemove', x: 100, y: 60, native: { clientX: 420, clientY: 300 } },
+      replay: false,
+      changed: false,
+      cancelable: false,
+      inChartArea: true,
+    } as never, undefined as never);
+    chartCapture.scatterOptions[modelScatterIndex]?.plugins?.tooltip?.external?.({
+      chart: fakeChart,
+      tooltip: {
+        opacity: 1,
+        caretX: 100,
+        caretY: 60,
+        dataPoints: [{ dataIndex: 0 }],
+      },
+    } as never);
+
+    const tooltipElement = elements.get('analysis-model-efficiency-tooltip');
+    expect(tooltipElement?.style.opacity).toBe('1');
+    expect(tooltipElement?.style.left).toBe('434px');
+    expect(tooltipElement?.style.top).toBe('220px');
   });
 
   it('keeps partial cost values visible and shows pricing hints near analysis charts', () => {
