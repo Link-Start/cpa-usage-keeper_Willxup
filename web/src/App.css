@@ -3,7 +3,7 @@
   --keeper-ui-zoom: 0.9;
 
   zoom: var(--keeper-ui-zoom);
-  min-height: 111.111svh;
+  min-height: calc(100svh / var(--keeper-ui-zoom));
   display: flex;
   flex-direction: column;
   background: var(--bg-secondary);

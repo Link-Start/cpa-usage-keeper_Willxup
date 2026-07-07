@@ -20,7 +20,7 @@ describe('App CPAMC embed shell', () => {
   it('applies a shared app zoom preview across normal and CPAMC modes', () => {
     expect(appStyles).toMatch(/\.app-frame\s*\{[\s\S]*?--keeper-ui-zoom:\s*0\.9;/);
     expect(appStyles).toMatch(/\.app-frame\s*\{[\s\S]*?zoom:\s*var\(--keeper-ui-zoom\);/);
-    expect(appStyles).toMatch(/\.app-frame\s*\{[\s\S]*?min-height:\s*111\.111svh;/);
+    expect(appStyles).toMatch(/\.app-frame\s*\{[\s\S]*?min-height:\s*calc\(100svh\s*\/\s*var\(--keeper-ui-zoom\)\);/);
     expect(embedStyles).not.toContain('--keeper-ui-zoom');
     expect(embedStyles).not.toContain('zoom:');
   });
