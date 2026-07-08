@@ -376,9 +376,30 @@ const isPointerInsidePaintedArc = (item: InteractionItem, event: unknown, useFin
     && getRadiansDistance(angle, props.endAngle) > boundaryPadding;
 };
 
+const getFullCircleCompositionItems = (chart: Chart, event: unknown, useFinalPosition?: boolean): InteractionItem[] => {
+  const items: InteractionItem[] = [];
+  chart.getSortedVisibleDatasetMetas().forEach((meta) => {
+    if (meta.type !== 'doughnut') return;
+    meta.data.forEach((element, index) => {
+      const item = { element, datasetIndex: meta.index, index } as InteractionItem;
+      const arc = getDoughnutArcProps(element, useFinalPosition);
+      if (!arc || Math.abs(arc.props.circumference) < FULL_CIRCLE - 0.0001) return;
+      if (isPointerInsidePaintedArc(item, event, useFinalPosition)) {
+        items.push(item);
+      }
+    });
+  });
+  return items;
+};
+
 const analysisCompositionArcMode: InteractionModeFunction = (chart, event, options, useFinalPosition) => {
   const candidateItems = Interaction.modes.nearest(chart, event, { ...options, axis: 'r', intersect: false }, useFinalPosition);
-  return candidateItems.filter((item) => isPointerInsidePaintedArc(item, event, useFinalPosition));
+  if (candidateItems.length > 0) {
+    return candidateItems.filter((item) => isPointerInsidePaintedArc(item, event, useFinalPosition));
+  }
+
+  // Chart.js 径向 nearest 不把 start/end 归一后相等的 360° 扇区视作 full circle，这里只兜底单扇区候选丢失。
+  return getFullCircleCompositionItems(chart, event, useFinalPosition);
 };
 
 Interaction.modes.analysisCompositionArc = analysisCompositionArcMode;

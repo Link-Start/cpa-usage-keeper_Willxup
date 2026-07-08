@@ -509,6 +509,64 @@ describe('AnalysisPanel token chart data', () => {
     }
   });
 
+  it('falls back to painted full-circle doughnut arcs when Chart.js radial nearest returns no candidates', () => {
+    renderToStaticMarkup(<AnalysisPanel analysis={{
+      ...emptyAnalysis,
+      api_key_composition: [{
+        key: '1',
+        label: 'Primary Key',
+        total_tokens: 1000,
+        requests: 4,
+        percent: 100,
+        input_tokens: 700,
+        output_tokens: 200,
+        cached_tokens: 50,
+        reasoning_tokens: 50,
+        cost_usd: 0.42,
+        cost_available: true,
+      }],
+    }} loading={false} isDark={false} isMobile={false} />);
+
+    const mode = (Interaction.modes as typeof Interaction.modes & {
+      analysisCompositionArc?: (chart: unknown, event: { x: number; y: number }, options: unknown, useFinalPosition?: boolean) => unknown[];
+    }).analysisCompositionArc;
+    expect(typeof mode).toBe('function');
+    const originalNearest = Interaction.modes.nearest;
+    const fullCircleArcElement = {
+      options: { spacing: 4, borderWidth: 0 },
+      getProps: () => ({
+        x: 150,
+        y: 150,
+        innerRadius: 70,
+        outerRadius: 140,
+        startAngle: -Math.PI / 2,
+        endAngle: (Math.PI * 3) / 2,
+        circumference: Math.PI * 2,
+      }),
+    };
+    const fakeChart = {
+      getSortedVisibleDatasetMetas: () => [{
+        type: 'doughnut',
+        index: 0,
+        data: [fullCircleArcElement],
+      }],
+    };
+
+    Interaction.modes.nearest = vi.fn(() => []) as typeof Interaction.modes.nearest;
+
+    try {
+      expect(mode?.(fakeChart as never, { x: 255, y: 150 }, {}, false)).toEqual([{
+        element: fullCircleArcElement,
+        datasetIndex: 0,
+        index: 0,
+      }]);
+      expect(mode?.(fakeChart as never, { x: 150, y: 150 }, {}, false)).toEqual([]);
+      expect(mode?.(fakeChart as never, { x: 300, y: 150 }, {}, false)).toEqual([]);
+    } finally {
+      Interaction.modes.nearest = originalNearest;
+    }
+  });
+
   it('positions the usage distribution tooltip away from the hovered arc', () => {
     renderToStaticMarkup(<AnalysisPanel analysis={{
       ...emptyAnalysis,
