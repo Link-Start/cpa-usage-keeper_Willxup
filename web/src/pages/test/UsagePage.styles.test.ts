@@ -400,8 +400,21 @@ describe('UsagePage toolbar styles', () => {
     expect(analysisPanelStyles).toMatch(/\.compositionTabActive\s*\{[\s\S]*?background:\s*color-mix\(in srgb, var\(--bg-primary\) 84%, var\(--bg-secondary\)\);/)
     expect(analysisPanelStyles).not.toMatch(/\.compositionTabActive\s*\{[\s\S]*?#2563eb/)
     expect(analysisPanelStyles).toMatch(/\.heatmapCardLight \.analysisChartSurface\s*\{[\s\S]*?background:\s*color-mix/)
-    expect(analysisPanelStyles).toMatch(/\.heatmapCardDark \.analysisChartSurface\s*\{[\s\S]*?background:\s*#100e16;/)
-    expect(analysisPanelStyles).toMatch(/\.heatmapCell::before\s*\{[\s\S]*?radial-gradient\(circle at 50% 115%/)
+    expect(analysisPanelStyles).toMatch(/\.heatmapCardDark \.analysisChartSurface\s*\{[\s\S]*?background:\s*var\(--bg-secondary\);/)
+    expect(analysisPanelStyles).toMatch(/\.heatmapCardDark\s*\{[\s\S]*?\.heatmapCorner,\s*\.heatmapHeaderCell\s*\{[\s\S]*?background:\s*color-mix\(in srgb, var\(--bg-tertiary\) 72%, var\(--bg-primary\)\);/)
+    expect(analysisPanelStyles).not.toContain('#100e16')
+    expect(analysisPanelStyles).not.toContain('#17131d')
+    expect(analysisPanelStyles).not.toContain('.heatmapCell::before')
+    const heatmapCellBlock = [...analysisPanelStyles.matchAll(/\.heatmapCell\s*\{([\s\S]*?)\n\}/g)]
+      .map((match) => match[1])
+      .find((block) => block.includes('font-variant-numeric: tabular-nums;')) ?? ''
+    expect(heatmapCellBlock).toContain('box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.10);')
+    expect(heatmapCellBlock).not.toContain('inset 0 -10px 18px')
+    const heatmapCellFocusBlock = [...analysisPanelStyles.matchAll(/\.heatmapCell:focus-visible\s*\{([\s\S]*?)\n\}/g)]
+      .map((match) => match[1])[0] ?? ''
+    expect(heatmapCellFocusBlock).toContain('box-shadow: 0 0 0 2px color-mix(in srgb, var(--heatmap-focus-color, #d86a4a) 70%, transparent), inset 0 0 0 1px rgba(255, 255, 255, 0.12);')
+    expect(analysisPanelStyles).not.toContain('--heatmap-flame-alpha')
+    expect(analysisPanelStyles).not.toContain('radial-gradient(circle at 50% 115%')
     expect(analysisPanelStyles).toMatch(/\.heatmapCorner,\s*\.heatmapHeaderCell\s*\{[\s\S]*?min-height:\s*48px;/)
     const heatmapRowLabelBlock = [...analysisPanelStyles.matchAll(/\.heatmapRowLabel\s*\{([\s\S]*?)\n\}/g)]
       .map((match) => match[1])
