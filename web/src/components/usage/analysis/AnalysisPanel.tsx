@@ -1978,7 +1978,6 @@ function Heatmap({ cells, apiKeys, apiKeyLabels, models, loading, isDark }: { ce
                             style={{
                               background: getHeatmapCellColor(intensity, isDark),
                               color: getHeatmapCellTextColor(intensity, isDark),
-                              '--heatmap-flame-alpha': intensity.toFixed(3),
                             } as CSSProperties}
                             tabIndex={0}
                             aria-label={tooltipLines.join(', ')}
