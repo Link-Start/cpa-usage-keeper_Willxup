@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"mime"
+	"net"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -137,7 +138,7 @@ func (c *Client) doManagementJSONRequestWithBody(ctx context.Context, method str
 const defaultRequestLogStreamIdleTimeout = 30 * time.Second
 
 func NewClient(baseURL, managementKey string, timeout time.Duration, tlsSkipVerify bool) *Client {
-	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport := cloneDefaultHTTPTransport()
 	if tlsSkipVerify {
 		transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
 	}
@@ -156,6 +157,24 @@ func NewClient(baseURL, managementKey string, timeout time.Duration, tlsSkipVeri
 		streamHTTPClient:  &http.Client{Transport: streamTransport},
 		streamIdleTimeout: requestLogStreamIdleTimeout(timeout),
 	}
+}
+
+func cloneDefaultHTTPTransport() *http.Transport {
+	if transport, ok := http.DefaultTransport.(*http.Transport); ok {
+		return transport.Clone()
+	}
+	return (&http.Transport{
+		Proxy: http.ProxyFromEnvironment,
+		DialContext: (&net.Dialer{
+			Timeout:   30 * time.Second,
+			KeepAlive: 30 * time.Second,
+		}).DialContext,
+		ForceAttemptHTTP2:     true,
+		MaxIdleConns:          100,
+		IdleConnTimeout:       90 * time.Second,
+		TLSHandshakeTimeout:   10 * time.Second,
+		ExpectContinueTimeout: 1 * time.Second,
+	}).Clone()
 }
 
 func requestLogStreamIdleTimeout(timeout time.Duration) time.Duration {
@@ -248,6 +267,11 @@ type idleTimeoutReadCloser struct {
 	timedOut bool
 }
 
+type idleTimeoutReadResult struct {
+	n   int
+	err error
+}
+
 func newIdleTimeoutReadCloser(body io.ReadCloser, timeout time.Duration) io.ReadCloser {
 	if body == nil || timeout <= 0 {
 		return body
@@ -256,28 +280,68 @@ func newIdleTimeoutReadCloser(body io.ReadCloser, timeout time.Duration) io.Read
 }
 
 func (r *idleTimeoutReadCloser) Read(p []byte) (int, error) {
-	timer := time.AfterFunc(r.timeout, func() {
-		r.mu.Lock()
-		r.timedOut = true
-		r.mu.Unlock()
-		_ = r.body.Close()
-	})
-	n, err := r.body.Read(p)
-	timer.Stop()
-	if err != nil && r.readTimedOut() {
-		return n, fmt.Errorf("read management request log stream body: %w", context.DeadlineExceeded)
+	if r == nil {
+		return 0, io.EOF
 	}
-	return n, err
+	r.mu.Lock()
+	if r.timedOut {
+		r.mu.Unlock()
+		return 0, fmt.Errorf("read management request log stream body: %w", context.DeadlineExceeded)
+	}
+	body := r.body
+	timeout := r.timeout
+	r.mu.Unlock()
+
+	if body == nil {
+		return 0, io.ErrClosedPipe
+	}
+	if timeout <= 0 {
+		return body.Read(p)
+	}
+
+	// 让读取结果和 idle timer 竞速，只有 timer 先赢时才关闭底层 body。
+	readResult := make(chan idleTimeoutReadResult, 1)
+	go func() {
+		n, err := body.Read(p)
+		readResult <- idleTimeoutReadResult{n: n, err: err}
+	}()
+
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+
+	select {
+	case result := <-readResult:
+		return result.n, result.err
+	case <-timer.C:
+		select {
+		case result := <-readResult:
+			return result.n, result.err
+		default:
+		}
+		r.markTimedOut()
+		_ = body.Close()
+		result := <-readResult
+		if result.err != nil {
+			return result.n, fmt.Errorf("read management request log stream body: %w", context.DeadlineExceeded)
+		}
+		return result.n, result.err
+	}
 }
 
 func (r *idleTimeoutReadCloser) Close() error {
+	if r == nil {
+		return nil
+	}
 	return r.body.Close()
 }
 
-func (r *idleTimeoutReadCloser) readTimedOut() bool {
+func (r *idleTimeoutReadCloser) markTimedOut() {
+	if r == nil {
+		return
+	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	return r.timedOut
+	r.timedOut = true
 }
 
 func (c *Client) newRequestLogRequest(ctx context.Context, requestID string) (*http.Request, error) {

@@ -114,6 +114,7 @@ const appendSelectedOption = (
 };
 
 type RequestEventRow = {
+  event: UsageEvent;
   id: string;
   requestId: string;
   timestamp: string;
@@ -726,6 +727,7 @@ export function RequestEventsDetailsCard({
       const cost = costAvailable ? Math.max(toNumber(event.cost_usd), 0) : null;
 
       return {
+        event,
         id: event.id ? String(event.id) : `${timestamp}-${model}-${sourceRaw || source}-${authIndex}-${index}`,
         requestId: String(event.request_id ?? '').trim(),
         timestamp,
@@ -910,8 +912,7 @@ export function RequestEventsDetailsCard({
           const resultLabel = row.failed ? t('usage_stats.failure') : t('usage_stats.success');
           const loading = requestLogLoadingEventId === row.id;
           const resultClassName = row.failed ? styles.requestEventsResultFailed : styles.requestEventsResultSuccess;
-          const sourceEvent = events.find((event) => String(event.id ?? '') === row.id);
-          const canOpenLog = Boolean(row.requestId && sourceEvent && onRequestLogOpen);
+          const canOpenLog = Boolean(row.requestId && onRequestLogOpen);
           return (
             <td className={styles.requestEventsNoWrapCell}>
               {canOpenLog ? (
@@ -920,9 +921,7 @@ export function RequestEventsDetailsCard({
                   className={`${resultClassName} ${styles.requestEventsResultLogButton}`.trim()}
                   data-result-locale={resultLocale}
                   onClick={() => {
-                    if (sourceEvent) {
-                      onRequestLogOpen?.(sourceEvent);
-                    }
+                    onRequestLogOpen?.(row.event);
                   }}
                   title={t('usage_stats.request_events_log_hint')}
                   aria-label={loading ? t('usage_stats.request_events_log_loading_aria', { result: resultLabel }) : t('usage_stats.request_events_log_open_aria', { result: resultLabel })}
@@ -1020,7 +1019,7 @@ export function RequestEventsDetailsCard({
     ];
 
     return definitions;
-  }, [events, latencyHint, onRequestLogOpen, requestLogLoadingEventId, resultLocale, speedHint, t, ttftHint]);
+  }, [latencyHint, onRequestLogOpen, requestLogLoadingEventId, resultLocale, speedHint, t, ttftHint]);
 
   const visibleColumns = useMemo(
     () => columnDefinitions.filter((definition) => effectiveVisibleColumnIdSet.has(definition.id)),

@@ -266,6 +266,16 @@ describe('RequestEventsDetailsCard pagination', () => {
     expect(html).toMatch(/<button[^>]*>.*Success.*<\/button>/);
   });
 
+  it('renders the Result badge as a request log trigger when the event id is missing', () => {
+    const html = renderCard({
+      events: [{ ...events[0], id: undefined, request_id: 'req-log-missing-id' }],
+      onRequestLogOpen: () => undefined,
+    });
+
+    expect(html).toContain('title="Click to view request log"');
+    expect(html).toContain('_requestEventsResultLogButton_');
+  });
+
   it('keeps the Result badge label stable while a request log loads', () => {
     const html = renderCard({
       events: [{ ...events[0], request_id: 'req-log-101' }],

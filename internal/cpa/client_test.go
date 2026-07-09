@@ -219,8 +219,23 @@ func TestOpenRequestLogByIDTimesOutStalledStreamBody(t *testing.T) {
 	if err == nil {
 		t.Fatalf("expected stalled stream body read to fail")
 	}
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("expected deadline exceeded error, got %v", err)
+	}
 	if time.Since(startedAt) > time.Second {
 		t.Fatalf("expected stalled stream body to fail quickly, took %s", time.Since(startedAt))
+	}
+}
+
+func TestIdleTimeoutReadCloserNilReceiver(t *testing.T) {
+	var reader *idleTimeoutReadCloser
+
+	n, err := reader.Read(make([]byte, 1))
+	if n != 0 || !errors.Is(err, io.EOF) {
+		t.Fatalf("expected nil reader to return EOF, got n=%d err=%v", n, err)
+	}
+	if err := reader.Close(); err != nil {
+		t.Fatalf("expected nil reader close to be a no-op, got %v", err)
 	}
 }
 
