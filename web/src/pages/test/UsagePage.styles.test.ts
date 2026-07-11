@@ -143,11 +143,33 @@ describe('UsagePage toolbar styles', () => {
     expect(i18nSource).not.toContain('overview_realtime_latency_p95')
   })
 
-  it('keeps refresh controls outside the query filter layout', () => {
-    expect(usagePageSource).toContain('{showRangeControls && (\n                  <div className={styles.usageFilterBar}>')
+  it('keeps normal-mode range controls mounted in a stable transition slot', () => {
+    expect(usagePageSource).toContain("${!isEmbeddedInCPAMC ? styles.toolbarActionsRightAnimated : ''}")
+    expect(usagePageSource).toContain('{(!isEmbeddedInCPAMC || showRangeControls) && (')
+    expect(usagePageSource).toContain('showRangeControls ? styles.usageFilterTransitionOpen : \'\'')
+    expect(usagePageSource).toContain('inert={!showRangeControls}')
+    expect(usagePageSource).toContain('<div className={styles.usageFilterBar}>')
+    expect(usagePageSource).not.toContain("key={showRangeControls ? 'open' : 'closed'}")
     expect(usagePageSource).toContain('className={styles.usageRefreshSlot}')
-    expect(usagePageSource).not.toContain('styles.usageFilterBarCollapsed')
+    expect(usagePageStyles).toMatch(/\.toolbarActionsRightAnimated\s*\{[\s\S]*?display:\s*grid;/)
+    expect(usagePageStyles).toMatch(/\.toolbarActionsRightAnimated\s*\{[\s\S]*?grid-template-columns:\s*minmax\(0, 1fr\) auto;/)
+    expect(usagePageStyles).toMatch(/\.usageFilterTransition\s*\{[\s\S]*?max-width:\s*0;/)
+    expect(usagePageStyles).toMatch(/\.usageFilterTransition\s*\{[\s\S]*?transform:\s*translateX\(8px\);/)
+    expect(usagePageStyles).toMatch(/\.usageFilterTransition\s*\{[\s\S]*?max-width 340ms cubic-bezier\(0\.22, 1, 0\.36, 1\)/)
+    expect(usagePageStyles).toMatch(/\.usageFilterTransition\s*\{[\s\S]*?opacity 260ms ease/)
+    expect(usagePageStyles).toMatch(/\.usageFilterTransitionOpen\s*\{[\s\S]*?max-width:\s*960px;/)
+    expect(usagePageStyles).toMatch(/\.usageFilterTransitionOpen\s*\{[\s\S]*?transform:\s*translateX\(0\);/)
+    expect(usagePageStyles).toMatch(/\.usageFilterTransitionInner\s*\{[\s\S]*?overflow:\s*hidden;/)
+    expect(usagePageStyles).toMatch(/\.usageFilterTransitionInner\s*\{[\s\S]*?width:\s*max-content;/)
     expect(usagePageStyles).toMatch(/\.usageRefreshSlot\s*\{[\s\S]*?flex:\s*0 0 auto;/)
+    expect(usagePageStyles).toMatch(/@include mobile\s*\{[\s\S]*?\.usageFilterTransition,\s*\.usageFilterTransitionInner\s*\{[\s\S]*?width:\s*100%;/)
+    expect(usagePageStyles).toMatch(/@include mobile\s*\{[\s\S]*?\.usageFilterTransitionOpen\s*\{[\s\S]*?max-width:\s*100%;/)
+  })
+
+  it('keeps CPAMC range controls on the immediate toolbar layout path', () => {
+    expect(usagePageSource).toContain('isEmbeddedInCPAMC ? styles.usageFilterTransitionImmediate')
+    expect(usagePageStyles).toMatch(/\.usageFilterTransitionImmediate\s*\{[\s\S]*?display:\s*contents;/)
+    expect(usagePageStyles).toMatch(/\.usageFilterTransitionImmediate\s+\.usageFilterTransitionInner\s*\{[\s\S]*?display:\s*contents;/)
   })
 
   it('does not reload Request Events filter options for table query changes', () => {
