@@ -20,9 +20,19 @@ const modelNameCollator = new Intl.Collator('en', {
   sensitivity: 'base',
 });
 
-const compareModelNamesDescending = (left: string, right: string): number => (
-  modelNameCollator.compare(formatDisplayName(right), formatDisplayName(left))
-);
+const compareModelNamesDescending = (left: string, right: string): number => {
+  const leftDisplayName = formatDisplayName(left);
+  const rightDisplayName = formatDisplayName(right);
+  const naturalOrder = modelNameCollator.compare(rightDisplayName, leftDisplayName);
+  if (naturalOrder !== 0) return naturalOrder;
+
+  // 自然排序等值时按精确字符串兜底，避免保存与刷新后的顺序随输入来源变化。
+  if (leftDisplayName !== rightDisplayName) {
+    return leftDisplayName > rightDisplayName ? -1 : 1;
+  }
+  if (left === right) return 0;
+  return left > right ? -1 : 1;
+};
 
 export interface PriceSettingsCardProps {
   modelNames: string[];

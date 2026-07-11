@@ -143,6 +143,35 @@ describe('PriceSettingsCard', () => {
     expect(renderedOrder).toEqual([...renderedOrder].sort((left, right) => left - right));
   });
 
+  it('uses an exact-name tie-break for naturally equivalent saved model names', () => {
+    const prices = Object.fromEntries([
+      'gpt-02',
+      'GPT-2',
+      'gpt-2',
+    ].map((model, index) => [model, {
+      style: 'openai' as const,
+      prompt: index + 1,
+      completion: index + 2,
+      cacheRead: 0,
+      cacheWrite: 0,
+      multiplier: 1,
+    }]));
+    const html = renderToStaticMarkup(
+      <PriceSettingsCard
+        modelNames={[]}
+        modelPrices={prices}
+        onPriceSave={() => undefined}
+        onPriceDelete={() => undefined}
+        loading={false}
+      />,
+    );
+    const renderedOrder = ['gpt-2', 'gpt-02', 'GPT-2']
+      .map((model) => html.indexOf(`>${model}</span>`));
+
+    expect(renderedOrder.every((index) => index >= 0)).toBe(true);
+    expect(renderedOrder).toEqual([...renderedOrder].sort((left, right) => left - right));
+  });
+
 	it('shows cache read and write controls for OpenAI create, edit and sync drafts', () => {
 		const html = renderToStaticMarkup(
 			<PriceSettingsCard
@@ -489,5 +518,20 @@ describe('buildPricingModelOptions', () => {
     expect(options.find((option) => option.value === 'gpt-5.9')?.suffix).toBeTruthy();
     expect(options.find((option) => option.value === 'gpt-5.10')?.suffix).toBeUndefined();
     expect(options.find((option) => option.value === 'gpt-5.10')?.disabled).toBeUndefined();
+  });
+
+  it('uses an exact-name tie-break when natural model names compare equally', () => {
+    const options = buildPricingModelOptions(
+      ['gpt-02', 'GPT-2', 'gpt-2'],
+      {},
+      'Select model',
+    );
+
+    expect(options.map((option) => option.value)).toEqual([
+      '',
+      'gpt-2',
+      'gpt-02',
+      'GPT-2',
+    ]);
   });
 });
