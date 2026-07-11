@@ -30,7 +30,7 @@ type ProviderResetter interface {
 }
 
 type ProviderResetCreditsOutput struct {
-	AvailableCount int                         `json:"availableCount"`
+	AvailableCount *int                        `json:"availableCount"`
 	Credits        []CodexRateLimitResetCredit `json:"credits"`
 }
 

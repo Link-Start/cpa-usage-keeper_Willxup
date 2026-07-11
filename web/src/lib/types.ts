@@ -415,7 +415,7 @@ export interface UsageQuotaResetCredit {
 
 export interface UsageQuotaResetCreditsResponse {
   authIndex: string
-  availableCount: number
+  availableCount: number | null
   credits: UsageQuotaResetCredit[]
 }
 

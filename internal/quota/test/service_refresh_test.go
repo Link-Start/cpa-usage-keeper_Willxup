@@ -2,6 +2,7 @@ package test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"path/filepath"
 	"sync"
@@ -112,8 +113,9 @@ func TestResetConsumesCodexCredit(t *testing.T) {
 func TestGetResetCreditsListsCodexCreditsWithoutWritingQuotaCache(t *testing.T) {
 	db := openQuotaTestDatabase(t)
 	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "codex-auth", Provider: "codex", Type: "codex", AuthType: entities.UsageIdentityAuthTypeAuthFile})
+	availableCount := 1
 	handler := &resetHandlerStub{creditOutput: ProviderResetCreditsOutput{
-		AvailableCount: 1,
+		AvailableCount: &availableCount,
 		Credits:        []CodexRateLimitResetCredit{{ID: "credit-1", Status: "available", ExpiresAt: "2026-07-20T00:00:00Z"}},
 	}}
 	service := newQuotaServiceWithRegistry(t, db, NewProviderRegistry(map[string]ProviderHandler{"codex": handler}))
@@ -122,7 +124,7 @@ func TestGetResetCreditsListsCodexCreditsWithoutWritingQuotaCache(t *testing.T) 
 	if err != nil {
 		t.Fatalf("GetResetCredits returned error: %v", err)
 	}
-	if response.AuthIndex != "codex-auth" || response.AvailableCount != 1 || len(response.Credits) != 1 || response.Credits[0].ID != "credit-1" {
+	if response.AuthIndex != "codex-auth" || response.AvailableCount == nil || *response.AvailableCount != 1 || len(response.Credits) != 1 || response.Credits[0].ID != "credit-1" {
 		t.Fatalf("unexpected reset credits response: %+v", response)
 	}
 	if len(handler.creditInputs) != 1 || handler.creditInputs[0].Identity != "codex-auth" {
@@ -134,6 +136,25 @@ func TestGetResetCreditsListsCodexCreditsWithoutWritingQuotaCache(t *testing.T) 
 	}
 	if len(cache.Items) != 0 {
 		t.Fatalf("expected on-demand reset credits not to write quota cache, got %+v", cache.Items)
+	}
+}
+
+func TestGetResetCreditsPreservesUnknownAvailableCount(t *testing.T) {
+	db := openQuotaTestDatabase(t)
+	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "codex-auth", Provider: "codex", Type: "codex", AuthType: entities.UsageIdentityAuthTypeAuthFile})
+	handler := &resetHandlerStub{creditOutput: ProviderResetCreditsOutput{Credits: []CodexRateLimitResetCredit{}}}
+	service := newQuotaServiceWithRegistry(t, db, NewProviderRegistry(map[string]ProviderHandler{"codex": handler}))
+
+	response, err := service.GetResetCredits(context.Background(), ResetCreditsRequest{AuthIndex: "codex-auth"})
+	if err != nil {
+		t.Fatalf("GetResetCredits returned error: %v", err)
+	}
+	encoded, err := json.Marshal(response)
+	if err != nil {
+		t.Fatalf("marshal reset credits response: %v", err)
+	}
+	if !contains(string(encoded), `"availableCount":null`) {
+		t.Fatalf("expected unknown available count to remain null, got %s", encoded)
 	}
 }
 

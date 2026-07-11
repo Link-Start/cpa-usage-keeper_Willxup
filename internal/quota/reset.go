@@ -28,7 +28,7 @@ type ResetCreditsRequest struct {
 
 type ResetCreditsResponse struct {
 	AuthIndex      string                      `json:"authIndex"`
-	AvailableCount int                         `json:"availableCount"`
+	AvailableCount *int                        `json:"availableCount"`
 	Credits        []CodexRateLimitResetCredit `json:"credits"`
 }
 

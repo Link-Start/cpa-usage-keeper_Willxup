@@ -57,9 +57,10 @@ func (s *quotaResetCreditsProviderStub) Reset(context.Context, quota.ResetReques
 }
 
 func TestQuotaResetCreditsReturnsAvailableExpiries(t *testing.T) {
+	availableCount := 2
 	provider := &quotaResetCreditsProviderStub{response: quota.ResetCreditsResponse{
 		AuthIndex:      "codex-auth",
-		AvailableCount: 2,
+		AvailableCount: &availableCount,
 		Credits: []quota.CodexRateLimitResetCredit{
 			{ID: "credit-1", Status: "available", GrantedAt: "2026-07-01T00:00:00Z", ExpiresAt: "2026-07-20T00:00:00Z"},
 			{ID: "credit-2", Status: "available", GrantedAt: "2026-07-02T00:00:00Z", ExpiresAt: "2026-07-21T00:00:00Z"},
@@ -80,6 +81,25 @@ func TestQuotaResetCreditsReturnsAvailableExpiries(t *testing.T) {
 	body := resp.Body.String()
 	if !contains(body, `"authIndex":"codex-auth"`) || !contains(body, `"availableCount":2`) || !contains(body, `"expiresAt":"2026-07-20T00:00:00Z"`) {
 		t.Fatalf("unexpected response body: %s", body)
+	}
+}
+
+func TestQuotaResetCreditsReturnsNullWhenAvailableCountIsUnknown(t *testing.T) {
+	provider := &quotaResetCreditsProviderStub{response: quota.ResetCreditsResponse{
+		AuthIndex: "codex-auth",
+		Credits:   []quota.CodexRateLimitResetCredit{},
+	}}
+	router := NewRouter(nil, nil, nil, nil, AuthConfig{}, nil, "", OptionalProviders{Quota: provider})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/quota/reset-credits/codex-auth", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d body=%s", resp.Code, resp.Body.String())
+	}
+	if body := resp.Body.String(); !contains(body, `"availableCount":null`) {
+		t.Fatalf("expected unknown available count to remain null, got %s", body)
 	}
 }
 

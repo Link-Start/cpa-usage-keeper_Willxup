@@ -416,9 +416,10 @@ func parseCodexResetCreditsResponse(response *apicall.Response) (ProviderResetCr
 			ExpiresAt: expiresAt,
 		})
 	}
-	availableCount := len(credits)
+	var availableCount *int
 	if count := intPtrField(object, "available_count", "availableCount"); count != nil && *count >= 0 {
-		availableCount = int(*count)
+		parsedCount := int(*count)
+		availableCount = &parsedCount
 	}
 	return ProviderResetCreditsOutput{AvailableCount: availableCount, Credits: credits}, nil
 }

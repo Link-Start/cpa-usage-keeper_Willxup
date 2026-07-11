@@ -58,12 +58,24 @@ describe('QuotaResetAction reset credit details', () => {
     })
     const trigger = container.querySelector<HTMLButtonElement>('button[aria-haspopup="dialog"]')
     expect(trigger).not.toBeNull()
-    await act(async () => trigger?.click())
+    return trigger as HTMLButtonElement
+  }
+
+  const openAction = async (trigger: HTMLButtonElement) => {
+    await act(async () => trigger.click())
+  }
+
+  const renderOpenAction = async (
+    fetchResetCredits: (authIndex: string, signal?: AbortSignal) => Promise<UsageQuotaResetCreditsResponse>,
+  ) => {
+    const trigger = await renderAction(fetchResetCredits)
+    await openAction(trigger)
+    return trigger
   }
 
   it('opens immediately, loads details, and gates confirmation until the request succeeds', async () => {
     const request = deferred<UsageQuotaResetCreditsResponse>()
-    await renderAction(() => request.promise)
+    await renderOpenAction(() => request.promise)
 
     expect(container.textContent).toContain('usage_stats.credentials_quota_reset_expiry_loading')
     expect(container.querySelector<HTMLButtonElement>('button[aria-busy="false"][disabled]')?.disabled).toBe(true)
@@ -86,15 +98,54 @@ describe('QuotaResetAction reset credit details', () => {
     expect(Array.from(container.querySelectorAll<HTMLButtonElement>('button')).at(-1)?.disabled).toBe(false)
   })
 
+  it('loads reset credit details only after the popover opens', async () => {
+    const fetchResetCredits = vi.fn(async (_authIndex: string, _signal?: AbortSignal) => ({
+      authIndex: 'codex-auth',
+      availableCount: 2,
+      credits: [],
+    }))
+    const trigger = await renderAction(fetchResetCredits)
+
+    expect(fetchResetCredits).not.toHaveBeenCalled()
+
+    await openAction(trigger)
+
+    expect(fetchResetCredits).toHaveBeenCalledTimes(1)
+    expect(fetchResetCredits).toHaveBeenCalledWith('codex-auth', expect.any(AbortSignal))
+  })
+
   it('keeps confirmation disabled when the live response reports no credits', async () => {
-    await renderAction(async () => ({ authIndex: 'codex-auth', availableCount: 0, credits: [] }))
+    await renderOpenAction(async () => ({ authIndex: 'codex-auth', availableCount: 0, credits: [] }))
 
     expect(container.textContent).toContain('usage_stats.credentials_quota_reset_expiry_empty')
     expect(Array.from(container.querySelectorAll<HTMLButtonElement>('button')).at(-1)?.disabled).toBe(true)
   })
 
+  it('falls back to available expiry rows when the live count is missing', async () => {
+    await renderOpenAction(async () => ({
+      authIndex: 'codex-auth',
+      availableCount: null,
+      credits: [{ id: 'credit-1', status: 'available', expiresAt: '2026-07-20T00:00:00Z' }],
+    }))
+
+    const dialog = container.querySelector<HTMLElement>('[role="dialog"]')
+    expect(dialog?.textContent).toContain('1usage_stats.credentials_quota_reset_message_suffix')
+    expect(dialog?.textContent).not.toContain('usage_stats.credentials_quota_reset_expiry_empty')
+    expect(Array.from(container.querySelectorAll<HTMLButtonElement>('button')).at(-1)?.disabled).toBe(false)
+  })
+
+  it('falls back to the cached count when both live count and expiry rows are missing', async () => {
+    await renderOpenAction(async () => ({ authIndex: 'codex-auth', availableCount: null, credits: [] }))
+
+    const dialog = container.querySelector<HTMLElement>('[role="dialog"]')
+    expect(dialog?.textContent).toContain('2usage_stats.credentials_quota_reset_message_suffix')
+    expect(dialog?.textContent).toContain('usage_stats.credentials_quota_reset_expiry_failed')
+    expect(dialog?.textContent).not.toContain('usage_stats.credentials_quota_reset_expiry_empty')
+    expect(Array.from(container.querySelectorAll<HTMLButtonElement>('button')).at(-1)?.disabled).toBe(false)
+  })
+
   it('allows confirmation with a warning when the count is positive but no expiry rows are returned', async () => {
-    await renderAction(async () => ({ authIndex: 'codex-auth', availableCount: 2, credits: [] }))
+    await renderOpenAction(async () => ({ authIndex: 'codex-auth', availableCount: 2, credits: [] }))
 
     expect(container.textContent).toContain('usage_stats.credentials_quota_reset_expiry_failed')
     expect(container.textContent).not.toContain('usage_stats.credentials_quota_reset_expiry_empty')
@@ -102,7 +153,7 @@ describe('QuotaResetAction reset credit details', () => {
   })
 
   it('shows available expiry rows with a warning when the response omits some details', async () => {
-    await renderAction(async () => ({
+    await renderOpenAction(async () => ({
       authIndex: 'codex-auth',
       availableCount: 3,
       credits: [{ id: 'credit-1', status: 'available', expiresAt: '2026-07-20T00:00:00Z' }],
@@ -115,7 +166,7 @@ describe('QuotaResetAction reset credit details', () => {
 
   it('shows a non-blocking warning and falls back to the cached count after lookup failure', async () => {
     const request = deferred<UsageQuotaResetCreditsResponse>()
-    await renderAction(() => request.promise)
+    await renderOpenAction(() => request.promise)
 
     await act(async () => {
       request.reject(new Error('lookup failed'))
@@ -134,7 +185,7 @@ describe('QuotaResetAction reset credit details', () => {
     vi.useFakeTimers()
     let lookupSignal: AbortSignal | undefined
     try {
-      await renderAction((_authIndex, signal) => {
+      await renderOpenAction((_authIndex, signal) => {
         lookupSignal = signal
         return new Promise<UsageQuotaResetCreditsResponse>(() => undefined)
       })
@@ -152,5 +203,28 @@ describe('QuotaResetAction reset credit details', () => {
     } finally {
       vi.useRealTimers()
     }
+  })
+
+  it('opens above the trigger and limits its height near the viewport bottom', async () => {
+    vi.spyOn(window, 'innerWidth', 'get').mockReturnValue(1_000)
+    vi.spyOn(window, 'innerHeight', 'get').mockReturnValue(600)
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({
+      x: 950,
+      y: 540,
+      top: 540,
+      right: 980,
+      bottom: 570,
+      left: 950,
+      width: 30,
+      height: 30,
+      toJSON: () => ({}),
+    })
+
+    await renderOpenAction(async () => ({ authIndex: 'codex-auth', availableCount: 2, credits: [] }))
+
+    const dialog = container.querySelector<HTMLElement>('[role="dialog"]')
+    expect(dialog?.style.top).toBe('')
+    expect(dialog?.style.bottom).toBe('68px')
+    expect(dialog?.style.maxHeight).toBe('360px')
   })
 })

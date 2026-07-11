@@ -125,7 +125,7 @@ func TestCodexProviderListsAvailableRateLimitResetCredits(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListResetCredits returned error: %v", err)
 	}
-	if output.AvailableCount != 2 || len(output.Credits) != 2 {
+	if output.AvailableCount == nil || *output.AvailableCount != 2 || len(output.Credits) != 2 {
 		t.Fatalf("unexpected reset credit output: %+v", output)
 	}
 	if output.Credits[0].ID != "credit-1" || output.Credits[0].ExpiresAt != "2026-07-20T00:00:00Z" {
@@ -143,6 +143,82 @@ func TestCodexProviderListsAvailableRateLimitResetCredits(t *testing.T) {
 	}
 	if request.Header["Chatgpt-Account-Id"] != "acct_123" || request.Header["Accept"] != "application/json" || request.Header["OpenAI-Beta"] != "codex-1" || request.Header["Originator"] != "Codex Desktop" {
 		t.Fatalf("unexpected reset credit request headers: %+v", request.Header)
+	}
+}
+
+func TestCodexProviderPreservesUnknownRateLimitResetCreditCount(t *testing.T) {
+	tests := []struct {
+		name               string
+		payload            string
+		wantAvailableCount string
+		wantCredits        int
+		wantError          bool
+	}{
+		{
+			name:               "explicit zero",
+			payload:            `{"available_count":0}`,
+			wantAvailableCount: "0",
+		},
+		{
+			name:               "count only",
+			payload:            `{"available_count":2}`,
+			wantAvailableCount: "2",
+		},
+		{
+			name:               "credits only",
+			payload:            `{"credits":[{"id":"credit-1","reset_type":"codex_rate_limits","status":"available","expires_at":"2026-07-20T00:00:00Z"}]}`,
+			wantAvailableCount: "null",
+			wantCredits:        1,
+		},
+		{
+			name:               "partially valid credits without count",
+			payload:            `{"credits":[{"id":"credit-1","reset_type":"codex_rate_limits","status":"available","expires_at":"2026-07-20T00:00:00Z"},{"id":"missing-expiry","reset_type":"codex_rate_limits","status":"available"},{"id":"used-credit","reset_type":"codex_rate_limits","status":"consumed","expires_at":"2026-07-21T00:00:00Z"}]}`,
+			wantAvailableCount: "null",
+			wantCredits:        1,
+		},
+		{
+			name:               "empty credits without count",
+			payload:            `{"credits":[]}`,
+			wantAvailableCount: "null",
+		},
+		{
+			name:      "unexpected shape",
+			payload:   `{}`,
+			wantError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			caller := &recordingManagementCaller{responses: []*apicall.Response{{
+				StatusCode: 200,
+				BodyText:   tt.payload,
+				Body:       json.RawMessage(tt.payload),
+			}}}
+			provider := quota.NewCodexProvider(caller, quota.DefaultProviderConfigs().Codex)
+			lister := provider.(quota.ProviderResetCreditLister)
+
+			output, err := lister.ListResetCredits(context.Background(), quota.ProviderInput{Identity: entities.UsageIdentity{Identity: "codex-auth"}})
+			if tt.wantError {
+				if err == nil {
+					t.Fatalf("expected invalid reset credit response to fail, got %+v", output)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("ListResetCredits returned error: %v", err)
+			}
+			if len(output.Credits) != tt.wantCredits {
+				t.Fatalf("expected %d available credits, got %+v", tt.wantCredits, output.Credits)
+			}
+			encoded, err := json.Marshal(output)
+			if err != nil {
+				t.Fatalf("marshal reset credit output: %v", err)
+			}
+			if !contains(string(encoded), `"availableCount":`+tt.wantAvailableCount) {
+				t.Fatalf("expected availableCount %s, got %s", tt.wantAvailableCount, encoded)
+			}
+		})
 	}
 }
 

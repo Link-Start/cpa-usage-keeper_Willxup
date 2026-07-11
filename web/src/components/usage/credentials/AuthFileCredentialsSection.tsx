@@ -32,11 +32,16 @@ type QuotaErrorDetails = {
   message?: string
 }
 type QuotaResetPopoverPosition = {
-  top: number
+  top?: number
+  bottom?: number
   right: number
+  maxHeight: number
 }
 
 const RESET_CREDITS_LOOKUP_TIMEOUT_MS = 5_000
+const RESET_CREDITS_POPOVER_VIEWPORT_MARGIN = 12
+const RESET_CREDITS_POPOVER_OFFSET = 8
+const RESET_CREDITS_POPOVER_MAX_HEIGHT = 360
 
 const QUOTA_ERROR_MESSAGE_MAX_LENGTH = 96
 const QUOTA_ERROR_PARSE_MAX_DEPTH = 10
@@ -313,18 +318,25 @@ export function QuotaResetAction({
       return
     }
     const rect = button.getBoundingClientRect()
-    // popover 使用 fixed，避免被卡片 overflow 裁切，同时跟随右侧按钮重新定位。
-    setPopoverPosition({
-      top: Math.round(rect.bottom + 8),
-      right: Math.max(12, Math.round(window.innerWidth - rect.right)),
-    })
+    const viewportHeight = window.innerHeight
+    const spaceBelow = Math.max(0, viewportHeight - rect.bottom - RESET_CREDITS_POPOVER_VIEWPORT_MARGIN - RESET_CREDITS_POPOVER_OFFSET)
+    const spaceAbove = Math.max(0, rect.top - RESET_CREDITS_POPOVER_VIEWPORT_MARGIN - RESET_CREDITS_POPOVER_OFFSET)
+    const openBelow = spaceBelow >= RESET_CREDITS_POPOVER_MAX_HEIGHT || spaceBelow >= spaceAbove
+    const availableHeight = openBelow ? spaceBelow : spaceAbove
+    const sharedPosition = {
+      right: Math.max(RESET_CREDITS_POPOVER_VIEWPORT_MARGIN, Math.round(window.innerWidth - rect.right)),
+      maxHeight: Math.max(0, Math.min(RESET_CREDITS_POPOVER_MAX_HEIGHT, availableHeight)),
+    }
+    // popover 使用 fixed 并选择空间更充足的一侧，避免被卡片或视口底部裁切。
+    setPopoverPosition(openBelow
+      ? { ...sharedPosition, top: Math.round(rect.bottom + RESET_CREDITS_POPOVER_OFFSET) }
+      : { ...sharedPosition, bottom: Math.round(viewportHeight - rect.top + RESET_CREDITS_POPOVER_OFFSET) })
   }, [])
 
   useEffect(() => {
     if (!open) {
       return
     }
-    updatePopoverPosition()
     const refreshPopoverPosition = () => updatePopoverPosition()
     window.addEventListener('resize', refreshPopoverPosition)
     window.addEventListener('scroll', refreshPopoverPosition, true)
@@ -420,8 +432,19 @@ export function QuotaResetAction({
     setOpen(true)
   }
 
-  const displayResetCredits = resetCreditsDetails?.availableCount ?? resetCredits
-  const confirmDisabled = loading || resetCreditsLoading || (resetCreditsDetails !== null && resetCreditsDetails.availableCount <= 0)
+  const resetCreditsCountFromDetails = resetCreditsDetails && resetCreditsDetails.credits.length > 0
+    ? resetCreditsDetails.credits.length
+    : null
+  // 与 CPAMC 保持一致：实时次数未知时先使用有效明细数量，仍未知则回退打开前的缓存次数。
+  const displayResetCredits = resetCreditsDetails?.availableCount ?? resetCreditsCountFromDetails ?? resetCredits
+  const resetCreditsExplicitlyUnavailable = resetCreditsDetails !== null
+    && resetCreditsDetails.availableCount !== null
+    && resetCreditsDetails.availableCount <= 0
+  const resetCreditsDetailsIncomplete = resetCreditsDetails !== null && (
+    (resetCreditsDetails.availableCount === null && resetCreditsDetails.credits.length === 0)
+    || (resetCreditsDetails.availableCount !== null && resetCreditsDetails.availableCount > resetCreditsDetails.credits.length)
+  )
+  const confirmDisabled = loading || resetCreditsLoading || resetCreditsExplicitlyUnavailable
 
   return (
     <div ref={actionRef} className={styles.credentialQuotaResetAction}>
@@ -450,7 +473,7 @@ export function QuotaResetAction({
           className={styles.credentialQuotaResetPopover}
           role="dialog"
           aria-label={t('usage_stats.credentials_quota_reset_title')}
-          style={popoverPosition ? { top: popoverPosition.top, right: popoverPosition.right } : undefined}
+          style={popoverPosition ?? undefined}
         >
           <p className={styles.credentialQuotaResetTitle}>{t('usage_stats.credentials_quota_reset_title')}</p>
           <p className={styles.credentialQuotaResetMessage}>
@@ -478,10 +501,10 @@ export function QuotaResetAction({
                 ))}
               </div>
             )}
-            {!resetCreditsLoading && resetCreditsDetails && resetCreditsDetails.availableCount <= 0 && (
+            {!resetCreditsLoading && resetCreditsExplicitlyUnavailable && (
               <p className={styles.credentialQuotaResetExpiryStatus}>{t('usage_stats.credentials_quota_reset_expiry_empty')}</p>
             )}
-            {!resetCreditsLoading && (resetCreditsFailed || (resetCreditsDetails !== null && resetCreditsDetails.availableCount > resetCreditsDetails.credits.length)) && (
+            {!resetCreditsLoading && (resetCreditsFailed || resetCreditsDetailsIncomplete) && (
               <p className={`${styles.credentialQuotaResetExpiryStatus} ${styles.credentialQuotaResetExpiryWarning}`.trim()}>
                 {t('usage_stats.credentials_quota_reset_expiry_failed')}
               </p>
