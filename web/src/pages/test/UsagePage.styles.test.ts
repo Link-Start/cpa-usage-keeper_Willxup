@@ -347,6 +347,18 @@ describe('UsagePage toolbar styles', () => {
     expect(pricingGridBlock).not.toMatch(/@include mobile\s*\{[\s\S]*?overflow:\s*visible;/)
   })
 
+  it('reflows the model pricing form from four to two to one column based on its container width', () => {
+    expect(priceSettingsSource).toContain('className={`${styles.formField} ${styles.priceFormModelField}`}')
+    expect(priceSettingsSource).toContain('className={`${styles.usagePillAction} ${styles.priceFormAction}`}')
+    expect(usagePageStyles).toMatch(/\.priceForm\s*\{[\s\S]*?container-name:\s*model-pricing-form;/)
+    expect(usagePageStyles).toMatch(/\.priceForm\s*\{[\s\S]*?container-type:\s*inline-size;/)
+    expect(usagePageStyles).toMatch(/\.formRow\s*\{[\s\S]*?display:\s*grid;/)
+    expect(usagePageStyles).toMatch(/\.formRow\s*\{[\s\S]*?grid-template-columns:\s*minmax\(180px, 1\.4fr\) minmax\(130px, 0\.85fr\) repeat\(5, minmax\(120px, 1fr\)\) auto;/)
+    expect(usagePageStyles).toMatch(/@container model-pricing-form \(max-width:\s*1120px\)\s*\{[\s\S]*?grid-template-columns:\s*repeat\(4, minmax\(0, 1fr\)\);/)
+    expect(usagePageStyles).toMatch(/@container model-pricing-form \(max-width:\s*720px\)\s*\{[\s\S]*?grid-template-columns:\s*repeat\(2, minmax\(0, 1fr\)\);[\s\S]*?\.priceFormModelField,[\s\S]*?\.priceFormAction\s*\{[\s\S]*?grid-column:\s*1 \/ -1;/)
+    expect(usagePageStyles).toMatch(/@container model-pricing-form \(max-width:\s*480px\)\s*\{[\s\S]*?grid-template-columns:\s*minmax\(0, 1fr\);/)
+  })
+
   it('keeps the Analysis chart presentation aligned with the redesigned Analysis dashboard', () => {
     expect(analysisPanelSource).toContain("t('usage_stats.analysis_token_usage_title')")
     expect(analysisPanelSource).toContain("t('usage_stats.analysis_token_usage_subtitle')")
