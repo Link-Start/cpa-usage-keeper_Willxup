@@ -53,6 +53,7 @@ type pricingCatalogEntry struct {
 type pricingCatalogIndex struct {
 	exact      map[string][]pricingCatalogEntry
 	normalized map[string][]pricingCatalogEntry
+	providers  map[string]struct{}
 }
 
 type pricingSyncCandidate struct {
@@ -217,8 +218,13 @@ func buildPricingCatalogIndex(entries []pricingCatalogEntry) pricingCatalogIndex
 	index := pricingCatalogIndex{
 		exact:      make(map[string][]pricingCatalogEntry, len(entries)*3),
 		normalized: make(map[string][]pricingCatalogEntry, len(entries)*3),
+		providers:  make(map[string]struct{}),
 	}
 	for _, entry := range entries {
+		providerID := strings.ToLower(strings.TrimSpace(entry.providerID))
+		if providerID != "" {
+			index.providers[providerID] = struct{}{}
+		}
 		model := entry.model
 		if strings.TrimSpace(model.ID) == "" && strings.TrimSpace(model.Name) == "" {
 			continue
@@ -274,7 +280,32 @@ func matchPricingCatalogCandidates(model string, index pricingCatalogIndex) []pr
 		add(index.normalized[normalizePricingModelKey(suffix)], "index_normalized_suffix", 90)
 	}
 
+	// 只有前缀确实是 Models.dev provider ID 时才把它当作供应商提示；
+	// 这样 openai/... 不会被 Vercel/OpenRouter 的完整模型 ID 抢走，模型命名空间前缀则仍走原有排序。
+	if providerHint := pricingCatalogProviderHint(model, index); providerHint != "" {
+		filtered := candidates[:0]
+		for _, candidate := range candidates {
+			if strings.EqualFold(strings.TrimSpace(candidate.entry.providerID), providerHint) {
+				filtered = append(filtered, candidate)
+			}
+		}
+		candidates = filtered
+	}
+
 	return sortedUniquePricingCandidates(model, candidates)
+}
+
+func pricingCatalogProviderHint(model string, index pricingCatalogIndex) string {
+	trimmed := strings.TrimSpace(model)
+	separator := strings.IndexAny(trimmed, "/:")
+	if separator <= 0 {
+		return ""
+	}
+	prefix := strings.ToLower(strings.TrimSpace(trimmed[:separator]))
+	if _, ok := index.providers[prefix]; !ok {
+		return ""
+	}
+	return prefix
 }
 
 func sortedUniquePricingCandidates(model string, candidates []pricingSyncCandidate) []pricingSyncCandidate {
@@ -492,11 +523,10 @@ func buildPricingSyncMatch(model string, metadataModel modelsDevModel, matchType
 	cacheRead := 0.0
 	if metadataModel.Cost.CacheRead != nil {
 		cacheRead = *metadataModel.Cost.CacheRead
-	} else if pricingStyle == entities.ModelPricingStyleOpenAI {
-		cacheRead = input
 	}
 	cacheWrite := 0.0
-	if pricingStyle == entities.ModelPricingStyleClaude && metadataModel.Cost.CacheWrite != nil {
+	// Keeper 当前保存单组基础价格；这里只映射 Models.dev 顶层 cache_write，长上下文 tiers 留待独立价格模型支持。
+	if metadataModel.Cost.CacheWrite != nil {
 		cacheWrite = *metadataModel.Cost.CacheWrite
 	}
 	if cacheRead < 0 || cacheWrite < 0 {
@@ -512,16 +542,16 @@ func buildPricingSyncMatch(model string, metadataModel modelsDevModel, matchType
 		providerName = strings.TrimSpace(providerID)
 	}
 	return servicedto.PricingSyncMatch{
-		Model:                   model,
-		MatchedModel:            matchedModel,
-		MatchType:               matchType,
-		SourceProviderID:        strings.TrimSpace(providerID),
-		SourceProviderName:      providerName,
-		PricingStyle:            pricingStyle,
-		PromptPricePer1M:        input,
-		CompletionPricePer1M:    output,
-		CachePricePer1M:         cacheRead,
-		CacheCreationPricePer1M: cacheWrite,
+		Model:                model,
+		MatchedModel:         matchedModel,
+		MatchType:            matchType,
+		SourceProviderID:     strings.TrimSpace(providerID),
+		SourceProviderName:   providerName,
+		PricingStyle:         pricingStyle,
+		PromptPricePer1M:     input,
+		CompletionPricePer1M: output,
+		CacheReadPricePer1M:  cacheRead,
+		CacheWritePricePer1M: cacheWrite,
 	}, true
 }
 

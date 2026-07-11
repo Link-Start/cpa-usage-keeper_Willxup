@@ -69,7 +69,6 @@ type usageEventTokenPayload struct {
 	InputTokens         int64 `json:"input_tokens"`
 	OutputTokens        int64 `json:"output_tokens"`
 	ReasoningTokens     int64 `json:"reasoning_tokens"`
-	CachedTokens        int64 `json:"cached_tokens"`
 	CacheReadTokens     int64 `json:"cache_read_tokens"`
 	CacheCreationTokens int64 `json:"cache_creation_tokens"`
 	TotalTokens         int64 `json:"total_tokens"`
@@ -118,10 +117,9 @@ type usageEventExportPayload struct {
 	InputTokens         int64    `json:"input_tokens"`
 	OutputTokens        int64    `json:"output_tokens"`
 	ReasoningTokens     int64    `json:"reasoning_tokens"`
-	CachedTokens        int64    `json:"cached_tokens"`
 	CacheReadTokens     int64    `json:"cache_read_tokens"`
 	CacheCreationTokens int64    `json:"cache_creation_tokens"`
-	CacheRate           *float64 `json:"cache_rate"`
+	CacheReadRate       *float64 `json:"cache_read_rate"`
 	TotalTokens         int64    `json:"total_tokens"`
 	CostUSD             float64  `json:"cost_usd"`
 }
@@ -418,7 +416,6 @@ func buildUsageEventsPayload(rows []servicedto.UsageEventRecord, resolver usageI
 				InputTokens:         row.InputTokens,
 				OutputTokens:        row.OutputTokens,
 				ReasoningTokens:     row.ReasoningTokens,
-				CachedTokens:        row.CachedTokens,
 				CacheReadTokens:     row.CacheReadTokens,
 				CacheCreationTokens: row.CacheCreationTokens,
 				TotalTokens:         row.TotalTokens,
@@ -499,10 +496,9 @@ func buildUsageEventExportPayload(row servicedto.UsageEventRecord, resolver usag
 		InputTokens:         row.InputTokens,
 		OutputTokens:        row.OutputTokens,
 		ReasoningTokens:     row.ReasoningTokens,
-		CachedTokens:        row.CachedTokens,
 		CacheReadTokens:     row.CacheReadTokens,
 		CacheCreationTokens: row.CacheCreationTokens,
-		CacheRate:           usageEventCacheRate(row),
+		CacheReadRate:       usageEventCacheReadRate(row),
 		TotalTokens:         row.TotalTokens,
 		CostUSD:             row.CostUSD,
 	}
@@ -521,11 +517,11 @@ func usageEventSpeedTPS(row servicedto.UsageEventRecord) *float64 {
 	return &speed
 }
 
-func usageEventCacheRate(row servicedto.UsageEventRecord) *float64 {
+func usageEventCacheReadRate(row servicedto.UsageEventRecord) *float64 {
 	if row.InputTokens <= 0 {
 		return nil
 	}
-	rate := float64(row.CachedTokens) / float64(row.InputTokens) * 100
+	rate := float64(row.CacheReadTokens) / float64(row.InputTokens) * 100
 	return &rate
 }
 
@@ -551,10 +547,9 @@ var usageEventsExportCSVHeader = []string{
 	"input_tokens",
 	"output_tokens",
 	"reasoning_tokens",
-	"cached_tokens",
 	"cache_read_tokens",
 	"cache_creation_tokens",
-	"cache_rate",
+	"cache_read_rate",
 	"total_tokens",
 	"cost_usd",
 }
@@ -745,10 +740,9 @@ func usageEventExportCSVRecord(event usageEventExportPayload) []string {
 		strconv.FormatInt(event.InputTokens, 10),
 		strconv.FormatInt(event.OutputTokens, 10),
 		strconv.FormatInt(event.ReasoningTokens, 10),
-		strconv.FormatInt(event.CachedTokens, 10),
 		strconv.FormatInt(event.CacheReadTokens, 10),
 		strconv.FormatInt(event.CacheCreationTokens, 10),
-		formatOptionalFloat64(event.CacheRate),
+		formatOptionalFloat64(event.CacheReadRate),
 		strconv.FormatInt(event.TotalTokens, 10),
 		strconv.FormatFloat(event.CostUSD, 'f', -1, 64),
 	}
