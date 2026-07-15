@@ -78,10 +78,11 @@ func trimRedisOptionalString(value *string) *string {
 }
 
 func normalizeRedisGenerate(value *bool, failed bool, executorType string, tokens dto.TokenStats) *bool {
-	generate := true
 	if value != nil {
-		generate = *value
-	} else if !failed && strings.TrimSpace(executorType) == "CodexWebsocketsExecutor" && redisTokenStatsAllZero(tokens) {
+		return value
+	}
+	generate := true
+	if !failed && strings.TrimSpace(executorType) == "CodexWebsocketsExecutor" && redisTokenStatsAllZero(tokens) {
 		// 旧版 CPA 没有 generate；只把成功的 WebSocket 全零 token 消息兼容为预热。
 		generate = false
 	}
