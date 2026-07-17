@@ -109,6 +109,49 @@ describe('UsagePage legacy Custom range migration', () => {
       timeZone: 'Asia/Shanghai',
     });
   });
+
+  it('writes the migrated state before deleting the only legacy copy', async () => {
+    const usagePageModule = await import('../UsagePage') as Record<string, unknown>;
+    const persistMigratedUsageRangeState = usagePageModule.persistMigratedUsageRangeState as ((
+      storage: { setItem: (key: string, value: string) => void; removeItem: (key: string) => void },
+      state: { range: 'custom'; customRange: { unit: 'day'; start: string; end: string }; timeZone: string },
+    ) => boolean) | undefined;
+    const calls: string[] = [];
+    const state = {
+      range: 'custom' as const,
+      customRange: { unit: 'day' as const, start: '2026-07-01', end: '2026-07-17' },
+      timeZone: 'Asia/Shanghai',
+    };
+
+    expect(persistMigratedUsageRangeState).toBeTypeOf('function');
+    expect(persistMigratedUsageRangeState?.({
+      setItem: (key) => calls.push(`set:${key}`),
+      removeItem: (key) => calls.push(`remove:${key}`),
+    }, state)).toBe(true);
+    expect(calls).toEqual([
+      'set:cli-proxy-usage-time-range-v1',
+      'remove:cli-proxy-usage-custom-range-v1',
+    ]);
+  });
+
+  it('keeps the legacy copy when writing the migrated state fails', async () => {
+    const usagePageModule = await import('../UsagePage') as Record<string, unknown>;
+    const persistMigratedUsageRangeState = usagePageModule.persistMigratedUsageRangeState as ((
+      storage: { setItem: () => void; removeItem: () => void },
+      state: { range: 'custom'; customRange: { unit: 'day'; start: string; end: string }; timeZone: string },
+    ) => boolean) | undefined;
+    const removeItem = vi.fn();
+
+    expect(persistMigratedUsageRangeState?.({
+      setItem: () => { throw new Error('quota exceeded'); },
+      removeItem,
+    }, {
+      range: 'custom',
+      customRange: { unit: 'day', start: '2026-07-01', end: '2026-07-17' },
+      timeZone: 'Asia/Shanghai',
+    })).toBe(false);
+    expect(removeItem).not.toHaveBeenCalled();
+  });
 });
 
 describe('UsagePage Back to CPA link', () => {

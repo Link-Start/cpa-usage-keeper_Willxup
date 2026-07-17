@@ -166,6 +166,25 @@ describe('TimeRangeControl', () => {
     expect(mobileTrigger?.getAttribute('aria-expanded')).toBe('false');
   });
 
+  it('discards a pending mobile Custom draft when crossing to desktop', async () => {
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 600 });
+    await renderControl('8h');
+    const mobileTrigger = document.querySelector<HTMLButtonElement>('[data-time-range-trigger="mobile"]');
+    const desktopTrigger = document.querySelector<HTMLButtonElement>('[data-time-range-trigger="desktop"]');
+    await act(async () => mobileTrigger?.click());
+    await act(async () => document.querySelector<HTMLButtonElement>('[data-time-range-mode="custom"]')?.click());
+    expect(document.querySelector('[data-custom-range-summary]')).not.toBeNull();
+
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1024 });
+    await act(async () => window.dispatchEvent(new Event('resize')));
+    await act(async () => desktopTrigger?.click());
+
+    const desktopSlider = document.querySelector('[data-time-range-slider]');
+    const desktopDialog = desktopSlider?.closest('[role="dialog"]');
+    expect(desktopSlider).not.toBeNull();
+    expect(desktopDialog?.querySelector('[data-custom-range-summary]')).toBeNull();
+  });
+
   it('renders eighteen independently timed liquid particles for rolling ranges', async () => {
     await renderControl('8h');
     const trigger = document.querySelector<HTMLButtonElement>('[data-time-range-trigger="desktop"]');
@@ -390,6 +409,24 @@ describe('TimeRangeControl', () => {
     expect(end?.getAttribute('aria-pressed')).toBe('true');
   });
 
+  it('syncs a migrated Custom range into an already open popover', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-07-17T07:36:42.000Z'));
+    const onChange = vi.fn();
+    await renderControl('8h', onChange, undefined, null);
+    const trigger = document.querySelector<HTMLButtonElement>('[data-time-range-trigger="desktop"]');
+    await act(async () => trigger?.click());
+
+    await renderControl('custom', onChange, {
+      unit: 'day',
+      start: '2026-06-30',
+      end: '2026-07-10',
+    }, 'Asia/Shanghai');
+
+    expect(document.querySelector('[data-custom-endpoint="start"] strong')?.textContent).toBe('Jun 30, 2026');
+    expect(document.querySelector('[data-custom-endpoint="end"] strong')?.textContent).toBe('Jul 10, 2026');
+  });
+
   it('cancels picker edits back to the summary snapshot without querying', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-07-17T07:36:42.000Z'));
@@ -442,6 +479,21 @@ describe('TimeRangeControl', () => {
     expect(endSlots).toHaveLength(24);
     expect(endSlots.some((slot) => slot.disabled)).toBe(true);
     expect(document.querySelector('input[type="date"], input[type="time"], input[type="datetime-local"]')).toBeNull();
+  });
+
+  it('exposes the active Custom endpoint and selected hour slots to assistive technology', async () => {
+    await renderControl('8h');
+    const trigger = document.querySelector<HTMLButtonElement>('[data-time-range-trigger="desktop"]');
+    await act(async () => trigger?.click());
+    await act(async () => document.querySelector<HTMLButtonElement>('[data-time-range-mode="custom"]')?.click());
+    await act(async () => document.querySelector<HTMLButtonElement>('[data-custom-unit="hour"]')?.click());
+    await act(async () => document.querySelector<HTMLButtonElement>('[data-custom-endpoint="start"]')?.click());
+
+    expect(document.querySelector('[data-custom-picker-endpoint="start"]')?.getAttribute('aria-pressed')).toBe('true');
+    expect(document.querySelector('[data-custom-picker-endpoint="end"]')?.getAttribute('aria-pressed')).toBe('false');
+    expect(document.querySelector('[data-custom-hour-start][data-custom-hour-selected]')?.getAttribute('aria-pressed')).toBe('true');
+    expect(document.querySelector('[data-custom-hour-end][data-custom-hour-selected]')?.getAttribute('aria-pressed')).toBe('true');
+    expect(document.querySelector('[data-custom-hour-start]:not([data-custom-hour-selected])')?.getAttribute('aria-pressed')).toBe('false');
   });
 
   it('centers both selected hour options when the hour picker opens', async () => {

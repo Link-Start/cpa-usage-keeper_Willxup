@@ -35,7 +35,7 @@ import {
   REQUEST_EVENT_COLUMN_IDS,
   type RequestEventColumnId,
 } from '@/components/usage/RequestEventsDetailsCard';
-import { normalizeCustomRange, parseLegacyCustomRange, parseStoredUsageRangeState, serializeUsageRangeState, type StoredUsageRangeState } from '@/utils/usage/customRange';
+import { clampStoredUsageRangeStateToCurrentBounds, normalizeCustomRange, parseLegacyCustomRange, parseStoredUsageRangeState, scheduleCustomRangeBoundsRefresh, serializeUsageRangeState, type StoredUsageRangeState } from '@/utils/usage/customRange';
 import { buildUsageRangeQuery } from '@/utils/usage/rangeQuery';
 import { getDailyAveragePanelUsage, isDailyAverageRange } from '@/utils/usage/overview';
 import type { Theme } from '@/types';
@@ -591,6 +591,11 @@ interface UsageRangeStorage {
   getItem: (key: string) => string | null;
 }
 
+interface UsageRangeMigrationStorage {
+  setItem: (key: string, value: string) => void;
+  removeItem: (key: string) => void;
+}
+
 interface LoadedUsageRangeState {
   state: StoredUsageRangeState;
   pendingLegacyCustomRange: UsageCustomRange | null;
@@ -625,6 +630,23 @@ export const migrateLegacyUsageRangeState = (
   customRange: normalizeCustomRange(customRange, { nowMs, timeZone }),
   timeZone,
 });
+
+export const persistMigratedUsageRangeState = (
+  storage: UsageRangeMigrationStorage,
+  state: StoredUsageRangeState,
+): boolean => {
+  try {
+    storage.setItem(TIME_RANGE_STORAGE_KEY, serializeUsageRangeState(state));
+  } catch {
+    return false;
+  }
+  try {
+    storage.removeItem(LEGACY_CUSTOM_RANGE_STORAGE_KEY);
+  } catch {
+    // 新格式已经安全写入，旧键清理失败不影响后续读取。
+  }
+  return true;
+};
 
 const loadTimeRange = (): LoadedUsageRangeState => loadUsageRangeState(
   typeof localStorage === 'undefined' ? undefined : localStorage,
@@ -1063,17 +1085,27 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     if (!pendingLegacyCustomRange || !timeZone) return;
 
     // 旧版 Custom 日期需要等项目时区到达后再按当前 30 天边界归一化，期间不覆盖旧存储。
-    pendingLegacyCustomRangeRef.current = null;
-    setTimeRangeState(migrateLegacyUsageRangeState(pendingLegacyCustomRange, {
+    const migratedState = migrateLegacyUsageRangeState(pendingLegacyCustomRange, {
       nowMs: Date.now(),
       timeZone,
-    }));
-    try {
-      localStorage.removeItem(LEGACY_CUSTOM_RANGE_STORAGE_KEY);
-    } catch {
-      // Ignore storage errors.
+    });
+    if (typeof localStorage !== 'undefined' && persistMigratedUsageRangeState(localStorage, migratedState)) {
+      pendingLegacyCustomRangeRef.current = null;
     }
+    setTimeRangeState(migratedState);
   }, [rangeTimeZone]);
+
+  useEffect(() => scheduleCustomRangeBoundsRefresh({
+    enabled: timeRange === 'custom' && Boolean(rangeTimeZone),
+    refreshBounds: () => {
+      const timeZone = rangeTimeZone?.trim();
+      if (!timeZone) return;
+      setTimeRangeState((current) => clampStoredUsageRangeStateToCurrentBounds(current, {
+        nowMs: Date.now(),
+        timeZone,
+      }));
+    },
+  }), [rangeTimeZone, timeRange]);
 
   useEffect(() => {
     try {

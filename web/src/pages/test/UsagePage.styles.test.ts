@@ -107,6 +107,13 @@ describe('UsagePage toolbar styles', () => {
     expect(keyOverviewPageSource).toContain('fetchKeyOverview(usageRangeQuery, controller.signal)')
   })
 
+  it('refreshes applied Custom bounds on both dashboard surfaces', () => {
+    expect(usagePageSource).toContain('scheduleCustomRangeBoundsRefresh({')
+    expect(usagePageSource).toContain('clampStoredUsageRangeStateToCurrentBounds(current')
+    expect(keyOverviewPageSource).toContain('scheduleCustomRangeBoundsRefresh({')
+    expect(keyOverviewPageSource).toContain('clampStoredUsageRangeStateToCurrentBounds(current')
+  })
+
   it('keeps the mobile API Key group and select at full available width', () => {
     const mobileToolbarStart = usagePageStyles.indexOf('@include mobile {\n  .tabPill')
     const mobileToolbarBlock = usagePageStyles.slice(mobileToolbarStart, usagePageStyles.indexOf('@media (prefers-reduced-motion: reduce)'))

@@ -7,6 +7,7 @@ const DAY_MS = 24 * HOUR_MS;
 interface CustomRangeClockOptions {
   nowMs: number;
   timeZone: string;
+  locale?: string;
 }
 
 interface BuildDefaultCustomRangeOptions extends CustomRangeClockOptions {
@@ -87,9 +88,9 @@ const formatZonedRFC3339Hour = (timestampMs: number, timeZone: string): string =
   return `${formatDateKey(parts)}T${pad2(parts.hour)}:00:00${sign}${pad2(Math.floor(absoluteOffset / 60))}:${pad2(absoluteOffset % 60)}`;
 };
 
-const formatDayLabel = (dateKey: string): string => {
+const formatDayLabel = (dateKey: string, locale?: string): string => {
   const [year, month, day] = dateKey.split('-').map(Number);
-  return new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', timeZone: 'UTC' })
+  return new Intl.DateTimeFormat(locale, { month: 'short', day: 'numeric', timeZone: 'UTC' })
     .format(new Date(Date.UTC(year, month - 1, day)));
 };
 
@@ -99,17 +100,17 @@ export const buildCustomWeekdayLabels = (locale?: string): string[] => {
   return Array.from({ length: 7 }, (_, index) => formatter.format(new Date(sunday + index * DAY_MS)));
 };
 
-export const buildCustomDaySlots = ({ nowMs, timeZone }: CustomRangeClockOptions): UsageCustomRangeSlot[] => {
+export const buildCustomDaySlots = ({ nowMs, timeZone, locale }: CustomRangeClockOptions): UsageCustomRangeSlot[] => {
   const today = getZonedParts(nowMs, timeZone);
   const todayCalendarMs = Date.UTC(today.year, today.month - 1, today.day);
   return Array.from({ length: 30 }, (_, index) => {
     const date = new Date(todayCalendarMs - (29 - index) * DAY_MS);
     const value = formatDateKey({ year: date.getUTCFullYear(), month: date.getUTCMonth() + 1, day: date.getUTCDate() });
-    return { value, label: formatDayLabel(value), dateLabel: value, current: index === 29 };
+    return { value, label: formatDayLabel(value, locale), dateLabel: value, current: index === 29 };
   });
 };
 
-export const buildCustomHourSlots = ({ nowMs, timeZone }: CustomRangeClockOptions): UsageCustomRangeSlot[] => {
+export const buildCustomHourSlots = ({ nowMs, timeZone, locale }: CustomRangeClockOptions): UsageCustomRangeSlot[] => {
   const current = getZonedParts(nowMs, timeZone);
   const currentHourStartMs = nowMs
     - current.minute * 60_000
@@ -121,7 +122,7 @@ export const buildCustomHourSlots = ({ nowMs, timeZone }: CustomRangeClockOption
     return {
       value: formatZonedRFC3339Hour(timestampMs, timeZone),
       label: `${pad2(parts.hour)}:00`,
-      dateLabel: formatDayLabel(formatDateKey(parts)),
+      dateLabel: formatDayLabel(formatDateKey(parts), locale),
       current: index === 23,
     };
   });
@@ -149,6 +150,107 @@ export const normalizeCustomRange = (
     return buildDefaultCustomRange({ unit, ...options });
   }
   return { unit, start: slots[startIndex].value, end: slots[endIndex].value };
+};
+
+const customRangeSlotTimestamp = (value: string, unit: UsageCustomRangeUnit): number => {
+  if (unit === 'hour') return Date.parse(value);
+  const [year, month, day] = value.split('-').map(Number);
+  return Date.UTC(year, month - 1, day);
+};
+
+export const clampCustomRangeToCurrentBounds = (
+  range: UsageCustomRange,
+  options: CustomRangeClockOptions,
+): UsageCustomRange => {
+  const slots = range.unit === 'hour' ? buildCustomHourSlots(options) : buildCustomDaySlots(options);
+  const firstSlot = slots[0];
+  const lastSlot = slots[slots.length - 1];
+  const firstTimestamp = customRangeSlotTimestamp(firstSlot.value, range.unit);
+  const lastTimestamp = customRangeSlotTimestamp(lastSlot.value, range.unit);
+  const startTimestamp = customRangeSlotTimestamp(range.start, range.unit);
+  const endTimestamp = customRangeSlotTimestamp(range.end, range.unit);
+  if (![firstTimestamp, lastTimestamp, startTimestamp, endTimestamp].every(Number.isFinite)) {
+    return buildDefaultCustomRange({ unit: range.unit, ...options });
+  }
+
+  let startIndex = slots.findIndex((slot) => slot.value === range.start);
+  if (startIndex < 0) {
+    if (startTimestamp < firstTimestamp) startIndex = 0;
+    else return buildDefaultCustomRange({ unit: range.unit, ...options });
+  }
+  let endIndex = slots.findIndex((slot) => slot.value === range.end);
+  if (endIndex < 0) {
+    if (endTimestamp > lastTimestamp) endIndex = slots.length - 1;
+    else return buildDefaultCustomRange({ unit: range.unit, ...options });
+  }
+
+  const selectedSlots = endIndex - startIndex + 1;
+  const validLength = range.unit === 'hour' ? selectedSlots >= 5 : selectedSlots >= 1;
+  if (endIndex < startIndex || !validLength) {
+    return buildDefaultCustomRange({ unit: range.unit, ...options });
+  }
+  return { unit: range.unit, start: slots[startIndex].value, end: slots[endIndex].value };
+};
+
+export const clampStoredUsageRangeStateToCurrentBounds = (
+  state: StoredUsageRangeState,
+  options: CustomRangeClockOptions,
+): StoredUsageRangeState => {
+  if (state.range !== 'custom' || !state.customRange) return state;
+  const customRange = clampCustomRangeToCurrentBounds(state.customRange, options);
+  if (customRange.start === state.customRange.start
+    && customRange.end === state.customRange.end
+    && state.timeZone === options.timeZone) {
+    return state;
+  }
+  return { range: 'custom', customRange, timeZone: options.timeZone };
+};
+
+interface CustomRangeBoundsRefreshDocument {
+  visibilityState: DocumentVisibilityState;
+  addEventListener: (type: 'visibilitychange', listener: () => void) => void;
+  removeEventListener: (type: 'visibilitychange', listener: () => void) => void;
+}
+
+interface CustomRangeBoundsRefreshTimerTarget {
+  setInterval: (handler: () => void, timeout: number) => number;
+  clearInterval: (id: number) => void;
+}
+
+export const CUSTOM_RANGE_BOUNDS_REFRESH_INTERVAL_MS = 60_000;
+
+export const scheduleCustomRangeBoundsRefresh = ({
+  enabled,
+  refreshBounds,
+  documentRef,
+  timerTarget,
+  intervalMs = CUSTOM_RANGE_BOUNDS_REFRESH_INTERVAL_MS,
+}: {
+  enabled: boolean;
+  refreshBounds: () => void;
+  documentRef?: CustomRangeBoundsRefreshDocument;
+  timerTarget?: CustomRangeBoundsRefreshTimerTarget;
+  intervalMs?: number;
+}): (() => void) => {
+  if (!enabled) return () => undefined;
+  const targetDocument = documentRef ?? (typeof document === 'undefined' ? undefined : document);
+  const timers = timerTarget ?? (typeof window === 'undefined' ? undefined : {
+    setInterval: window.setInterval.bind(window),
+    clearInterval: window.clearInterval.bind(window),
+  });
+  if (!timers) return () => undefined;
+
+  const refreshIfVisible = () => {
+    if (targetDocument?.visibilityState === 'hidden') return;
+    refreshBounds();
+  };
+  refreshIfVisible();
+  const interval = timers.setInterval(refreshIfVisible, intervalMs);
+  targetDocument?.addEventListener('visibilitychange', refreshIfVisible);
+  return () => {
+    timers.clearInterval(interval);
+    targetDocument?.removeEventListener('visibilitychange', refreshIfVisible);
+  };
 };
 
 export const formatCustomRangeLabel = (

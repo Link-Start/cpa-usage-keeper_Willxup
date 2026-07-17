@@ -149,8 +149,8 @@ export function CustomRangePanel({ value, timeZone, locale, anchorMs, onChange, 
   const { t } = useTranslation();
   const [view, setView] = useState<CustomPickerView>('summary');
   const [activeEndpoint, setActiveEndpoint] = useState<CustomEndpoint>('start');
-  const daySlots = useMemo(() => buildCustomDaySlots({ nowMs: anchorMs, timeZone }), [anchorMs, timeZone]);
-  const hourSlots = useMemo(() => buildCustomHourSlots({ nowMs: anchorMs, timeZone }), [anchorMs, timeZone]);
+  const daySlots = useMemo(() => buildCustomDaySlots({ nowMs: anchorMs, timeZone, locale }), [anchorMs, locale, timeZone]);
+  const hourSlots = useMemo(() => buildCustomHourSlots({ nowMs: anchorMs, timeZone, locale }), [anchorMs, locale, timeZone]);
   const weekdayLabels = useMemo(() => buildCustomWeekdayLabels(locale), [locale]);
   const slots = value.unit === 'hour' ? hourSlots : daySlots;
   const startIndex = slots.findIndex((slot) => slot.value === value.start);
@@ -255,6 +255,7 @@ export function CustomRangePanel({ value, timeZone, locale, anchorMs, onChange, 
           type="button"
           className={activeEndpoint === endpoint ? styles.customPickerEndpointActive : styles.customPickerEndpoint}
           data-custom-picker-endpoint={endpoint}
+          aria-pressed={activeEndpoint === endpoint}
           onClick={() => handleEndpointChange(endpoint)}
         >
           <small>{t(endpoint === 'start' ? 'usage_stats.range_custom_start' : 'usage_stats.range_custom_end')}</small>
@@ -357,6 +358,7 @@ export function CustomRangePanel({ value, timeZone, locale, anchorMs, onChange, 
                   type="button"
                   data-custom-hour-start={slot.value}
                   data-custom-hour-selected={slot.value === value.start ? '' : undefined}
+                  aria-pressed={slot.value === value.start}
                   disabled={index > hourSlots.length - 5}
                   className={slot.value === value.start ? styles.customHourOptionActive : styles.customHourOption}
                   onClick={() => handleHourStartSelect(slot, index)}
@@ -373,6 +375,7 @@ export function CustomRangePanel({ value, timeZone, locale, anchorMs, onChange, 
                   type="button"
                   data-custom-hour-end={slot.value}
                   data-custom-hour-selected={slot.value === value.end ? '' : undefined}
+                  aria-pressed={slot.value === value.end}
                   disabled={index < startIndex + 4}
                   className={slot.value === value.end ? styles.customHourOptionActive : styles.customHourOption}
                   onClick={() => handleHourEndSelect(slot, index)}

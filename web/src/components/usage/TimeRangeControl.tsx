@@ -260,11 +260,20 @@ export function TimeRangeControl({ value, customRange, onChange, ariaLabel, time
   const [desktopOpen, setDesktopOpen] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [popoverPosition, setPopoverPosition] = useState({ top: 0, left: 0 });
+  const [previousAppliedMode, setPreviousAppliedMode] = useState(appliedMode);
   const desktopTriggerRef = useRef<HTMLButtonElement | null>(null);
   const desktopPopoverRef = useRef<HTMLDivElement | null>(null);
+  const mobileOpenRef = useRef(false);
   const lastEmittedRangeRef = useRef<UsageTimeRange | null>(null);
   const latestRollingValuesRef = useRef(rollingValues);
   const activeRollingPointerRef = useRef<{ unit: RollingUnit; pointerId: number } | null>(null);
+
+  if (previousAppliedMode !== appliedMode) {
+    setPreviousAppliedMode(appliedMode);
+    if (appliedMode === 'custom' && previousAppliedMode !== 'custom') {
+      setCustomDraft(normalizeCustomRange(customRange, { nowMs: customAnchorMs, timeZone }));
+    }
+  }
 
   const displayedRollingValues: Record<RollingUnit, number> = {
     ...rollingValues,
@@ -392,6 +401,7 @@ export function TimeRangeControl({ value, customRange, onChange, ariaLabel, time
   }, [discardDraft]);
 
   const closeMobileModal = useCallback(() => {
+    mobileOpenRef.current = false;
     discardDraft();
     setMobileOpen(false);
   }, [discardDraft]);
@@ -410,6 +420,7 @@ export function TimeRangeControl({ value, customRange, onChange, ariaLabel, time
   const openMobileModal = useCallback(() => {
     closeDesktopPopover();
     if (appliedMode === 'custom') prepareCustomDraft();
+    mobileOpenRef.current = true;
     setMobileOpen(true);
   }, [appliedMode, closeDesktopPopover, prepareCustomDraft]);
 
@@ -419,11 +430,11 @@ export function TimeRangeControl({ value, customRange, onChange, ariaLabel, time
         closeDesktopPopover();
         return;
       }
-      setMobileOpen(false);
+      if (!desktopOpen) closeMobileModal();
     };
     window.addEventListener('resize', handleViewportResize);
     return () => window.removeEventListener('resize', handleViewportResize);
-  }, [closeDesktopPopover]);
+  }, [closeDesktopPopover, closeMobileModal, desktopOpen]);
 
   useEffect(() => {
     if (!desktopOpen) return;

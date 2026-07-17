@@ -18,7 +18,7 @@ import {
 import type { UsageOverviewPayload } from '@/components/usage/hooks/useUsageData';
 import { BrandLink } from '@/components/BrandLink';
 import { getCurrentOverviewUsage, getDailyAveragePanelUsage, getOverviewDisplayLoading, isDailyAverageRange } from '@/utils/usage/overview';
-import { parseStoredUsageRangeState, serializeUsageRangeState, type StoredUsageRangeState } from '@/utils/usage/customRange';
+import { clampStoredUsageRangeStateToCurrentBounds, parseStoredUsageRangeState, scheduleCustomRangeBoundsRefresh, serializeUsageRangeState, type StoredUsageRangeState } from '@/utils/usage/customRange';
 import { buildUsageRangeQuery } from '@/utils/usage/rangeQuery';
 import type { Theme } from '@/types';
 import styles from './KeyOverviewPage.module.scss';
@@ -315,6 +315,18 @@ export function KeyOverviewPage({ apiKey, onAuthRequired }: KeyOverviewPageProps
       // ignore storage failures
     }
   }, [timeRangeState]);
+
+  useEffect(() => scheduleCustomRangeBoundsRefresh({
+    enabled: timeRange === 'custom' && Boolean(rangeTimeZone),
+    refreshBounds: () => {
+      const timeZone = rangeTimeZone?.trim();
+      if (!timeZone) return;
+      setTimeRangeState((current) => clampStoredUsageRangeStateToCurrentBounds(current, {
+        nowMs: Date.now(),
+        timeZone,
+      }));
+    },
+  }), [rangeTimeZone, timeRange]);
 
   useEffect(() => {
     try {

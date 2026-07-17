@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   buildCustomDaySlots,
   buildCustomHourSlots,
@@ -119,5 +119,79 @@ describe('custom usage range slots', () => {
       end: '2026-07-17',
     });
     expect(parseLegacyCustomRange?.('{"start":"not-a-date","end":"2026-07-17"}')).toBeNull();
+  });
+
+  it('advances only an expired Custom start while preserving its selected end', async () => {
+    const customRangeModule = await import('../customRange') as Record<string, unknown>;
+    const clampCustomRangeToCurrentBounds = customRangeModule.clampCustomRangeToCurrentBounds as ((
+      range: { unit: 'hour' | 'day'; start: string; end: string },
+      options: { nowMs: number; timeZone: string },
+    ) => unknown) | undefined;
+
+    expect(clampCustomRangeToCurrentBounds).toBeTypeOf('function');
+    expect(clampCustomRangeToCurrentBounds?.({
+      unit: 'hour',
+      start: '2026-07-16T15:00:00+08:00',
+      end: '2026-07-17T14:00:00+08:00',
+    }, { nowMs: SHANGHAI_NOW, timeZone: 'Asia/Shanghai' })).toEqual({
+      unit: 'hour',
+      start: '2026-07-16T16:00:00+08:00',
+      end: '2026-07-17T14:00:00+08:00',
+    });
+    expect(clampCustomRangeToCurrentBounds?.({
+      unit: 'day',
+      start: '2026-06-17',
+      end: '2026-07-16',
+    }, { nowMs: SHANGHAI_NOW, timeZone: 'Asia/Shanghai' })).toEqual({
+      unit: 'day',
+      start: '2026-06-18',
+      end: '2026-07-16',
+    });
+  });
+
+  it('refreshes Custom bounds immediately and on the shared interval', async () => {
+    const customRangeModule = await import('../customRange') as Record<string, unknown>;
+    const scheduleCustomRangeBoundsRefresh = customRangeModule.scheduleCustomRangeBoundsRefresh as ((options: {
+      enabled: boolean;
+      refreshBounds: () => void;
+      timerTarget: { setInterval: (handler: () => void, timeout: number) => number; clearInterval: (id: number) => void };
+    }) => () => void) | undefined;
+    const refreshBounds = vi.fn();
+    const clearInterval = vi.fn();
+    let intervalHandler: (() => void) | undefined;
+
+    expect(scheduleCustomRangeBoundsRefresh).toBeTypeOf('function');
+    const cleanup = scheduleCustomRangeBoundsRefresh?.({
+      enabled: true,
+      refreshBounds,
+      timerTarget: {
+        setInterval: (handler) => {
+          intervalHandler = handler;
+          return 7;
+        },
+        clearInterval,
+      },
+    });
+
+    expect(refreshBounds).toHaveBeenCalledTimes(1);
+    intervalHandler?.();
+    expect(refreshBounds).toHaveBeenCalledTimes(2);
+    cleanup?.();
+    expect(clearInterval).toHaveBeenCalledWith(7);
+  });
+
+  it('formats Custom hour row dates with the Keeper locale', () => {
+    const localizedBuildCustomHourSlots = buildCustomHourSlots as typeof buildCustomHourSlots & ((options: {
+      nowMs: number;
+      timeZone: string;
+      locale?: string;
+    }) => ReturnType<typeof buildCustomHourSlots>);
+    const slots = localizedBuildCustomHourSlots({
+      nowMs: SHANGHAI_NOW,
+      timeZone: 'Asia/Shanghai',
+      locale: 'zh-CN',
+    });
+
+    expect(slots[0].dateLabel).toBe('7月16日');
   });
 });
