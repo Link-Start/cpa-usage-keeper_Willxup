@@ -195,10 +195,6 @@ type usageOverviewCacheLevelPoint struct {
 	InputTokens         int64    `json:"input_tokens"`
 }
 
-var allowedKeyOverviewRanges = map[string]struct{}{
-	"4h": {}, "8h": {}, "12h": {}, "24h": {}, "today": {}, "yesterday": {}, "7d": {}, "30d": {},
-}
-
 func registerKeyOverviewRoute(router gin.IRoutes, usageProvider service.UsageProvider, cpaAPIKeyProvider service.CPAAPIKeyProvider, authHandler *authHandler) {
 	router.GET("/key-overview", func(c *gin.Context) {
 		token, _ := c.Get("auth_token")
@@ -295,7 +291,8 @@ func parseKeyOverviewFilterQuery(req *http.Request, anchor time.Time) (servicedt
 		return servicedto.UsageFilter{}, fmt.Errorf("custom ranges are not supported")
 	}
 	rangeValue := query.Get("range")
-	if _, ok := allowedKeyOverviewRanges[rangeValue]; !ok {
+	_, rollingRange := timeutil.ParseUsageRollingRange(rangeValue)
+	if rangeValue != "today" && rangeValue != "yesterday" && !rollingRange {
 		return servicedto.UsageFilter{}, fmt.Errorf("unsupported key overview range %q", rangeValue)
 	}
 	return parseUsageFilterQuery(req, anchor)

@@ -11,15 +11,6 @@ import (
 	"cpa-usage-keeper/internal/timeutil"
 )
 
-var presetUsageRangeDurations = map[string]time.Duration{
-	"4h":  4 * time.Hour,
-	"8h":  8 * time.Hour,
-	"12h": 12 * time.Hour,
-	"24h": 24 * time.Hour,
-	"7d":  7 * 24 * time.Hour,
-	"30d": 30 * 24 * time.Hour,
-}
-
 var allowedUsageEventsPageSizes = map[int]struct{}{
 	20:   {},
 	50:   {},
@@ -152,12 +143,12 @@ func parseUsageFilterQuery(req *http.Request, anchor time.Time) (servicedto.Usag
 		filter.EndTime = &endTime
 		return filter, nil
 	default:
-		duration, ok := presetUsageRangeDurations[rangeValue]
+		rollingRange, ok := timeutil.ParseUsageRollingRange(rangeValue)
 		if !ok {
 			return servicedto.UsageFilter{}, fmt.Errorf("unsupported usage range %q", rangeValue)
 		}
 		endTime := timeutil.NormalizeStorageTime(anchor)
-		startTime := timeutil.NormalizeStorageTime(endTime.Add(-duration))
+		startTime := timeutil.NormalizeStorageTime(endTime.Add(-rollingRange.Duration()))
 		filter.StartTime = &startTime
 		filter.EndTime = &endTime
 		return filter, nil

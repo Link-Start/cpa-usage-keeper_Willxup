@@ -706,7 +706,11 @@ export interface PricingSyncPreviewResponse {
   unmatched_models: string[]
 }
 
-export type KeyOverviewTimeRange = '4h' | '8h' | '12h' | '24h' | 'today' | 'yesterday' | '7d' | '30d'
+export type UsageRollingHourTimeRange = `${number}h`
+
+export type UsageRollingDayTimeRange = `${number}d`
+
+export type KeyOverviewTimeRange = UsageRollingHourTimeRange | UsageRollingDayTimeRange | 'today' | 'yesterday'
 
 export type UsageTimeRange = KeyOverviewTimeRange | 'custom'
 

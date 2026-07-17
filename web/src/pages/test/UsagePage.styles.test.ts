@@ -22,6 +22,8 @@ const analysisPanelStyles = readSource(new URL('../../components/usage/analysis/
 const overviewRealtimePanelSource = readSource(new URL('../../components/usage/OverviewRealtimePanel.tsx', import.meta.url))
 const statCardsSource = readSource(new URL('../../components/usage/StatCards.tsx', import.meta.url))
 const dailyAveragePanelSource = readSource(new URL('../../components/usage/DailyAveragePanel.tsx', import.meta.url))
+const timeRangeControlSource = readSource(new URL('../../components/usage/TimeRangeControl.tsx', import.meta.url))
+const timeRangeControlStyles = readSource(new URL('../../components/usage/TimeRangeControl.module.scss', import.meta.url))
 
 const requestEventColumnDefinitionBlock = (columnId: string) => {
   const start = requestEventsSource.indexOf(`id: '${columnId}',`)
@@ -78,9 +80,129 @@ describe('UsagePage toolbar styles', () => {
     expect(noticeBlock).not.toContain('position: absolute;')
   })
 
-  it('keeps visible range controls content-sized in narrow layouts', () => {
-    expect(usagePageStyles).toMatch(/\.timeRangeGroup\s*\{[\s\S]*?width:\s*fit-content;/)
-    expect(usagePageStyles).toMatch(/\.timeRangeSelectControl\s*\{[\s\S]*?flex:\s*0 0 164px;/)
+  it('uses the shared C time-range control on both dashboard surfaces', () => {
+    expect(usagePageSource).toContain('<TimeRangeControl')
+    expect(keyOverviewPageSource).toContain('<TimeRangeControl')
+    expect(usagePageSource).not.toContain('TimeRangeControlPrototype')
+    expect(keyOverviewPageSource).not.toContain('TimeRangeControlPrototype')
+    expect(usagePageSource).toContain('normalizeSelectableUsageRange')
+    expect(keyOverviewPageSource).toContain('normalizeSelectableUsageRange')
+    expect(timeRangeControlSource).toContain('data-time-range-trigger="desktop"')
+    expect(timeRangeControlSource).toContain('data-time-range-trigger="mobile"')
+  })
+
+  it('keeps the mobile API Key group and select at full available width', () => {
+    const mobileToolbarStart = usagePageStyles.indexOf('@include mobile {\n  .tabPill')
+    const mobileToolbarBlock = usagePageStyles.slice(mobileToolbarStart, usagePageStyles.indexOf('@media (prefers-reduced-motion: reduce)'))
+
+    expect(mobileToolbarBlock).toMatch(/\.apiKeyFilterGroup\s*\{[\s\S]*?max-width:\s*100%;/)
+    expect(mobileToolbarBlock).toMatch(/\.apiKeySelectControl\s*\{[\s\S]*?width:\s*100%;/)
+  })
+
+  it('centers the mobile API Key label beside its select', () => {
+    const mobileToolbarStart = usagePageStyles.indexOf('@include mobile {\n  .tabPill')
+    const mobileToolbarBlock = usagePageStyles.slice(mobileToolbarStart, usagePageStyles.indexOf('@media (prefers-reduced-motion: reduce)'))
+
+    expect(mobileToolbarBlock).toMatch(/\.apiKeyFilterField\s*\{[\s\S]*?align-items:\s*center;/)
+    expect(mobileToolbarBlock).not.toMatch(/\.apiKeyFilterField\s*\{[\s\S]*?align-items:\s*stretch;/)
+  })
+
+  it('uses a centered mobile modal and a Codex-style layered slider track', () => {
+    const mobileSliderStyles = timeRangeControlStyles.slice(timeRangeControlStyles.indexOf('@include mobile {'))
+
+    expect(timeRangeControlStyles).not.toContain('align-self: flex-end')
+    expect(timeRangeControlStyles).not.toContain('margin-bottom: -16px')
+    expect(timeRangeControlStyles).toMatch(/\.sliderControl\s*\{[\s\S]*?height:\s*48px;/)
+    expect(timeRangeControlStyles).toMatch(/\.sliderRail\s*\{[\s\S]*?height:\s*32px;/)
+    expect(timeRangeControlStyles).toContain('.sliderDotActive')
+    expect(styleRuleBlock(timeRangeControlStyles, '.sliderDot')).toContain('width: 7px;')
+    expect(timeRangeControlStyles).toMatch(/\.rangeInput::-webkit-slider-thumb\s*\{[\s\S]*?width:\s*42px;/)
+    expect(styleRuleBlock(timeRangeControlStyles, '.sliderFill')).toContain('linear-gradient(180deg')
+    expect(styleRuleBlock(timeRangeControlStyles, '.sliderFill')).toContain('linear-gradient(90deg, #244ccf 0%, #4056e8 22%, #8b58f0 48%, #b45df4 63%, #793feb 82%, #5c33dc 100%)')
+    expect(styleRuleBlock(timeRangeControlStyles, '.sliderFill')).toContain('inset 0 1px 0 rgba(255, 255, 255, 0.30)')
+    expect(mobileSliderStyles).toMatch(/\.sliderControl\s*\{[\s\S]*?height:\s*52px;/)
+    expect(mobileSliderStyles).toMatch(/\.sliderRail\s*\{[\s\S]*?height:\s*34px;/)
+    expect(mobileSliderStyles).toMatch(/\.rangeInput::-webkit-slider-thumb\s*\{[\s\S]*?width:\s*46px;/)
+  })
+
+  it('lets the liquid cover passed divider dots', () => {
+    const coveredDot = [...timeRangeControlStyles.matchAll(/\.sliderDotActive\s*\{([\s\S]*?)\n\}/g)]
+      .map((match) => match[1])
+      .find((block) => block.includes('opacity: 0;')) ?? ''
+
+    expect(coveredDot).toContain('opacity: 0;')
+    expect(coveredDot).not.toContain('background: rgba(205, 234, 255, 0.68);')
+  })
+
+  it('matches the API Key labeled double-pill shell before opening', () => {
+    const desktopShell = styleRuleBlock(timeRangeControlStyles, '.desktopShell')
+    const shellLabel = styleRuleBlock(timeRangeControlStyles, '.shellLabel')
+    const mobileSliderStyles = timeRangeControlStyles.slice(timeRangeControlStyles.indexOf('@include mobile {'))
+
+    expect(timeRangeControlSource).toContain('data-time-range-shell="desktop"')
+    expect(timeRangeControlSource).toContain('data-time-range-shell="mobile"')
+    expect(desktopShell).toContain('gap: 8px;')
+    expect(desktopShell).toContain('padding: 5px 6px 5px 12px;')
+    expect(shellLabel).toContain('font-size: 10px;')
+    expect(shellLabel).toContain('font-weight: 700;')
+    expect(mobileSliderStyles).toMatch(/\.mobileShell\s*\{[\s\S]*?display:\s*grid;/)
+    expect(mobileSliderStyles).toMatch(/\.mobileShell\s*\{[\s\S]*?grid-template-columns:\s*auto minmax\(0, 1fr\);/)
+  })
+
+  it('matches the API Key hover and open states on the desktop Range trigger', () => {
+    const desktopHover = styleRuleBlock(timeRangeControlStyles, '.desktopTrigger:hover')
+    const desktopOpen = styleRuleBlock(timeRangeControlStyles, ".desktopTrigger[aria-expanded='true']")
+
+    expect(desktopHover).toContain('border-color: var(--border-hover);')
+    expect(desktopHover).toContain('background: var(--bg-primary);')
+    expect(desktopHover).not.toContain('background: var(--bg-tertiary);')
+    expect(desktopOpen).toContain('border-color: var(--primary-color);')
+    expect(desktopOpen).toContain('background: var(--bg-primary);')
+    expect(desktopOpen).toContain('box-shadow: var(--shadow), 0 0 0 3px rgba($primary-color, 0.18);')
+    expect(timeRangeControlSource).toContain('<IconChevronDown size={14} className={styles.triggerChevron} />')
+    expect(timeRangeControlStyles).toMatch(/\[aria-expanded='true'\][\s\S]*?\.triggerChevron\s*\{[\s\S]*?transform:\s*rotate\(180deg\);/)
+  })
+
+  it('centers the fixed timer icon with the mobile current-range label', () => {
+    const triggerIcon = styleRuleBlock(timeRangeControlStyles, '.triggerIcon')
+    const triggerLabel = styleRuleBlock(timeRangeControlStyles, '.triggerLabel')
+
+    expect(timeRangeControlSource).toContain('<IconTimer size={16} className={styles.triggerIcon} />')
+    expect(triggerIcon).toContain('display: block;')
+    expect(triggerIcon).toContain('width: 16px;')
+    expect(triggerIcon).toContain('height: 16px;')
+    expect(triggerIcon).toContain('flex: 0 0 auto;')
+    expect(triggerLabel).toContain('line-height: 1;')
+  })
+
+  it('defines the blue slider accent inside the portalled range panel', () => {
+    expect(styleRuleBlock(timeRangeControlStyles, '.rangePanel')).toContain('--range-slider-accent: #3b82f6;')
+    expect(styleRuleBlock(timeRangeControlStyles, '.sliderFill')).toContain('var(--range-slider-accent)')
+  })
+
+  it('matches the reference video with flowing blue-violet light and independent particles', () => {
+    const liquidFill = styleRuleBlock(timeRangeControlStyles, '.sliderFill')
+    const particle = styleRuleBlock(timeRangeControlStyles, '.liquidParticle')
+
+    expect(liquidFill).toContain('overflow: hidden;')
+    expect(liquidFill).toContain('#244ccf 0%')
+    expect(liquidFill).toContain('#b45df4 63%')
+    expect(liquidFill).toContain('#5c33dc 100%')
+    expect(timeRangeControlStyles).toContain('animation: liquidGlowPrimary 8s ease-in-out infinite alternate;')
+    expect(timeRangeControlStyles).toContain('animation: liquidGlowSecondary 11s ease-in-out infinite alternate-reverse;')
+    expect(timeRangeControlStyles).toContain('@keyframes liquidGlowPrimary')
+    expect(timeRangeControlStyles).toContain('@keyframes liquidGlowSecondary')
+    expect(particle).toContain('animation-duration: var(--liquid-particle-duration);')
+    expect(particle).toContain('animation-delay: var(--liquid-particle-delay);')
+    expect(timeRangeControlStyles).toContain('animation-name: liquidParticleFloatA;')
+    expect(timeRangeControlStyles).toContain('animation-name: liquidParticleFloatB;')
+    expect(timeRangeControlStyles).toContain('animation-name: liquidParticleFloatC;')
+    expect(timeRangeControlStyles).not.toContain('background-size: 10px 8px, 13px 11px, 17px 14px, 23px 17px;')
+  })
+
+  it('freezes the liquid and particles for reduced-motion users', () => {
+    expect(timeRangeControlStyles).toMatch(/@media \(prefers-reduced-motion: reduce\)\s*\{[\s\S]*?\.sliderFill::before,[\s\S]*?\.sliderFill::after,[\s\S]*?\.liquidParticle\s*\{[\s\S]*?animation:\s*none;/)
+    expect(timeRangeControlStyles).toMatch(/@media \(prefers-reduced-motion: reduce\)\s*\{[\s\S]*?\.liquidParticle\s*\{[\s\S]*?opacity:\s*0\.72;/)
   })
 
   it('keeps overview stat cards in a two-plus-four desktop grid with a distinct cache-rate color', () => {
@@ -557,67 +679,18 @@ describe('UsagePage toolbar styles', () => {
     expect(usagePageSource).toContain('dropdownMinWidth={180}')
   })
 
-  it('preserves the original desktop toolbar sizing while isolating refresh layout', () => {
+  it('preserves the API Key sizing while removing the legacy range select and Custom UI', () => {
     expect(usagePageStyles).toMatch(/\.toolbarActionsRight\s*\{[\s\S]*?align-items:\s*center;/)
     expect(usagePageStyles).toMatch(/\.usageFilterBar\s*\{[\s\S]*?align-items:\s*center;/)
     expect(usagePageStyles).toMatch(/\.usageFilterBar\s*\{[\s\S]*?flex:\s*1 1 auto;/)
     expect(usagePageStyles).toMatch(/\.apiKeySelectControl\s*\{[\s\S]*?width:\s*172px;/)
     expect(usagePageStyles).toMatch(/\.apiKeySelectControl\s*\{[\s\S]*?flex:\s*0 0 172px;/)
-    expect(usagePageStyles).toMatch(/\.rangeSelectControl\s*\{[\s\S]*?width:\s*164px;/)
-    expect(usagePageStyles).toMatch(/\.rangeSelectControl\s*\{[\s\S]*?flex:\s*0 0 164px;/)
-  })
-
-  it('keeps custom range inputs hidden and disabled until the custom range is selected', () => {
-    expect(usagePageSource).toContain('styles.customRangeFieldGroupOpen')
-    expect(usagePageSource).toContain('aria-hidden={!isCustomRange}')
-    expect(usagePageSource).toContain('disabled={!isCustomRange}')
-    expect(usagePageSource).not.toContain('{isCustomRange && (')
-  })
-
-  it('keeps custom date inputs selectable through the native picker without pointer interception', () => {
-    expect(usagePageStyles).toMatch(/\.customRangeInput\s*\{[\s\S]*?user-select:\s*none;/)
-    expect(usagePageStyles).toMatch(/\.customRangeInput\s*\{[\s\S]*?-webkit-user-select:\s*none;/)
-    expect(usagePageSource).not.toContain('readOnly')
-    expect(usagePageSource).not.toContain('onPointerDown={handleCustomDateInputPointerDown}')
-    expect(usagePageSource).toContain('className={styles.customRangeInputShell}')
-    expect(usagePageSource).toContain('className={styles.customRangeInputDisplay}')
-    expect(usagePageSource).toContain('onClick={handleCustomDateInputActivate}')
-    expect(usagePageSource).toContain('onFocus={handleCustomDateInputActivate}')
-    expect(usagePageSource).toContain('onKeyDown={handleCustomDateInputKeyDown}')
-  })
-
-  it('keeps mobile custom date fields inside the toolbar before the refresh action', () => {
-    const narrowToolbarStart = usagePageStyles.indexOf('@media (max-width: #{$breakpoint-tablet})')
-    const mobileToolbarStart = usagePageStyles.indexOf('@include mobile {\n  .tabPill', narrowToolbarStart)
-    const narrowToolbarBlock = usagePageStyles.slice(
-      narrowToolbarStart,
-      mobileToolbarStart
-    )
-    const mobileToolbarBlock = usagePageStyles.slice(
-      mobileToolbarStart,
-      usagePageStyles.indexOf('@media (prefers-reduced-motion: reduce)')
-    )
-
-    expect(narrowToolbarBlock).toMatch(/\.usageFilterBar\s*\{[\s\S]*?max-height:\s*none;/)
-    expect(narrowToolbarBlock).toMatch(/\.usageFilterBar\s*\{[\s\S]*?overflow:\s*visible;/)
-    expect(narrowToolbarBlock).toMatch(/\.timeRangeGroup\s*\{[\s\S]*?width:\s*100%;/)
-    expect(narrowToolbarBlock).toMatch(/\.customRangeFieldGroup\s*\{[\s\S]*?width:\s*100%;/)
-    expect(narrowToolbarBlock).toMatch(/\.customRangeFieldGroupOpen\s*\{[\s\S]*?max-height:\s*180px;/)
-    expect(mobileToolbarBlock).toMatch(/\.usageFilterBar\s*\{[\s\S]*?display:\s*grid;/)
-    expect(mobileToolbarBlock).toMatch(/\.usageFilterBar\s*\{[\s\S]*?grid-template-columns:\s*minmax\(0, 1fr\);/)
-    expect(mobileToolbarBlock).toMatch(/\.rangeFilterField\s*\{[\s\S]*?grid-template-columns:\s*auto minmax\(0, 1fr\);/)
-    expect(mobileToolbarBlock).toMatch(/\.customRangeFieldGroup\s*\{[\s\S]*?grid-template-columns:\s*minmax\(0, 1fr\);/)
-    expect(mobileToolbarBlock).toMatch(/\.customRangeField\s*\{[\s\S]*?grid-template-columns:\s*auto minmax\(0, 1fr\);/)
-    expect(mobileToolbarBlock).toMatch(/\.customRangeField\s*\{[\s\S]*?min-width:\s*0;/)
-    expect(mobileToolbarBlock).toMatch(/\.customRangeField\s*\{[\s\S]*?max-width:\s*100%;/)
-    expect(mobileToolbarBlock).toMatch(/\.customRangeInputShell\s*\{[\s\S]*?position:\s*relative;/)
-    expect(mobileToolbarBlock).toMatch(/\.customRangeInputShell\s*\{[\s\S]*?overflow:\s*hidden;/)
-    expect(mobileToolbarBlock).toMatch(/\.customRangeInputDisplay\s*\{[\s\S]*?display:\s*flex;/)
-    expect(mobileToolbarBlock).toMatch(/\.customRangeInput\s*\{[\s\S]*?position:\s*absolute;/)
-    expect(mobileToolbarBlock).toMatch(/\.customRangeInput\s*\{[\s\S]*?min-width:\s*0;/)
-    expect(mobileToolbarBlock).toMatch(/\.customRangeInput\s*\{[\s\S]*?max-width:\s*100%;/)
-    expect(mobileToolbarBlock).toMatch(/\.customRangeInput\s*\{[\s\S]*?display:\s*block;/)
-    expect(mobileToolbarBlock).toMatch(/\.customRangeInput\s*\{[\s\S]*?opacity:\s*0;/)
+    expect(usagePageSource).not.toContain('TIME_RANGE_OPTIONS')
+    expect(keyOverviewPageSource).not.toContain('TIME_RANGE_OPTIONS')
+    expect(usagePageSource).not.toContain('customTimeRange')
+    expect(usagePageStyles).not.toContain('.rangeSelectControl')
+    expect(usagePageStyles).not.toContain('.customRange')
+    expect(keyOverviewPageStyles).not.toContain('.rangeSelectControl')
   })
 
   it('passes realtime error state and current data guard to the realtime panel', () => {

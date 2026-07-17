@@ -52,6 +52,24 @@ describe('fetchUsageEvents', () => {
     expect(init).toMatchObject({ credentials: 'include', signal });
   });
 
+  it('sends the displayed 1d range as today on every usage request surface', async () => {
+    vi.stubGlobal('window', { __APP_BASE_PATH__: undefined });
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+      ok: true,
+      json: async () => ({}),
+    } as Response);
+
+    await fetchKeyOverview('1d');
+    await fetchUsageOverview('1d');
+    await fetchUsageEvents('1d');
+    await fetchAnalysis('1d');
+
+    expect(fetchMock.mock.calls).toHaveLength(4);
+    for (const [url] of fetchMock.mock.calls) {
+      expect(new URL(String(url), 'http://localhost').searchParams.get('range')).toBe('today');
+    }
+  });
+
   it('loads realtime overview from dedicated endpoints', async () => {
     vi.stubGlobal('window', { __APP_BASE_PATH__: undefined });
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({

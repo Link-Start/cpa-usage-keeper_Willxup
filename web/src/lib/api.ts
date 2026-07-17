@@ -1,5 +1,6 @@
 import { type AnalysisResponse, type AuthFilesManagementResponse, type AuthManagedSessionsResponse, type AuthSessionResponse, type CpaApiKeyDisplayItem, type CpaApiKeyOptionsResponse, type CpaApiKeySettingsResponse, type CpaApiKeysResponse, type KeyOverviewTimeRange, type OverviewRealtimeBlock, type OverviewRealtimeWindow, type PricingEntry, type PricingResponse, type PricingSyncPreviewResponse, type QuotaAutoRefreshSettings, type StatusResponse, type UpdateCheckResponse, type UsageEventModelFilterOptionsResponse, type UsageEventRequestLogResponse, type UsageEventSourceFilterOptionsResponse, type UsedModelsResponse, type UsageIdentitiesPageResponse, type UsageIdentitiesResponse, type UsageEventsResponse, type UsageIdentity, type UsageIdentityAuthType, type UsageOverviewResponse, type UsageQuotaCacheResponse, type UsageQuotaInspectionStatusResponse, type UsageQuotaRefreshResponse, type UsageQuotaRefreshTaskResponse, type UsageQuotaResetCreditsResponse, type UsageQuotaResetResponse, type VersionResponse } from './types'
 import { isCPAMCEmbed } from '@/embed/cpamcEmbed'
+import { resolveUsageRequestRange } from '@/utils/usage/rangeQuery'
 
 export class ApiError extends Error {
   status: number
@@ -287,7 +288,7 @@ export async function revokeAuthSession(id: string): Promise<void> {
 
 export async function fetchKeyOverview(range: KeyOverviewTimeRange, signal?: AbortSignal): Promise<UsageOverviewResponse> {
   const params = new URLSearchParams()
-  params.set('range', range)
+  params.set('range', resolveUsageRequestRange(range))
   const response = await apiFetch(`${apiPath('/key-overview')}?${params.toString()}`, { signal })
   if (!response.ok) {
     await parseApiError(response, `Failed to load key overview: ${response.status}`)
@@ -314,7 +315,7 @@ export async function fetchKeyOverviewRealtime(options: FetchKeyOverviewRealtime
 
 export async function fetchUsageOverview(range: string, start?: string, end?: string, signal?: AbortSignal, apiKeyId?: string): Promise<UsageOverviewResponse> {
   const params = new URLSearchParams()
-  params.set('range', range)
+  params.set('range', resolveUsageRequestRange(range))
   if (start) {
     params.set('start', start)
   }
@@ -377,7 +378,7 @@ interface UsageEventRequestLogDownloadURLResponse {
 
 function buildUsageEventsParams(range: string, start?: string, end?: string, options?: FetchUsageEventsOptions, includePagination = true): URLSearchParams {
   const params = new URLSearchParams()
-  params.set('range', range)
+  params.set('range', resolveUsageRequestRange(range))
   if (start) {
     params.set('start', start)
   }
@@ -653,7 +654,7 @@ export async function deleteAuthFiles(names: string[]): Promise<AuthFilesManagem
 
 export async function fetchAnalysis(range: string, start?: string, end?: string, signal?: AbortSignal, apiKeyId?: string): Promise<AnalysisResponse> {
   const params = new URLSearchParams()
-  params.set('range', range)
+  params.set('range', resolveUsageRequestRange(range))
   if (start) {
     params.set('start', start)
   }

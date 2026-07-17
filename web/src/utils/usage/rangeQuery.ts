@@ -1,4 +1,11 @@
-import type { UsageTimeRange } from '@/lib/types';
+import type { KeyOverviewTimeRange, UsageTimeRange } from '@/lib/types';
+
+export type UsageTimeRangeMode = 'hour' | 'day' | 'today' | 'yesterday';
+
+export interface ParsedSelectableUsageRange {
+  mode: UsageTimeRangeMode;
+  value?: number;
+}
 
 export interface UsageRangeQuery {
   valid: boolean;
@@ -7,11 +14,49 @@ export interface UsageRangeQuery {
   end?: string;
 }
 
-export const normalizeUsageRange = (value: string): UsageTimeRange => (
-  value === '4h' || value === '8h' || value === '12h' || value === '24h' || value === 'today' || value === 'yesterday' || value === '7d' || value === '30d' || value === 'custom'
-    ? value
-    : '8h'
+const parseRollingUsageRange = (value: unknown): { unit: 'hour' | 'day'; value: number } | null => {
+  if (typeof value !== 'string') return null;
+  const match = /^(\d+)([hd])$/.exec(value);
+  if (!match) return null;
+  const amount = Number(match[1]);
+  if (!Number.isInteger(amount) || String(amount) !== match[1]) return null;
+  const unit = match[2] === 'h' ? 'hour' : 'day';
+  const maximum = unit === 'hour' ? 24 : 30;
+  if (amount < 1 || amount > maximum) return null;
+  return { unit, value: amount };
+};
+
+export const isSelectableUsageRange = (value: unknown): value is KeyOverviewTimeRange => (
+  value === 'today' || value === 'yesterday' || parseRollingUsageRange(value) !== null
 );
+
+export const normalizeSelectableUsageRange = (value: unknown): KeyOverviewTimeRange => (
+  isSelectableUsageRange(value) ? value : '8h'
+);
+
+export const normalizeUsageRange = (value: string): UsageTimeRange => (
+  value === 'custom' ? value : normalizeSelectableUsageRange(value)
+);
+
+// 1d 只保留为选择器显示值；所有查询语义复用已经优化过的 today 路径。
+export const resolveUsageRequestRange = <T extends string>(value: T): T | 'today' => (
+  value === '1d' ? 'today' : value
+);
+
+export const parseSelectableUsageRange = (value: string): ParsedSelectableUsageRange => {
+  const normalized = normalizeSelectableUsageRange(value);
+  if (normalized === 'today' || normalized === 'yesterday') {
+    return { mode: normalized };
+  }
+  const rolling = parseRollingUsageRange(normalized);
+  return rolling ? { mode: rolling.unit, value: rolling.value } : { mode: 'hour', value: 8 };
+};
+
+export const buildRollingUsageRange = (unit: 'hour' | 'day', value: number): KeyOverviewTimeRange => {
+  const maximum = unit === 'hour' ? 24 : 30;
+  const amount = Math.min(maximum, Math.max(1, Math.round(Number.isFinite(value) ? value : 1)));
+  return `${amount}${unit === 'hour' ? 'h' : 'd'}`;
+};
 
 const parseCustomDateParam = (value: string | undefined, endOfDay: boolean): { value: string; timestampMs: number } | undefined => {
   const trimmed = value?.trim();
@@ -31,8 +76,9 @@ const parseCustomDateParam = (value: string | undefined, endOfDay: boolean): { v
 
 export function buildUsageRangeQuery({ range, customStart, customEnd }: { range: string; customStart?: string; customEnd?: string }): UsageRangeQuery {
   const normalizedRange = normalizeUsageRange(range);
-  if (normalizedRange !== 'custom') {
-    return { valid: true, range: normalizedRange };
+  const requestRange = resolveUsageRequestRange(normalizedRange);
+  if (requestRange !== 'custom') {
+    return { valid: true, range: requestRange };
   }
 
   const start = parseCustomDateParam(customStart, false);

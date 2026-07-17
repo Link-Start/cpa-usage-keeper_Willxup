@@ -4,7 +4,6 @@ import { ApiError, fetchKeyOverview, fetchKeyOverviewRealtime, logout } from '@/
 import type { AuthSessionAPIKeySummary, KeyOverviewTimeRange, OverviewRealtimeBlock, OverviewRealtimeWindow, UsageOverviewResponse } from '@/lib/types';
 import { LanguageSwitcher } from '@/components/ui/LanguageSwitcher';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
-import { Select } from '@/components/ui/Select';
 import { IconRefreshCw } from '@/components/ui/icons';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
 import { useThemeStore } from '@/stores';
@@ -13,11 +12,13 @@ import {
   OverviewRealtimePanel,
   ServiceHealthCard,
   StatCards,
+  TimeRangeControl,
   useSparklines,
 } from '@/components/usage';
 import type { UsageOverviewPayload } from '@/components/usage/hooks/useUsageData';
 import { BrandLink } from '@/components/BrandLink';
 import { getCurrentOverviewUsage, getDailyAveragePanelUsage, getOverviewDisplayLoading, isDailyAverageRange } from '@/utils/usage/overview';
+import { normalizeSelectableUsageRange } from '@/utils/usage/rangeQuery';
 import type { Theme } from '@/types';
 import styles from './KeyOverviewPage.module.scss';
 
@@ -29,32 +30,16 @@ const KEY_OVERVIEW_REALTIME_VISIBLE_DIMENSIONS = ['models'] as const;
 const REFRESH_THROTTLE_MS = 1_000;
 const KEY_OVERVIEW_AUTO_REFRESH_INTERVAL_MS = 10_000;
 
-const TIME_RANGE_OPTIONS: ReadonlyArray<{ value: KeyOverviewTimeRange; labelKey: string }> = [
-  { value: '4h', labelKey: 'usage_stats.range_4h' },
-  { value: '8h', labelKey: 'usage_stats.range_8h' },
-  { value: '12h', labelKey: 'usage_stats.range_12h' },
-  { value: '24h', labelKey: 'usage_stats.range_24h' },
-  { value: 'today', labelKey: 'usage_stats.range_today' },
-  { value: 'yesterday', labelKey: 'usage_stats.range_yesterday' },
-  { value: '7d', labelKey: 'usage_stats.range_7d' },
-  { value: '30d', labelKey: 'usage_stats.range_30d' },
-];
-
 const THEME_OPTIONS: ReadonlyArray<{ value: Theme; labelKey: string }> = [
   { value: 'white', labelKey: 'usage_stats.theme_light' },
   { value: 'dark', labelKey: 'usage_stats.theme_dark' },
   { value: 'auto', labelKey: 'usage_stats.theme_auto' },
 ];
 
-const isKeyOverviewTimeRange = (value: unknown): value is KeyOverviewTimeRange => (
-  value === '4h' || value === '8h' || value === '12h' || value === '24h' || value === 'today' || value === 'yesterday' || value === '7d' || value === '30d'
-);
-
 const loadTimeRange = (): KeyOverviewTimeRange => {
   try {
     if (typeof localStorage === 'undefined') return DEFAULT_TIME_RANGE;
-    const raw = localStorage.getItem(KEY_OVERVIEW_RANGE_STORAGE_KEY);
-    return isKeyOverviewTimeRange(raw) ? raw : DEFAULT_TIME_RANGE;
+    return normalizeSelectableUsageRange(localStorage.getItem(KEY_OVERVIEW_RANGE_STORAGE_KEY));
   } catch {
     return DEFAULT_TIME_RANGE;
   }
@@ -185,11 +170,6 @@ export function KeyOverviewPage({ apiKey, onAuthRequired }: KeyOverviewPageProps
   const overviewRequestControllerRef = useRef<AbortController | null>(null);
   const realtimeRequestControllerRef = useRef<AbortController | null>(null);
   const refreshThrottleTimerRef = useRef<ReturnType<typeof window.setTimeout> | null>(null);
-
-  const rangeOptions = useMemo(() => TIME_RANGE_OPTIONS.map((option) => ({
-    value: option.value,
-    label: t(option.labelKey),
-  })), [t]);
 
   const themeOptions = useMemo(
     () => THEME_OPTIONS.map((option) => ({ ...option, label: t(option.labelKey) })),
@@ -452,19 +432,11 @@ export function KeyOverviewPage({ apiKey, onAuthRequired }: KeyOverviewPageProps
 
               <div className={styles.toolbarActionsRight}>
                 <div className={styles.usageFilterBar}>
-                  <div className={styles.timeRangeGroup}>
-                    <label className={`${styles.usageFilterField} ${styles.rangeFilterField}`.trim()}>
-                      <span className={styles.usageFilterLabel}>{t('usage_stats.range_filter')}</span>
-                      <Select
-                        value={timeRange}
-                        options={rangeOptions}
-                        onChange={(value) => setTimeRange(value as KeyOverviewTimeRange)}
-                        className={styles.rangeSelectControl}
-                        ariaLabel={t('usage_stats.range_filter')}
-                        fullWidth
-                      />
-                    </label>
-                  </div>
+                  <TimeRangeControl
+                    value={timeRange}
+                    onChange={setTimeRange}
+                    ariaLabel={t('usage_stats.range_filter')}
+                  />
                 </div>
                 <div className={styles.usageRefreshSlot}>
                   <div className={styles.usageFilterActions}>

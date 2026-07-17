@@ -448,12 +448,13 @@ func analysisHourlyStatsEnd(filter dto.UsageQueryFilter, fullEnd time.Time) time
 	if filter.StartTime == nil || filter.EndTime == nil {
 		return fullEnd
 	}
-	switch filter.Range {
-	case "4h", "8h", "12h", "24h":
+	if timeutil.IsUsageRollingHourRange(filter.Range) {
 		if timeutil.NormalizeStorageTime(*filter.EndTime).After(fullEnd) {
 			return fullEnd.Add(time.Hour)
 		}
 		return fullEnd
+	}
+	switch filter.Range {
 	case "today", "yesterday":
 	default:
 		return fullEnd
@@ -1080,8 +1081,11 @@ func usageOverviewEffectiveFilter(filter dto.UsageQueryFilter, queryNow time.Tim
 // usageOverviewCurrentRightBoundary 判断主查询右边界是否应该从缓存读到“现在之后已进入缓存的新事件”。
 func usageOverviewCurrentRightBoundary(filter dto.UsageQueryFilter, queryNow time.Time) bool {
 	// 滚动范围天然表示“截至当前”，不能被 API 层较早解析出的 end 截断。
+	if _, ok := timeutil.ParseUsageRollingRange(strings.TrimSpace(filter.Range)); ok {
+		return true
+	}
 	switch strings.TrimSpace(filter.Range) {
-	case "4h", "8h", "12h", "24h", "7d", "30d", "today":
+	case "today":
 		return true
 	case "custom":
 		// 自定义范围只有结束时间落在 queryNow 之后时才代表当前进行中的当天查询。
@@ -2518,8 +2522,11 @@ func usageOverviewHealthGrid(filter dto.UsageQueryFilter) (int, time.Duration) {
 
 // isUsageOverviewShortHealthRange 判断 health grid 是否使用 24h 专用细粒度窗口。
 func isUsageOverviewShortHealthRange(value string) bool {
+	if timeutil.IsUsageRollingHourRange(value) {
+		return true
+	}
 	switch value {
-	case "4h", "8h", "12h", "24h", "today", "yesterday":
+	case "today", "yesterday":
 		return true
 	default:
 		return false
