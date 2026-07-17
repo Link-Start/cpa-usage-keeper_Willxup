@@ -1,10 +1,14 @@
-import React from 'react';
+// @vitest-environment happy-dom
+
+import React, { act } from 'react';
+import { createRoot } from 'react-dom/client';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import {
   REQUEST_EVENT_COLUMN_IDS,
   RequestEventsDetailsCard,
 } from '../RequestEventsDetailsCard';
+import i18n from '@/i18n';
 import type { UsageEvent } from '@/lib/types';
 
 const baseEvent: UsageEvent = {
@@ -61,7 +65,77 @@ const extractSpeedModeCells = (html: string) => (
 );
 
 describe('RequestEventsDetailsCard Speed Mode column', () => {
-  it('shows mapped request and response modes in one column with a labeled tooltip', () => {
+  it('shows an immediate localized tooltip with mapped and raw request and response modes', async () => {
+    globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    const localizedLines = [
+      ['en', 'Speed Mode: Auto (auto)', 'Response Speed Mode: Standard (default)'],
+      ['zh', '速度模式：自动 (auto)', '响应速度模式：标准 (default)'],
+      ['zh-TW', '速度模式：自動 (auto)', '回應速度模式：標準 (default)'],
+    ] as const;
+
+    try {
+      for (const [language, requestLine, responseLine] of localizedLines) {
+        await act(async () => {
+          await i18n.changeLanguage(language);
+          root.render(
+            <RequestEventsDetailsCard
+              events={[{ ...baseEvent, service_tier: 'auto', response_service_tier: 'default' }]}
+              loading={false}
+              page={1}
+              pageSize={20}
+              pageSizeOptions={[20, 50, 100, 500, 1000]}
+              totalCount={1}
+              totalPages={1}
+              modelOptions={['claude-sonnet']}
+              sourceOptions={[{ value: 'source-a', label: 'Provider A' }]}
+              modelFilter="__all__"
+              sourceFilter="__all__"
+              resultFilter="__all__"
+              visibleColumnIds={['service_tier']}
+              onPageChange={() => undefined}
+              onPageSizeChange={() => undefined}
+              onModelFilterChange={() => undefined}
+              onSourceFilterChange={() => undefined}
+              onResultFilterChange={() => undefined}
+            />,
+          );
+        });
+
+        const cell = container.querySelector('tbody td');
+        expect(cell).toBeInstanceOf(HTMLTableCellElement);
+        expect(cell?.getAttribute('title')).toBeNull();
+
+        await act(async () => {
+          cell?.dispatchEvent(new MouseEvent('mouseover', {
+            bubbles: true,
+            clientX: 120,
+            clientY: 80,
+          }));
+        });
+
+        const tooltip = document.body.querySelector('[role="tooltip"]');
+        expect(tooltip).not.toBeNull();
+        expect(Array.from(tooltip?.querySelectorAll('span') ?? [], (line) => line.textContent)).toEqual([
+          requestLine,
+          responseLine,
+        ]);
+
+        await act(async () => {
+          cell?.dispatchEvent(new MouseEvent('mouseout', { bubbles: true }));
+        });
+        expect(document.body.querySelector('[role="tooltip"]')).toBeNull();
+      }
+    } finally {
+      await act(async () => root.unmount());
+      container.remove();
+      await i18n.changeLanguage('en');
+    }
+  });
+
+  it('shows mapped request and response modes in one column', () => {
     const html = renderCard([
       { ...baseEvent, service_tier: 'auto', response_service_tier: 'default' },
       { ...baseEvent, id: '102', service_tier: 'standard', response_service_tier: 'standard' },
@@ -71,8 +145,8 @@ describe('RequestEventsDetailsCard Speed Mode column', () => {
     expect(html).toContain('>Speed Mode</th>');
     expect(html).not.toContain('>Response Speed Mode</th>');
     expect(extractSpeedModeCells(html)).toEqual(['Auto / Standard', 'Standard / Standard']);
-    expect(html).toContain('title="Speed Mode: Auto\nResponse Speed Mode: Standard"');
-    expect(html).toContain('aria-label="Speed Mode: Auto; Response Speed Mode: Standard"');
+    expect(html).not.toContain('title="Speed Mode: Auto\nResponse Speed Mode: Standard"');
+    expect(html).toContain('aria-label="Speed Mode: Auto (auto); Response Speed Mode: Standard (default)"');
   });
 
   it('keeps a dash for each missing request or response mode in the cell and tooltip', () => {
@@ -83,8 +157,9 @@ describe('RequestEventsDetailsCard Speed Mode column', () => {
     ]);
 
     expect(extractSpeedModeCells(html)).toEqual(['Fast / -', '- / Standard', '- / -']);
-    expect(html).toContain('title="Speed Mode: Fast\nResponse Speed Mode: -"');
-    expect(html).toContain('title="Speed Mode: -\nResponse Speed Mode: Standard"');
-    expect(html).toContain('title="Speed Mode: -\nResponse Speed Mode: -"');
+    expect(html).toContain('aria-label="Speed Mode: Fast (priority); Response Speed Mode: -"');
+    expect(html).toContain('aria-label="Speed Mode: -; Response Speed Mode: Standard (default)"');
+    expect(html).toContain('aria-label="Speed Mode: -; Response Speed Mode: -"');
+    expect(html).not.toContain('(-)');
   });
 });

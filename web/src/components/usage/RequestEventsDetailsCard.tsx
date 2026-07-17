@@ -35,6 +35,10 @@ const REQUEST_LOG_VIRTUAL_PADDING_Y = 12;
 const REQUEST_LOG_VIRTUAL_CHUNK_CHARS = 2048;
 const REQUEST_LOG_VIRTUAL_BREAK_LOOKBACK = 256;
 const REQUEST_LOG_GRAPHEME_CONTEXT_CHARS = 64;
+const REQUEST_EVENTS_SPEED_MODE_TOOLTIP_MAX_WIDTH = 280;
+const REQUEST_EVENTS_SPEED_MODE_TOOLTIP_ESTIMATED_HEIGHT = 72;
+const REQUEST_EVENTS_SPEED_MODE_TOOLTIP_OFFSET = 10;
+const REQUEST_EVENTS_SPEED_MODE_TOOLTIP_VIEWPORT_PADDING = 8;
 const REQUEST_LOG_GRAPHEME_SEGMENTER = typeof Intl !== 'undefined' && typeof Intl.Segmenter === 'function'
   ? new Intl.Segmenter(undefined, { granularity: 'grapheme' })
   : null;
@@ -136,7 +140,9 @@ type RequestEventRow = {
   modelAlias: string;
   reasoningEffort: string;
   speedMode: string;
+  speedModeRaw: string;
   responseSpeedMode: string;
+  responseSpeedModeRaw: string;
   requestType: string;
   endpoint: string;
   sourceRaw: string;
@@ -157,6 +163,14 @@ type RequestEventRow = {
   cacheReadRate: string;
   cost: number | null;
   costAvailable: boolean;
+};
+
+type RequestEventSpeedModeTooltipState = {
+  rowId: string;
+  lines: string[];
+  x: number;
+  y: number;
+  placement: 'above' | 'below';
 };
 
 type RequestEventColumnDefinition = {
@@ -361,6 +375,29 @@ const formatSpeedMode = (rawMode: unknown, t: (key: string) => string): string =
   const labelKey = REQUEST_SPEED_MODE_LABEL_KEYS[value.toLowerCase()];
   return labelKey ? t(labelKey) : value;
 };
+
+const formatSpeedModeTooltipLine = (
+  label: string,
+  value: string,
+  rawValue: string,
+  t: (key: string, options: Record<string, string>) => string,
+): string => t(
+  rawValue === '-' ? 'usage_stats.speed_mode_tooltip_empty' : 'usage_stats.speed_mode_tooltip_value',
+  { label, value, raw: rawValue },
+);
+
+const buildSpeedModeTooltipLines = (
+  row: RequestEventRow,
+  t: (key: string, options?: Record<string, string>) => string,
+): string[] => [
+  formatSpeedModeTooltipLine(t('usage_stats.speed_mode'), row.speedMode, row.speedModeRaw, t),
+  formatSpeedModeTooltipLine(
+    t('usage_stats.response_speed_mode'),
+    row.responseSpeedMode,
+    row.responseSpeedModeRaw,
+    t,
+  ),
+];
 
 const parseRequestEndpoint = (rawEndpoint: unknown): { requestType: string; endpoint: string } => {
   const raw = String(rawEndpoint ?? '').trim().replace(/\s+/g, ' ');
@@ -916,6 +953,8 @@ export function RequestEventsDetailsCard({
   requestLogDownloading = false,
 }: RequestEventsDetailsCardProps) {
   const { t } = useTranslation();
+  const speedModeTooltipId = useId();
+  const [speedModeTooltip, setSpeedModeTooltip] = useState<RequestEventSpeedModeTooltipState | null>(null);
   const resultLocale = t('usage_stats.success') === 'Success' ? 'en' : 'zh';
   const latencyHint = t('usage_stats.latency_unit_hint', {
     field: LATENCY_SOURCE_FIELD,
@@ -923,6 +962,32 @@ export function RequestEventsDetailsCard({
   });
   const ttftHint = t('usage_stats.ttft_hint');
   const speedHint = t('usage_stats.speed_hint');
+
+  const showSpeedModeTooltip = useCallback((row: RequestEventRow, anchor: HTMLTableCellElement) => {
+    // 浮层挂到 body 后不受表格滚动容器裁剪，同时将锚点限制在可视区域内。
+    const viewportWidth = typeof window === 'undefined' ? 1024 : window.innerWidth;
+    const viewportHeight = typeof window === 'undefined' ? 768 : window.innerHeight;
+    const rect = anchor.getBoundingClientRect();
+    const tooltipWidth = Math.min(
+      REQUEST_EVENTS_SPEED_MODE_TOOLTIP_MAX_WIDTH,
+      Math.max(viewportWidth - REQUEST_EVENTS_SPEED_MODE_TOOLTIP_VIEWPORT_PADDING * 2, 0),
+    );
+    const halfTooltipWidth = tooltipWidth / 2;
+    const minX = REQUEST_EVENTS_SPEED_MODE_TOOLTIP_VIEWPORT_PADDING + halfTooltipWidth;
+    const maxX = viewportWidth - REQUEST_EVENTS_SPEED_MODE_TOOLTIP_VIEWPORT_PADDING - halfTooltipWidth;
+    const anchorX = rect.left + rect.width / 2;
+    const x = maxX >= minX ? Math.max(minX, Math.min(anchorX, maxX)) : viewportWidth / 2;
+    const placement = rect.bottom + REQUEST_EVENTS_SPEED_MODE_TOOLTIP_ESTIMATED_HEIGHT > viewportHeight
+      ? 'above'
+      : 'below';
+    const y = placement === 'above'
+      ? rect.top - REQUEST_EVENTS_SPEED_MODE_TOOLTIP_OFFSET
+      : rect.bottom + REQUEST_EVENTS_SPEED_MODE_TOOLTIP_OFFSET;
+    const lines = buildSpeedModeTooltipLines(row, t);
+
+    setSpeedModeTooltip({ rowId: row.id, lines, x, y, placement });
+  }, [t]);
+  const hideSpeedModeTooltip = useCallback(() => setSpeedModeTooltip(null), []);
 
   const rows = useMemo<RequestEventRow[]>(() => {
     return events.map((event, index) => {
@@ -942,8 +1007,10 @@ export function RequestEventsDetailsCard({
       const modelAliasValue = String(event.model_alias ?? '').trim();
       const modelAlias = modelAliasValue && modelAliasValue !== modelValue ? modelAliasValue : '-';
       const reasoningEffort = String(event.reasoning_effort ?? '').trim() || '-';
-      const speedMode = formatSpeedMode(event.service_tier, t);
-      const responseSpeedMode = formatSpeedMode(event.response_service_tier, t);
+      const speedModeRaw = String(event.service_tier ?? '').trim() || '-';
+      const responseSpeedModeRaw = String(event.response_service_tier ?? '').trim() || '-';
+      const speedMode = formatSpeedMode(speedModeRaw, t);
+      const responseSpeedMode = formatSpeedMode(responseSpeedModeRaw, t);
       const endpointFields = parseRequestEndpoint(event.endpoint);
       const inputTokens = Math.max(toNumber(event.tokens?.input_tokens), 0);
       const outputTokens = Math.max(toNumber(event.tokens?.output_tokens), 0);
@@ -970,7 +1037,9 @@ export function RequestEventsDetailsCard({
         modelAlias,
         reasoningEffort,
         speedMode,
+        speedModeRaw,
         responseSpeedMode,
+        responseSpeedModeRaw,
         requestType: endpointFields.requestType,
         endpoint: endpointFields.endpoint,
         sourceRaw: sourceRaw || '-',
@@ -1136,15 +1205,24 @@ export function RequestEventsDetailsCard({
         id: 'service_tier',
         label: t('usage_stats.speed_mode'),
         header: <th className={styles.requestEventsNoWrapCell}>{t('usage_stats.speed_mode')}</th>,
-        renderCell: (row) => (
-          <td
-            className={styles.requestEventsNoWrapCell}
-            title={`${t('usage_stats.speed_mode')}: ${row.speedMode}\n${t('usage_stats.response_speed_mode')}: ${row.responseSpeedMode}`}
-            aria-label={`${t('usage_stats.speed_mode')}: ${row.speedMode}; ${t('usage_stats.response_speed_mode')}: ${row.responseSpeedMode}`}
-          >
-            {`${row.speedMode} / ${row.responseSpeedMode}`}
-          </td>
-        ),
+        renderCell: (row) => {
+          const tooltipLines = buildSpeedModeTooltipLines(row, t);
+          const tooltipVisible = speedModeTooltip?.rowId === row.id;
+          return (
+            <td
+              className={`${styles.requestEventsNoWrapCell} ${styles.requestEventsSpeedModeCell}`}
+              tabIndex={0}
+              aria-label={tooltipLines.join('; ')}
+              aria-describedby={tooltipVisible ? speedModeTooltipId : undefined}
+              onMouseEnter={(event) => showSpeedModeTooltip(row, event.currentTarget)}
+              onMouseLeave={hideSpeedModeTooltip}
+              onFocus={(event) => showSpeedModeTooltip(row, event.currentTarget)}
+              onBlur={hideSpeedModeTooltip}
+            >
+              {`${row.speedMode} / ${row.responseSpeedMode}`}
+            </td>
+          );
+        },
       },
       {
         id: 'result',
@@ -1267,7 +1345,20 @@ export function RequestEventsDetailsCard({
     ];
 
     return definitions;
-  }, [latencyHint, onRequestLogOpen, requestLogAccessEnabled, requestLogLoadingEventId, resultLocale, speedHint, t, ttftHint]);
+  }, [
+    hideSpeedModeTooltip,
+    latencyHint,
+    onRequestLogOpen,
+    requestLogAccessEnabled,
+    requestLogLoadingEventId,
+    resultLocale,
+    showSpeedModeTooltip,
+    speedHint,
+    speedModeTooltip?.rowId,
+    speedModeTooltipId,
+    t,
+    ttftHint,
+  ]);
 
   const visibleColumns = useMemo(
     () => columnDefinitions.filter((definition) => effectiveVisibleColumnIdSet.has(definition.id)),
@@ -1436,6 +1527,25 @@ export function RequestEventsDetailsCard({
           </>
         )}
       </Card>
+      {speedModeTooltip && typeof document !== 'undefined'
+        ? createPortal(
+            <div
+              id={speedModeTooltipId}
+              className={styles.requestEventsSpeedModeTooltip}
+              role="tooltip"
+              style={{
+                left: speedModeTooltip.x,
+                top: speedModeTooltip.y,
+                transform: speedModeTooltip.placement === 'above'
+                  ? 'translate(-50%, -100%)'
+                  : 'translateX(-50%)',
+              }}
+            >
+              {speedModeTooltip.lines.map((line) => <span key={line}>{line}</span>)}
+            </div>,
+            document.body,
+          )
+        : null}
       <Modal
         open={requestLogOpen}
         title={requestLogTitle}

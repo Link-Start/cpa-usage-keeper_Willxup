@@ -722,6 +722,12 @@ describe('UsagePage toolbar styles', () => {
     expect(usagePageStyles).not.toContain('.requestEventsEndpointCell')
   })
 
+  it('keeps the Speed Mode tooltip target on the normal arrow cursor', () => {
+    const speedModeCellBlock = styleRuleBlock(usagePageStyles, '.requestEventsSpeedModeCell')
+    expect(speedModeCellBlock).toContain('cursor: default;')
+    expect(speedModeCellBlock).not.toContain('cursor: help;')
+  })
+
   it('keeps Request Event Log non-text columns adaptive and non-wrapping', () => {
     const adaptiveColumnIds = [
       'timestamp',
