@@ -51,7 +51,6 @@ export const REQUEST_EVENT_COLUMN_IDS = [
   'model_alias',
   'reasoning_effort',
   'service_tier',
-  'response_service_tier',
   'result',
   'request_type',
   'endpoint',
@@ -1137,13 +1136,15 @@ export function RequestEventsDetailsCard({
         id: 'service_tier',
         label: t('usage_stats.speed_mode'),
         header: <th className={styles.requestEventsNoWrapCell}>{t('usage_stats.speed_mode')}</th>,
-        renderCell: (row) => <td className={styles.requestEventsNoWrapCell}>{row.speedMode}</td>,
-      },
-      {
-        id: 'response_service_tier',
-        label: t('usage_stats.response_speed_mode'),
-        header: <th className={styles.requestEventsNoWrapCell}>{t('usage_stats.response_speed_mode')}</th>,
-        renderCell: (row) => <td className={styles.requestEventsNoWrapCell}>{row.responseSpeedMode}</td>,
+        renderCell: (row) => (
+          <td
+            className={styles.requestEventsNoWrapCell}
+            title={`${t('usage_stats.speed_mode')}: ${row.speedMode}\n${t('usage_stats.response_speed_mode')}: ${row.responseSpeedMode}`}
+            aria-label={`${t('usage_stats.speed_mode')}: ${row.speedMode}; ${t('usage_stats.response_speed_mode')}: ${row.responseSpeedMode}`}
+          >
+            {`${row.speedMode} / ${row.responseSpeedMode}`}
+          </td>
+        ),
       },
       {
         id: 'result',

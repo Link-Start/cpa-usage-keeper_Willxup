@@ -89,8 +89,7 @@ describe('RequestEventsDetailsCard pagination', () => {
     expect(html.indexOf('>Source</th>')).toBeLessThan(html.indexOf('>Model</th>'));
     expect(html.indexOf('>Model</th>')).toBeLessThan(html.indexOf('title="Reasoning Effort">Effort</th>'));
     expect(html.indexOf('title="Reasoning Effort">Effort</th>')).toBeLessThan(html.indexOf('>Speed Mode</th>'));
-    expect(html.indexOf('>Speed Mode</th>')).toBeLessThan(html.indexOf('>Response Speed Mode</th>'));
-    expect(html.indexOf('>Response Speed Mode</th>')).toBeLessThan(html.indexOf('>Result</th>'));
+    expect(html.indexOf('>Speed Mode</th>')).toBeLessThan(html.indexOf('>Result</th>'));
     expect(html.indexOf('>Result</th>')).toBeLessThan(html.indexOf('>Type</th>'));
     expect(html.indexOf('>Type</th>')).toBeLessThan(html.indexOf('>Endpoint</th>'));
     expect(html.indexOf('>Endpoint</th>')).toBeLessThan(html.indexOf('title="Time to First Token">TTFT</th>'));
@@ -100,7 +99,7 @@ describe('RequestEventsDetailsCard pagination', () => {
     expect(html).toContain('class="_requestEventsAPIKeyCell_');
     expect(html).toContain('title="Production Key">Production Key</td>');
     expect(html).toMatch(/<td class="[^"]*requestEventsNoWrapCell[^"]*">medium<\/td>/);
-    expect(html).toMatch(/<td class="[^"]*requestEventsNoWrapCell[^"]*">Auto<\/td>/);
+    expect(html).toContain('>Auto / Fast</td>');
     expect(html).toMatch(/<td class="[^"]*requestEventsNoWrapCell[^"]*">SSE<\/td><td class="[^"]*requestEventsNoWrapCell[^"]*" title="\/messages">\/messages<\/td>/);
     expect(html.indexOf('>45ms</td>')).toBeLessThan(html.indexOf('>120ms</td>'));
     expect(html).toMatch(/<td class="[^"]*requestEventsNoWrapCell[^"]*">30\.0 t\/s<\/td>/);
@@ -115,7 +114,7 @@ describe('RequestEventsDetailsCard pagination', () => {
     expect(html).toContain('disabled');
   });
 
-  it('maps request speed mode values without using the response tier', () => {
+  it('maps request speed mode values before the independently mapped response mode', () => {
     const html = renderCard({
       visibleColumnIds: ['reasoning_effort', 'service_tier', 'result'],
       events: [
@@ -130,28 +129,12 @@ describe('RequestEventsDetailsCard pagination', () => {
       ],
     });
 
-    expect(html).toContain('>Auto</td>');
-    expect(countOccurrences(html, '>Standard</td>')).toBe(2);
-    expect(countOccurrences(html, '>Fast</td>')).toBe(2);
-    expect(html).toContain('>Flex</td>');
-    expect(html).toMatch(/medium<\/td><td class="[^"]*requestEventsNoWrapCell[^"]*">-<\/td><td class="[^"]*requestEventsNoWrapCell/);
-    expect(html).toMatch(/medium<\/td><td class="[^"]*requestEventsNoWrapCell[^"]*">batch<\/td><td class="[^"]*requestEventsNoWrapCell/);
-  });
-
-  it('maps the response speed mode from the response service tier', () => {
-    const html = renderCard({
-      visibleColumnIds: ['service_tier', 'response_service_tier'],
-      events: [
-        { ...events[0], id: 'priority', service_tier: 'auto', response_service_tier: 'priority' },
-        { ...events[0], id: 'default', service_tier: 'priority', response_service_tier: 'default' },
-        { ...events[0], id: 'empty', service_tier: 'flex', response_service_tier: '' },
-      ],
-    });
-
-    expect(html).toContain('>Response Speed Mode</th>');
-    expect(html).toMatch(/>Auto<\/td><td class="[^"]*requestEventsNoWrapCell[^"]*">Fast<\/td>/);
-    expect(html).toMatch(/>Fast<\/td><td class="[^"]*requestEventsNoWrapCell[^"]*">Standard<\/td>/);
-    expect(html).toMatch(/>Flex<\/td><td class="[^"]*requestEventsNoWrapCell[^"]*">-<\/td>/);
+    expect(html).toContain('>Auto / Fast</td>');
+    expect(countOccurrences(html, '>Standard / Fast</td>')).toBe(2);
+    expect(countOccurrences(html, '>Fast / Standard</td>')).toBe(2);
+    expect(html).toContain('>Flex / Standard</td>');
+    expect(html).toContain('>- / Fast</td>');
+    expect(html).toContain('>batch / Standard</td>');
   });
 
   it('formats timestamps with compact numeric date and time', () => {
