@@ -107,4 +107,17 @@ describe('custom usage range slots', () => {
     expect(parseStoredUsageRangeState(serializeUsageRangeState(state), { nowMs: SHANGHAI_NOW })).toEqual(state);
     expect(parseStoredUsageRangeState('{"range":"custom"}', { nowMs: SHANGHAI_NOW })).toEqual({ range: '8h' });
   });
+
+  it('parses the legacy standalone Custom date range for deferred timezone migration', async () => {
+    const customRangeModule = await import('../customRange') as Record<string, unknown>;
+    const parseLegacyCustomRange = customRangeModule.parseLegacyCustomRange as ((raw: string | null) => unknown) | undefined;
+
+    expect(parseLegacyCustomRange).toBeTypeOf('function');
+    expect(parseLegacyCustomRange?.('{"start":"2026-07-01","end":"2026-07-17"}')).toEqual({
+      unit: 'day',
+      start: '2026-07-01',
+      end: '2026-07-17',
+    });
+    expect(parseLegacyCustomRange?.('{"start":"not-a-date","end":"2026-07-17"}')).toBeNull();
+  });
 });

@@ -46,6 +46,14 @@ const formatEndpoint = (value: string, unit: UsageCustomRangeUnit, timeZone: str
   }).format(new Date(value));
 };
 
+const formatCalendarDay = (value: string, locale?: string): string => new Intl.DateTimeFormat(locale, {
+  weekday: 'long',
+  year: 'numeric',
+  month: 'long',
+  day: 'numeric',
+  timeZone: 'UTC',
+}).format(parseDayKey(value));
+
 const monthKey = (value: string): string => value.slice(0, 7);
 
 interface CalendarCell {
@@ -308,6 +316,16 @@ export function CustomRangePanel({ value, timeZone, locale, anchorMs, onChange, 
               // 色带只在真实区间端点或每周换行处收口，不在月份边界人为断开。
               const rangeRowStart = inRange && (index % 7 === 0 || !previousInRange);
               const rangeRowEnd = inRange && (index % 7 === 6 || !nextInRange);
+              const rangeState = day === value.start && day === value.end
+                ? t('usage_stats.range_custom_day_start_end')
+                : day === value.start
+                  ? t('usage_stats.range_custom_day_start')
+                  : day === value.end
+                    ? t('usage_stats.range_custom_day_end')
+                    : inRange
+                      ? t('usage_stats.range_custom_day_in_range')
+                      : '';
+              const accessibleDate = formatCalendarDay(day, locale);
               return (
                 <button
                   key={day}
@@ -318,6 +336,8 @@ export function CustomRangePanel({ value, timeZone, locale, anchorMs, onChange, 
                   data-custom-in-range={inRange ? '' : undefined}
                   data-custom-range-row-start={rangeRowStart ? '' : undefined}
                   data-custom-range-row-end={rangeRowEnd ? '' : undefined}
+                  aria-label={rangeState ? `${accessibleDate}, ${rangeState}` : accessibleDate}
+                  aria-pressed={selected}
                   className={`${styles.customCalendarDay} ${outsideMonth ? styles.customCalendarDayOutsideMonth : ''} ${inRange ? styles.customCalendarDayInRange : ''} ${rangeRowStart ? styles.customCalendarRangeRowStart : ''} ${rangeRowEnd ? styles.customCalendarRangeRowEnd : ''} ${selected ? styles.customCalendarDaySelected : ''}`.trim()}
                   disabled={!allowed}
                   onClick={() => handleDaySelect(day)}

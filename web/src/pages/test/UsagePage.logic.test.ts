@@ -50,6 +50,67 @@ describe('UsagePage Overview loading display', () => {
   });
 });
 
+describe('UsagePage legacy Custom range migration', () => {
+  it('keeps a valid legacy Custom range pending until the project timezone is available', async () => {
+    const usagePageModule = await import('../UsagePage') as Record<string, unknown>;
+    const loadUsageRangeState = usagePageModule.loadUsageRangeState as ((storage: ReturnType<typeof createMemoryStorage>, nowMs: number) => unknown) | undefined;
+    const storage = createMemoryStorage({
+      'cli-proxy-usage-time-range-v1': 'custom',
+      'cli-proxy-usage-custom-range-v1': '{"start":"2026-07-01","end":"2026-07-17"}',
+    });
+
+    expect(loadUsageRangeState).toBeTypeOf('function');
+    expect(loadUsageRangeState?.(storage, Date.parse('2026-07-17T07:36:42.000Z'))).toEqual({
+      state: { range: '8h' },
+      pendingLegacyCustomRange: {
+        unit: 'day',
+        start: '2026-07-01',
+        end: '2026-07-17',
+      },
+    });
+  });
+
+  it('ignores invalid legacy Custom state instead of scheduling a migration', async () => {
+    const usagePageModule = await import('../UsagePage') as Record<string, unknown>;
+    const loadUsageRangeState = usagePageModule.loadUsageRangeState as ((storage: ReturnType<typeof createMemoryStorage>, nowMs: number) => unknown) | undefined;
+    const storage = createMemoryStorage({
+      'cli-proxy-usage-time-range-v1': 'custom',
+      'cli-proxy-usage-custom-range-v1': '{"start":"bad","end":"2026-07-17"}',
+    });
+
+    expect(loadUsageRangeState?.(storage, Date.parse('2026-07-17T07:36:42.000Z'))).toEqual({
+      state: { range: '8h' },
+      pendingLegacyCustomRange: null,
+    });
+  });
+
+  it('normalizes the pending legacy dates after the project timezone arrives', async () => {
+    const usagePageModule = await import('../UsagePage') as Record<string, unknown>;
+    const migrateLegacyUsageRangeState = usagePageModule.migrateLegacyUsageRangeState as ((
+      range: { unit: 'day'; start: string; end: string },
+      options: { nowMs: number; timeZone: string },
+    ) => unknown) | undefined;
+
+    expect(migrateLegacyUsageRangeState).toBeTypeOf('function');
+    expect(migrateLegacyUsageRangeState?.({
+      unit: 'day',
+      start: '2026-07-01',
+      end: '2026-07-17',
+    }, {
+      nowMs: Date.parse('2026-07-17T07:36:42.000Z'),
+      timeZone: 'Asia/Shanghai',
+    })).toEqual({
+      range: 'custom',
+      customRange: {
+        unit: 'day',
+        start: '2026-07-01',
+        end: '2026-07-17',
+      },
+      timeZone: 'Asia/Shanghai',
+    });
+  });
+});
+
 describe('UsagePage Back to CPA link', () => {
   it('uses the CPA public URL from status', () => {
     expect(getBackToCPALinkURL({ cpa_public_url: 'https://cpa.example.com' }, 'https://keeper.example.com')).toBe('https://cpa.example.com/management.html');

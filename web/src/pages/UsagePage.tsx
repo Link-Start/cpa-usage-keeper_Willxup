@@ -35,7 +35,7 @@ import {
   REQUEST_EVENT_COLUMN_IDS,
   type RequestEventColumnId,
 } from '@/components/usage/RequestEventsDetailsCard';
-import { parseStoredUsageRangeState, serializeUsageRangeState, type StoredUsageRangeState } from '@/utils/usage/customRange';
+import { normalizeCustomRange, parseLegacyCustomRange, parseStoredUsageRangeState, serializeUsageRangeState, type StoredUsageRangeState } from '@/utils/usage/customRange';
 import { buildUsageRangeQuery } from '@/utils/usage/rangeQuery';
 import { getDailyAveragePanelUsage, isDailyAverageRange } from '@/utils/usage/overview';
 import type { Theme } from '@/types';
@@ -44,6 +44,7 @@ import { isCPAMCEmbed } from '@/embed/cpamcEmbed';
 import styles from './UsagePage.module.scss';
 
 const TIME_RANGE_STORAGE_KEY = 'cli-proxy-usage-time-range-v1';
+const LEGACY_CUSTOM_RANGE_STORAGE_KEY = 'cli-proxy-usage-custom-range-v1';
 const OVERVIEW_REALTIME_WINDOW_STORAGE_KEY = 'cli-proxy-usage-overview-realtime-window-v1';
 export const REQUEST_EVENTS_PREFERENCES_STORAGE_KEY = 'cli-proxy-usage-request-events-preferences-v1';
 const DEFAULT_TIME_RANGE: UsageTimeRange = '8h';
@@ -586,16 +587,48 @@ export const sanitizeRequestEventFilters = (
   return { model, source, result };
 };
 
-const loadTimeRange = (): StoredUsageRangeState => {
+interface UsageRangeStorage {
+  getItem: (key: string) => string | null;
+}
+
+interface LoadedUsageRangeState {
+  state: StoredUsageRangeState;
+  pendingLegacyCustomRange: UsageCustomRange | null;
+}
+
+export const loadUsageRangeState = (
+  storage: UsageRangeStorage | undefined,
+  nowMs = Date.now(),
+): LoadedUsageRangeState => {
+  if (!storage) {
+    return { state: { range: DEFAULT_TIME_RANGE }, pendingLegacyCustomRange: null };
+  }
   try {
-    if (typeof localStorage === 'undefined') {
-      return { range: DEFAULT_TIME_RANGE };
-    }
-    return parseStoredUsageRangeState(localStorage.getItem(TIME_RANGE_STORAGE_KEY), { nowMs: Date.now() });
+    const rawRange = storage.getItem(TIME_RANGE_STORAGE_KEY);
+    const pendingLegacyCustomRange = rawRange?.trim() === 'custom'
+      ? parseLegacyCustomRange(storage.getItem(LEGACY_CUSTOM_RANGE_STORAGE_KEY))
+      : null;
+    return {
+      state: parseStoredUsageRangeState(rawRange, { nowMs }),
+      pendingLegacyCustomRange,
+    };
   } catch {
-    return { range: DEFAULT_TIME_RANGE };
+    return { state: { range: DEFAULT_TIME_RANGE }, pendingLegacyCustomRange: null };
   }
 };
+
+export const migrateLegacyUsageRangeState = (
+  customRange: UsageCustomRange,
+  { nowMs, timeZone }: { nowMs: number; timeZone: string },
+): StoredUsageRangeState => ({
+  range: 'custom',
+  customRange: normalizeCustomRange(customRange, { nowMs, timeZone }),
+  timeZone,
+});
+
+const loadTimeRange = (): LoadedUsageRangeState => loadUsageRangeState(
+  typeof localStorage === 'undefined' ? undefined : localStorage,
+);
 
 const isUsageTab = (value: unknown): value is UsageTab =>
   typeof value === 'string' && USAGE_TAB_OPTIONS.includes(value as UsageTab);
@@ -671,7 +704,9 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   const setTheme = useThemeStore((state) => state.setTheme);
   const isDark = resolvedTheme === 'dark';
   const [activeTab, setActiveTab] = useState<UsageTab>(loadUsageTab);
-  const [timeRangeState, setTimeRangeState] = useState<StoredUsageRangeState>(loadTimeRange);
+  const [loadedTimeRange] = useState(loadTimeRange);
+  const pendingLegacyCustomRangeRef = useRef(loadedTimeRange.pendingLegacyCustomRange);
+  const [timeRangeState, setTimeRangeState] = useState<StoredUsageRangeState>(loadedTimeRange.state);
   const { range: timeRange, customRange } = timeRangeState;
   const [realtimeWindow, setRealtimeWindow] = useState<OverviewRealtimeWindow>(loadRealtimeWindow);
   const [selectedApiKeyId, setSelectedApiKeyId] = useState('');
@@ -704,6 +739,12 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   });
   const rangeTimeZone = status?.timezone ?? usage?.timezone ?? timeRangeState.timeZone;
   const handleTimeRangeChange = useCallback((range: UsageTimeRange, nextCustomRange?: UsageCustomRange) => {
+    pendingLegacyCustomRangeRef.current = null;
+    try {
+      localStorage.removeItem(LEGACY_CUSTOM_RANGE_STORAGE_KEY);
+    } catch {
+      // Ignore storage errors.
+    }
     if (range === 'custom' && nextCustomRange) {
       setTimeRangeState({ range, customRange: nextCustomRange, timeZone: rangeTimeZone });
       return;
@@ -1007,7 +1048,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
 
   useEffect(() => {
     try {
-      if (typeof localStorage === 'undefined') {
+      if (typeof localStorage === 'undefined' || pendingLegacyCustomRangeRef.current) {
         return;
       }
       localStorage.setItem(TIME_RANGE_STORAGE_KEY, serializeUsageRangeState(timeRangeState));
@@ -1015,6 +1056,24 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
       // Ignore storage errors.
     }
   }, [timeRangeState]);
+
+  useEffect(() => {
+    const pendingLegacyCustomRange = pendingLegacyCustomRangeRef.current;
+    const timeZone = rangeTimeZone?.trim();
+    if (!pendingLegacyCustomRange || !timeZone) return;
+
+    // 旧版 Custom 日期需要等项目时区到达后再按当前 30 天边界归一化，期间不覆盖旧存储。
+    pendingLegacyCustomRangeRef.current = null;
+    setTimeRangeState(migrateLegacyUsageRangeState(pendingLegacyCustomRange, {
+      nowMs: Date.now(),
+      timeZone,
+    }));
+    try {
+      localStorage.removeItem(LEGACY_CUSTOM_RANGE_STORAGE_KEY);
+    } catch {
+      // Ignore storage errors.
+    }
+  }, [rangeTimeZone]);
 
   useEffect(() => {
     try {

@@ -157,6 +157,8 @@
 .rangePanel {
   --range-slider-accent: #3b82f6;
   --custom-calendar-range-bg: color-mix(in srgb, var(--primary-color) 18%, transparent);
+  --custom-calendar-selected-bg: var(--primary-active);
+  --custom-calendar-selected-text: var(--primary-contrast, #fff);
   display: flex;
   flex-direction: column;
   gap: 14px;
@@ -164,6 +166,7 @@
 
 :global([data-theme='dark']) .rangePanel {
   --custom-calendar-range-bg: color-mix(in srgb, var(--primary-color) 12%, var(--bg-primary));
+  --custom-calendar-selected-text: var(--bg-primary);
 }
 
 .modeSelector {
@@ -555,7 +558,7 @@
 
 .customCalendarDaySelected {
   z-index: 1;
-  color: var(--primary-contrast, #fff);
+  color: var(--custom-calendar-selected-text);
   background: var(--custom-calendar-range-bg);
 }
 
@@ -565,7 +568,7 @@
   z-index: 0;
   inset: 0;
   border-radius: 9px;
-  background: var(--primary-color);
+  background: var(--custom-calendar-selected-bg);
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--text-primary) 14%, transparent);
   pointer-events: none;
 }

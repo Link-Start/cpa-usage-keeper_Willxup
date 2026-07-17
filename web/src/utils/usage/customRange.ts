@@ -67,6 +67,17 @@ const formatDateKey = ({ year, month, day }: Pick<ZonedParts, 'year' | 'month' |
   `${year}-${pad2(month)}-${pad2(day)}`
 );
 
+const isValidDateKey = (value: unknown): value is string => {
+  if (typeof value !== 'string') return false;
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!match) return false;
+  const [, year, month, day] = match.map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  return date.getUTCFullYear() === year
+    && date.getUTCMonth() === month - 1
+    && date.getUTCDate() === day;
+};
+
 const formatZonedRFC3339Hour = (timestampMs: number, timeZone: string): string => {
   const parts = getZonedParts(timestampMs, timeZone);
   const representedUTC = Date.UTC(parts.year, parts.month - 1, parts.day, parts.hour, 0, 0, 0);
@@ -170,6 +181,20 @@ const isCustomRange = (value: unknown): value is UsageCustomRange => {
   return (candidate.unit === 'hour' || candidate.unit === 'day')
     && typeof candidate.start === 'string'
     && typeof candidate.end === 'string';
+};
+
+export const parseLegacyCustomRange = (raw: string | null | undefined): UsageCustomRange | null => {
+  const trimmed = raw?.trim();
+  if (!trimmed) return null;
+  try {
+    const parsed = JSON.parse(trimmed) as { start?: unknown; end?: unknown };
+    if (!isValidDateKey(parsed.start) || !isValidDateKey(parsed.end) || parsed.start > parsed.end) {
+      return null;
+    }
+    return { unit: 'day', start: parsed.start, end: parsed.end };
+  } catch {
+    return null;
+  }
 };
 
 export const parseStoredUsageRangeState = (

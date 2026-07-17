@@ -11,6 +11,7 @@ vi.mock('react-i18next', () => ({
   initReactI18next: { type: '3rdParty', init: () => undefined },
   useTranslation: () => ({
     t: (key: string, params?: Record<string, string | number>) => params?.count === undefined ? key : `${key}:${params.count}`,
+    i18n: { language: 'en-US' },
   }),
 }));
 
@@ -363,6 +364,30 @@ describe('TimeRangeControl', () => {
     expect(document.querySelectorAll('[data-custom-calendar-cell]')).toHaveLength(42);
     expect(document.querySelector('[data-custom-calendar-cell="2026-06-30"]')?.hasAttribute('data-custom-outside-month')).toBe(true);
     expect(document.querySelector('[data-custom-calendar-cell="2026-06-30"]')?.hasAttribute('data-custom-in-range')).toBe(true);
+  });
+
+  it('announces full dates and selected range states for the custom calendar', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-07-17T07:36:42.000Z'));
+    await renderControl('custom', vi.fn(), {
+      unit: 'day',
+      start: '2026-06-30',
+      end: '2026-07-10',
+    });
+    const trigger = document.querySelector<HTMLButtonElement>('[data-time-range-trigger="desktop"]');
+    await act(async () => trigger?.click());
+    await act(async () => document.querySelector<HTMLButtonElement>('[data-custom-endpoint="start"]')?.click());
+
+    const start = document.querySelector<HTMLButtonElement>('[data-custom-calendar-cell="2026-06-30"]');
+    const middle = document.querySelector<HTMLButtonElement>('[data-custom-calendar-cell="2026-07-01"]');
+    const end = document.querySelector<HTMLButtonElement>('[data-custom-calendar-cell="2026-07-10"]');
+
+    expect(start?.getAttribute('aria-label')).toBe('Tuesday, June 30, 2026, usage_stats.range_custom_day_start');
+    expect(start?.getAttribute('aria-pressed')).toBe('true');
+    expect(middle?.getAttribute('aria-label')).toBe('Wednesday, July 1, 2026, usage_stats.range_custom_day_in_range');
+    expect(middle?.getAttribute('aria-pressed')).toBe('false');
+    expect(end?.getAttribute('aria-label')).toBe('Friday, July 10, 2026, usage_stats.range_custom_day_end');
+    expect(end?.getAttribute('aria-pressed')).toBe('true');
   });
 
   it('cancels picker edits back to the summary snapshot without querying', async () => {
