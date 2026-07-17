@@ -166,11 +166,15 @@ type RequestEventRow = {
 };
 
 type RequestEventSpeedModeTooltipState = {
-  rowId: string;
   lines: string[];
   x: number;
   y: number;
   placement: 'above' | 'below';
+};
+
+type RequestEventSpeedModeTooltipTarget = {
+  row: RequestEventRow;
+  anchor: HTMLTableCellElement;
 };
 
 type RequestEventColumnDefinition = {
@@ -953,8 +957,9 @@ export function RequestEventsDetailsCard({
   requestLogDownloading = false,
 }: RequestEventsDetailsCardProps) {
   const { t } = useTranslation();
-  const speedModeTooltipId = useId();
   const [speedModeTooltip, setSpeedModeTooltip] = useState<RequestEventSpeedModeTooltipState | null>(null);
+  const speedModeHoverTargetRef = useRef<RequestEventSpeedModeTooltipTarget | null>(null);
+  const speedModeFocusTargetRef = useRef<RequestEventSpeedModeTooltipTarget | null>(null);
   const resultLocale = t('usage_stats.success') === 'Success' ? 'en' : 'zh';
   const latencyHint = t('usage_stats.latency_unit_hint', {
     field: LATENCY_SOURCE_FIELD,
@@ -963,11 +968,16 @@ export function RequestEventsDetailsCard({
   const ttftHint = t('usage_stats.ttft_hint');
   const speedHint = t('usage_stats.speed_hint');
 
-  const showSpeedModeTooltip = useCallback((row: RequestEventRow, anchor: HTMLTableCellElement) => {
-    // 浮层挂到 body 后不受表格滚动容器裁剪，同时将锚点限制在可视区域内。
+  const positionSpeedModeTooltip = useCallback((target: RequestEventSpeedModeTooltipTarget | null) => {
+    if (!target) {
+      setSpeedModeTooltip(null);
+      return;
+    }
+
+    // 浮层挂到 body 后不受表格滚动容器裁剪，并随当前 hover/focus 锚点保持在视口内。
     const viewportWidth = typeof window === 'undefined' ? 1024 : window.innerWidth;
     const viewportHeight = typeof window === 'undefined' ? 768 : window.innerHeight;
-    const rect = anchor.getBoundingClientRect();
+    const rect = target.anchor.getBoundingClientRect();
     const tooltipWidth = Math.min(
       REQUEST_EVENTS_SPEED_MODE_TOOLTIP_MAX_WIDTH,
       Math.max(viewportWidth - REQUEST_EVENTS_SPEED_MODE_TOOLTIP_VIEWPORT_PADDING * 2, 0),
@@ -977,17 +987,68 @@ export function RequestEventsDetailsCard({
     const maxX = viewportWidth - REQUEST_EVENTS_SPEED_MODE_TOOLTIP_VIEWPORT_PADDING - halfTooltipWidth;
     const anchorX = rect.left + rect.width / 2;
     const x = maxX >= minX ? Math.max(minX, Math.min(anchorX, maxX)) : viewportWidth / 2;
-    const placement = rect.bottom + REQUEST_EVENTS_SPEED_MODE_TOOLTIP_ESTIMATED_HEIGHT > viewportHeight
-      ? 'above'
-      : 'below';
+    const spaceBelow = viewportHeight
+      - rect.bottom
+      - REQUEST_EVENTS_SPEED_MODE_TOOLTIP_OFFSET
+      - REQUEST_EVENTS_SPEED_MODE_TOOLTIP_VIEWPORT_PADDING;
+    const spaceAbove = rect.top
+      - REQUEST_EVENTS_SPEED_MODE_TOOLTIP_OFFSET
+      - REQUEST_EVENTS_SPEED_MODE_TOOLTIP_VIEWPORT_PADDING;
+    const placement = spaceBelow >= REQUEST_EVENTS_SPEED_MODE_TOOLTIP_ESTIMATED_HEIGHT || spaceBelow >= spaceAbove
+      ? 'below'
+      : 'above';
     const y = placement === 'above'
       ? rect.top - REQUEST_EVENTS_SPEED_MODE_TOOLTIP_OFFSET
       : rect.bottom + REQUEST_EVENTS_SPEED_MODE_TOOLTIP_OFFSET;
-    const lines = buildSpeedModeTooltipLines(row, t);
+    const lines = buildSpeedModeTooltipLines(target.row, t);
 
-    setSpeedModeTooltip({ rowId: row.id, lines, x, y, placement });
+    setSpeedModeTooltip({ lines, x, y, placement });
   }, [t]);
-  const hideSpeedModeTooltip = useCallback(() => setSpeedModeTooltip(null), []);
+
+  const syncSpeedModeTooltip = useCallback(() => {
+    if (speedModeHoverTargetRef.current && !speedModeHoverTargetRef.current.anchor.isConnected) {
+      speedModeHoverTargetRef.current = null;
+    }
+    if (speedModeFocusTargetRef.current && !speedModeFocusTargetRef.current.anchor.isConnected) {
+      speedModeFocusTargetRef.current = null;
+    }
+    positionSpeedModeTooltip(speedModeHoverTargetRef.current ?? speedModeFocusTargetRef.current);
+  }, [positionSpeedModeTooltip]);
+
+  const handleSpeedModeMouseEnter = useCallback((row: RequestEventRow, anchor: HTMLTableCellElement) => {
+    speedModeHoverTargetRef.current = { row, anchor };
+    syncSpeedModeTooltip();
+  }, [syncSpeedModeTooltip]);
+  const handleSpeedModeMouseLeave = useCallback((anchor: HTMLTableCellElement) => {
+    if (speedModeHoverTargetRef.current?.anchor === anchor) {
+      speedModeHoverTargetRef.current = null;
+    }
+    syncSpeedModeTooltip();
+  }, [syncSpeedModeTooltip]);
+  const handleSpeedModeFocus = useCallback((row: RequestEventRow, anchor: HTMLTableCellElement) => {
+    speedModeFocusTargetRef.current = { row, anchor };
+    syncSpeedModeTooltip();
+  }, [syncSpeedModeTooltip]);
+  const handleSpeedModeBlur = useCallback((anchor: HTMLTableCellElement) => {
+    if (speedModeFocusTargetRef.current?.anchor === anchor) {
+      speedModeFocusTargetRef.current = null;
+    }
+    syncSpeedModeTooltip();
+  }, [syncSpeedModeTooltip]);
+
+  useEffect(() => {
+    const repositionSpeedModeTooltip = () => {
+      if (speedModeHoverTargetRef.current || speedModeFocusTargetRef.current) {
+        syncSpeedModeTooltip();
+      }
+    };
+    window.addEventListener('resize', repositionSpeedModeTooltip);
+    window.addEventListener('scroll', repositionSpeedModeTooltip, true);
+    return () => {
+      window.removeEventListener('resize', repositionSpeedModeTooltip);
+      window.removeEventListener('scroll', repositionSpeedModeTooltip, true);
+    };
+  }, [syncSpeedModeTooltip]);
 
   const rows = useMemo<RequestEventRow[]>(() => {
     return events.map((event, index) => {
@@ -1207,17 +1268,15 @@ export function RequestEventsDetailsCard({
         header: <th className={styles.requestEventsNoWrapCell}>{t('usage_stats.speed_mode')}</th>,
         renderCell: (row) => {
           const tooltipLines = buildSpeedModeTooltipLines(row, t);
-          const tooltipVisible = speedModeTooltip?.rowId === row.id;
           return (
             <td
               className={`${styles.requestEventsNoWrapCell} ${styles.requestEventsSpeedModeCell}`}
               tabIndex={0}
               aria-label={tooltipLines.join('; ')}
-              aria-describedby={tooltipVisible ? speedModeTooltipId : undefined}
-              onMouseEnter={(event) => showSpeedModeTooltip(row, event.currentTarget)}
-              onMouseLeave={hideSpeedModeTooltip}
-              onFocus={(event) => showSpeedModeTooltip(row, event.currentTarget)}
-              onBlur={hideSpeedModeTooltip}
+              onMouseEnter={(event) => handleSpeedModeMouseEnter(row, event.currentTarget)}
+              onMouseLeave={(event) => handleSpeedModeMouseLeave(event.currentTarget)}
+              onFocus={(event) => handleSpeedModeFocus(row, event.currentTarget)}
+              onBlur={(event) => handleSpeedModeBlur(event.currentTarget)}
             >
               {`${row.speedMode} / ${row.responseSpeedMode}`}
             </td>
@@ -1346,16 +1405,16 @@ export function RequestEventsDetailsCard({
 
     return definitions;
   }, [
-    hideSpeedModeTooltip,
+    handleSpeedModeBlur,
+    handleSpeedModeFocus,
+    handleSpeedModeMouseEnter,
+    handleSpeedModeMouseLeave,
     latencyHint,
     onRequestLogOpen,
     requestLogAccessEnabled,
     requestLogLoadingEventId,
     resultLocale,
-    showSpeedModeTooltip,
     speedHint,
-    speedModeTooltip?.rowId,
-    speedModeTooltipId,
     t,
     ttftHint,
   ]);
@@ -1530,7 +1589,6 @@ export function RequestEventsDetailsCard({
       {speedModeTooltip && typeof document !== 'undefined'
         ? createPortal(
             <div
-              id={speedModeTooltipId}
               className={styles.requestEventsSpeedModeTooltip}
               role="tooltip"
               style={{

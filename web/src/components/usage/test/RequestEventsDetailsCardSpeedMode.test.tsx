@@ -3,7 +3,7 @@
 import React, { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   REQUEST_EVENT_COLUMN_IDS,
   RequestEventsDetailsCard,
@@ -37,7 +37,7 @@ const baseEvent: UsageEvent = {
   pricing_style: 'claude',
 };
 
-const renderCard = (events: UsageEvent[]) => renderToStaticMarkup(
+const renderCardElement = (events: UsageEvent[]) => (
   <RequestEventsDetailsCard
     events={events}
     loading={false}
@@ -57,19 +57,47 @@ const renderCard = (events: UsageEvent[]) => renderToStaticMarkup(
     onModelFilterChange={() => undefined}
     onSourceFilterChange={() => undefined}
     onResultFilterChange={() => undefined}
-  />,
+  />
 );
+
+const renderCard = (events: UsageEvent[]) => renderToStaticMarkup(renderCardElement(events));
+
+const mountCard = async (events: UsageEvent[]) => {
+  globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+  const container = document.createElement('div');
+  document.body.appendChild(container);
+  const root = createRoot(container);
+  await act(async () => root.render(renderCardElement(events)));
+  return {
+    container,
+    root,
+    unmount: async () => {
+      await act(async () => root.unmount());
+      container.remove();
+    },
+  };
+};
 
 const extractSpeedModeCells = (html: string) => (
   Array.from(html.matchAll(/<tr><td\b[^>]*>(.*?)<\/td><\/tr>/gs), (match) => match[1])
 );
 
+const rectAt = (left: number, top: number, width = 40, height = 20): DOMRect => ({
+  x: left,
+  y: top,
+  left,
+  top,
+  right: left + width,
+  bottom: top + height,
+  width,
+  height,
+  toJSON: () => ({}),
+});
+
 describe('RequestEventsDetailsCard Speed Mode column', () => {
   it('shows an immediate localized tooltip with mapped and raw request and response modes', async () => {
-    globalThis.IS_REACT_ACT_ENVIRONMENT = true;
-    const container = document.createElement('div');
-    document.body.appendChild(container);
-    const root = createRoot(container);
+    const events = [{ ...baseEvent, service_tier: 'auto', response_service_tier: 'default' }];
+    const mounted = await mountCard(events);
     const localizedLines = [
       ['en', 'Speed Mode: Auto (auto)', 'Response Speed Mode: Standard (default)'],
       ['zh', '速度模式：自动 (auto)', '响应速度模式：标准 (default)'],
@@ -80,31 +108,10 @@ describe('RequestEventsDetailsCard Speed Mode column', () => {
       for (const [language, requestLine, responseLine] of localizedLines) {
         await act(async () => {
           await i18n.changeLanguage(language);
-          root.render(
-            <RequestEventsDetailsCard
-              events={[{ ...baseEvent, service_tier: 'auto', response_service_tier: 'default' }]}
-              loading={false}
-              page={1}
-              pageSize={20}
-              pageSizeOptions={[20, 50, 100, 500, 1000]}
-              totalCount={1}
-              totalPages={1}
-              modelOptions={['claude-sonnet']}
-              sourceOptions={[{ value: 'source-a', label: 'Provider A' }]}
-              modelFilter="__all__"
-              sourceFilter="__all__"
-              resultFilter="__all__"
-              visibleColumnIds={['service_tier']}
-              onPageChange={() => undefined}
-              onPageSizeChange={() => undefined}
-              onModelFilterChange={() => undefined}
-              onSourceFilterChange={() => undefined}
-              onResultFilterChange={() => undefined}
-            />,
-          );
+          mounted.root.render(renderCardElement(events));
         });
 
-        const cell = container.querySelector('tbody td');
+        const cell = mounted.container.querySelector('tbody td');
         expect(cell).toBeInstanceOf(HTMLTableCellElement);
         expect(cell?.getAttribute('title')).toBeNull();
 
@@ -129,8 +136,7 @@ describe('RequestEventsDetailsCard Speed Mode column', () => {
         expect(document.body.querySelector('[role="tooltip"]')).toBeNull();
       }
     } finally {
-      await act(async () => root.unmount());
-      container.remove();
+      await mounted.unmount();
       await i18n.changeLanguage('en');
     }
   });
@@ -147,6 +153,88 @@ describe('RequestEventsDetailsCard Speed Mode column', () => {
     expect(extractSpeedModeCells(html)).toEqual(['Auto / Standard', 'Standard / Standard']);
     expect(html).not.toContain('title="Speed Mode: Auto\nResponse Speed Mode: Standard"');
     expect(html).toContain('aria-label="Speed Mode: Auto (auto); Response Speed Mode: Standard (default)"');
+  });
+
+  it('keeps the tooltip open while focus remains after the mouse leaves', async () => {
+    await i18n.changeLanguage('en');
+    const mounted = await mountCard([
+      { ...baseEvent, service_tier: 'auto', response_service_tier: 'default' },
+    ]);
+
+    try {
+      const cell = mounted.container.querySelector('tbody td') as HTMLTableCellElement;
+      await act(async () => cell.focus());
+      expect(document.body.querySelector('[role="tooltip"]')).not.toBeNull();
+
+      await act(async () => {
+        cell.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+        cell.dispatchEvent(new MouseEvent('mouseout', { bubbles: true }));
+      });
+      expect(document.body.querySelector('[role="tooltip"]')).not.toBeNull();
+
+      await act(async () => {
+        cell.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+        cell.blur();
+      });
+      expect(document.body.querySelector('[role="tooltip"]')).not.toBeNull();
+
+      await act(async () => {
+        cell.dispatchEvent(new MouseEvent('mouseout', { bubbles: true }));
+      });
+      expect(document.body.querySelector('[role="tooltip"]')).toBeNull();
+    } finally {
+      await mounted.unmount();
+    }
+  });
+
+  it('exposes the expanded values once without a duplicate description', async () => {
+    await i18n.changeLanguage('en');
+    const mounted = await mountCard([
+      { ...baseEvent, service_tier: 'auto', response_service_tier: 'default' },
+    ]);
+
+    try {
+      const cell = mounted.container.querySelector('tbody td') as HTMLTableCellElement;
+      await act(async () => cell.focus());
+      expect(cell.getAttribute('aria-label')).toBe('Speed Mode: Auto (auto); Response Speed Mode: Standard (default)');
+      expect(cell.getAttribute('aria-describedby')).toBeNull();
+    } finally {
+      await mounted.unmount();
+    }
+  });
+
+  it('repositions the tooltip when its scroll container or viewport changes', async () => {
+    await i18n.changeLanguage('en');
+    const mounted = await mountCard([
+      { ...baseEvent, service_tier: 'auto', response_service_tier: 'default' },
+    ]);
+
+    try {
+      const cell = mounted.container.querySelector('tbody td') as HTMLTableCellElement;
+      let currentRect = rectAt(100, 50);
+      vi.spyOn(cell, 'getBoundingClientRect').mockImplementation(() => currentRect);
+
+      await act(async () => {
+        cell.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+      });
+      const tooltip = document.body.querySelector('[role="tooltip"]') as HTMLDivElement;
+      expect(tooltip.style.left).toBe('148px');
+      expect(tooltip.style.top).toBe('80px');
+
+      currentRect = rectAt(300, 200);
+      await act(async () => {
+        mounted.container.querySelector('table')?.parentElement?.dispatchEvent(new Event('scroll'));
+      });
+      expect(tooltip.style.left).toBe('320px');
+      expect(tooltip.style.top).toBe('230px');
+
+      currentRect = rectAt(400, 300);
+      await act(async () => window.dispatchEvent(new Event('resize')));
+      expect(tooltip.style.left).toBe('420px');
+      expect(tooltip.style.top).toBe('330px');
+    } finally {
+      await mounted.unmount();
+    }
   });
 
   it('keeps a dash for each missing request or response mode in the cell and tooltip', () => {
