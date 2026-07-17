@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
 const mainSource = readFileSync(new URL('../main.tsx', import.meta.url), 'utf8');
@@ -7,8 +7,8 @@ const readmeEnglish = readFileSync(new URL('../../../README.md', import.meta.url
 const readmeChinese = readFileSync(new URL('../../../README.zh.md', import.meta.url), 'utf8');
 const lightLogoUrl = new URL('../../../assets/keeper-logo-light.svg', import.meta.url);
 const darkLogoUrl = new URL('../../../assets/keeper-logo-dark.svg', import.meta.url);
-const lightLogo = existsSync(lightLogoUrl) ? readFileSync(lightLogoUrl, 'utf8') : '';
-const darkLogo = existsSync(darkLogoUrl) ? readFileSync(darkLogoUrl, 'utf8') : '';
+const lightLogo = readFileSync(lightLogoUrl, 'utf8');
+const darkLogo = readFileSync(darkLogoUrl, 'utf8');
 
 describe('Keeper branding assets', () => {
   it('uses the Keeper SVG as the browser favicon', () => {
