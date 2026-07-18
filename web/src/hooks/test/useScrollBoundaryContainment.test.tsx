@@ -65,15 +65,29 @@ class TestMutationObserver implements MutationObserver {
     return this.observations.get(target);
   }
 
+  isObserving(target: Node) {
+    return this.observations.has(target);
+  }
+
   trigger() {
     if (this.observations.size === 0) return;
     this.callback([], this);
   }
 }
 
-function ScrollRegion({ metrics, visible = true, childKey = 'content' }: { metrics: ScrollMetrics; visible?: boolean; childKey?: string }) {
+function ScrollRegion({
+  metrics,
+  visible = true,
+  active = visible,
+  childKey = 'content',
+}: {
+  metrics: ScrollMetrics;
+  visible?: boolean;
+  active?: boolean;
+  childKey?: string;
+}) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
-  useScrollBoundaryContainment(scrollRef, visible);
+  useScrollBoundaryContainment(scrollRef, active);
 
   if (!visible) return null;
 
@@ -111,6 +125,7 @@ describe('useScrollBoundaryContainment', () => {
   afterEach(() => {
     act(() => root.unmount());
     container.remove();
+    vi.restoreAllMocks();
     vi.unstubAllGlobals();
   });
 
@@ -182,5 +197,47 @@ describe('useScrollBoundaryContainment', () => {
 
     act(() => root.render(<ScrollRegion metrics={metrics} visible />));
     expect(container.firstElementChild?.getAttribute('data-scroll-boundary-contained')).toBe('true');
+  });
+
+  it('cleans up containment resources when boundary tracking is disabled', () => {
+    const addEventListenerSpy = vi.spyOn(window, 'addEventListener');
+    const removeEventListenerSpy = vi.spyOn(window, 'removeEventListener');
+    const metrics = { clientHeight: 100, scrollHeight: 240 };
+
+    act(() => root.render(<ScrollRegion metrics={metrics} active />));
+    const scrollRegion = container.firstElementChild as HTMLElement;
+    const resizeListener = addEventListenerSpy.mock.calls
+      .find(([eventName]) => eventName === 'resize')?.[1];
+
+    expect(resizeListener).toBeTypeOf('function');
+    expect(scrollRegion.getAttribute('data-scroll-boundary-contained')).toBe('true');
+    expect(resizeObservers.some((observer) => observer.isObserving(scrollRegion))).toBe(true);
+    expect(mutationObservers.some((observer) => observer.isObserving(scrollRegion))).toBe(true);
+
+    act(() => root.render(<ScrollRegion metrics={metrics} active={false} />));
+
+    expect(scrollRegion.hasAttribute('data-scroll-boundary-contained')).toBe(false);
+    expect(resizeObservers.some((observer) => observer.isObserving(scrollRegion))).toBe(false);
+    expect(mutationObservers.some((observer) => observer.isObserving(scrollRegion))).toBe(false);
+    expect(removeEventListenerSpy).toHaveBeenCalledWith('resize', resizeListener);
+  });
+
+  it('cleans up containment resources when the scroll region unmounts', () => {
+    const addEventListenerSpy = vi.spyOn(window, 'addEventListener');
+    const removeEventListenerSpy = vi.spyOn(window, 'removeEventListener');
+    const metrics = { clientHeight: 100, scrollHeight: 240 };
+
+    act(() => root.render(<ScrollRegion metrics={metrics} />));
+    const scrollRegion = container.firstElementChild as HTMLElement;
+    const resizeListener = addEventListenerSpy.mock.calls
+      .find(([eventName]) => eventName === 'resize')?.[1];
+
+    expect(resizeListener).toBeTypeOf('function');
+    act(() => root.render(<></>));
+
+    expect(scrollRegion.hasAttribute('data-scroll-boundary-contained')).toBe(false);
+    expect(resizeObservers.some((observer) => observer.isObserving(scrollRegion))).toBe(false);
+    expect(mutationObservers.some((observer) => observer.isObserving(scrollRegion))).toBe(false);
+    expect(removeEventListenerSpy).toHaveBeenCalledWith('resize', resizeListener);
   });
 });
