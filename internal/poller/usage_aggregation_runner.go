@@ -2,6 +2,7 @@ package poller
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -25,6 +26,12 @@ const (
 	usageAggregationErrorBackoffInitial = 100 * time.Millisecond
 	// usageAggregationErrorBackoffMax 限制恢复等待，避免新数据长期得不到重试。
 	usageAggregationErrorBackoffMax = 2 * time.Second
+	// usageAggregationTransactionTimeout 给连接获取和一个短事务共同设置保守上限。
+	usageAggregationTransactionTimeout = 30 * time.Second
+	// usageAggregationHeaderCursorTimeout 限制事务提交后的普通 header gate 查询等待。
+	usageAggregationHeaderCursorTimeout = time.Second
+	// usageAggregationShutdownFlushTimeout 限制关闭时 best-effort header cursor 查询等待。
+	usageAggregationShutdownFlushTimeout = time.Second
 	// usageAggregationPendingHeaderLimit 限制内存中不同 auth_index 的等待快照数量。
 	usageAggregationPendingHeaderLimit = 1000
 )
@@ -195,8 +202,8 @@ func (r *UsageAggregationRunner) Run(ctx context.Context) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	// 退出路径最后尝试一次 ready snapshot 投递；App 此时尚未关闭 quota worker。
-	defer r.flushReadyHeaderSnapshotsOnShutdown(context.WithoutCancel(ctx))
+	// 退出路径最后尝试一次 ready snapshot 投递；内部会忽略 cancel 但保留有界 deadline。
+	defer r.flushReadyHeaderSnapshotsOnShutdown(ctx)
 	// startup wake 补偿进程启动前或上次退出前尚未追平的 checkpoints。
 	r.signalWake()
 	// errorBackoffs 按 kind 独立保存持续失败退避，互不覆盖或重置。
@@ -225,6 +232,10 @@ func (r *UsageAggregationRunner) Run(ctx context.Context) error {
 			result, err := r.RunOnce(ctx)
 			// 某一类事务失败时记录错误并保留对应数据库 checkpoint。
 			if err != nil {
+				// 只有错误链真正来自 parent cancel 时才按正常 shutdown 静默退出。
+				if ctxErr := ctx.Err(); ctxErr != nil && errors.Is(err, ctxErr) {
+					return nil
+				}
 				logrus.WithError(err).WithField("aggregation_kind", result.Kind).Error("usage aggregation batch failed")
 				// 当前 kind 首次失败时从初始退避开始。
 				errorBackoff := errorBackoffs[result.Kind]
@@ -358,8 +369,10 @@ func (r *UsageAggregationRunner) RunOnce(ctx context.Context) (UsageAggregationR
 	result.Kind = kind
 	// 本轮 now 只读取一次，传给一个有界事务。
 	now := r.now()
-	// 事务一旦开始就脱离 App cancel，确保 shutdown 只阻止下一事务而不回滚当前短事务。
-	transactionCtx := context.WithoutCancel(ctx)
+	// 短事务忽略 App cancel 以完成原子提交，但保留 caller deadline 并增加最大执行上限。
+	transactionCtx, cancelTransaction := boundedUsageAggregationContext(ctx, usageAggregationTransactionTimeout)
+	// 无论事务成功或失败都释放 deadline timer。
+	defer cancelTransaction()
 
 	// 根据公平轮转状态只调用一种 repository batch。
 	switch kind {
@@ -374,8 +387,16 @@ func (r *UsageAggregationRunner) RunOnce(ctx context.Context) (UsageAggregationR
 		result.Processed = processed > 0
 		// 成功事务后轮转到 Activity。
 		r.advanceAfterSuccess(UsageAggregationKindOverview, 0, false, 0)
+		// App 已取消时 Overview 原子事务已经完成，不再启动额外 header cursor 查询。
+		if ctx.Err() != nil {
+			return result, nil
+		}
+		// header gate 不属于已开始的聚合事务，必须响应 App cancel 并使用独立短上限。
+		headerCtx, cancelHeader := context.WithTimeout(ctx, usageAggregationHeaderCursorTimeout)
 		// 只有 Overview 成功提交后才尝试释放满足 cursor gate 的 header snapshots。
-		headerRetryPending, err := r.flushReadyHeaderSnapshots(transactionCtx)
+		headerRetryPending, err := r.flushReadyHeaderSnapshots(headerCtx)
+		// cursor 查询或非阻塞 appender 返回后立即释放 header deadline timer。
+		cancelHeader()
 		// cursor 或 appender 前置查询失败时交给当前 Overview kind 的错误退避。
 		if err != nil {
 			return result, err
@@ -477,6 +498,10 @@ func (r *UsageAggregationRunner) flushReadyHeaderSnapshots(ctx context.Context) 
 	if r.headerAppender == nil {
 		return false, nil
 	}
+	// 没有 pending snapshot 时不需要读取 Overview cursor 或占用唯一数据库连接。
+	if !r.hasPendingHeaderSnapshots() {
+		return false, nil
+	}
 	// cursor 必须从已提交 checkpoint 读取，不能使用内存猜测值。
 	overviewCursor, err := repository.UsageOverviewAggregationCursor(ctx, r.db)
 	// cursor 查询失败时保留全部 snapshots，供下一轮重试。
@@ -529,8 +554,16 @@ func (r *UsageAggregationRunner) flushReadyHeaderSnapshotsOnShutdown(ctx context
 	if r == nil || r.headerAppender == nil {
 		return
 	}
+	// 没有 pending snapshot 时无需读取 Overview cursor，避免关闭路径等待唯一数据库连接。
+	if !r.hasPendingHeaderSnapshots() {
+		return
+	}
+	// pending snapshot 的关闭投递是 best-effort，忽略 App cancel 但只等待固定短上限。
+	flushCtx, cancelFlush := boundedUsageAggregationContext(ctx, usageAggregationShutdownFlushTimeout)
+	// 函数退出时释放 shutdown deadline timer。
+	defer cancelFlush()
 	// 关闭只尝试一次非阻塞 appender，不进入退避或启动新的聚合事务。
-	retryPending, err := r.flushReadyHeaderSnapshots(ctx)
+	retryPending, err := r.flushReadyHeaderSnapshots(flushCtx)
 	// 数据库读取失败时保留错误日志；usage 与已提交聚合结果不受影响。
 	if err != nil {
 		logrus.WithError(err).Warn("usage aggregation shutdown header flush failed")
@@ -540,4 +573,36 @@ func (r *UsageAggregationRunner) flushReadyHeaderSnapshotsOnShutdown(ctx context
 	if retryPending {
 		logrus.Warn("usage aggregation shutdown header flush skipped because quota queue is full")
 	}
+}
+
+// hasPendingHeaderSnapshots 只检查关闭路径是否需要访问数据库读取 Overview cursor。
+func (r *UsageAggregationRunner) hasPendingHeaderSnapshots() bool {
+	// nil runner 不持有任何等待快照。
+	if r == nil {
+		return false
+	}
+	// pendingHeaders 与前台 notifier 共享，读取长度也必须持有同一把锁。
+	r.mu.Lock()
+	// 长度读取完成立即释放轻量内存锁。
+	defer r.mu.Unlock()
+	// 非空 map 才需要执行 shutdown flush。
+	return len(r.pendingHeaders) > 0
+}
+
+// boundedUsageAggregationContext 忽略 parent cancel，同时保留更早 deadline 并添加最大上限。
+func boundedUsageAggregationContext(parent context.Context, maxDuration time.Duration) (context.Context, context.CancelFunc) {
+	// 调用方都已规范 nil context；这里仍防御性使用 Background。
+	if parent == nil {
+		parent = context.Background()
+	}
+	// WithoutCancel 保留 context values，但让已开始短事务不随 App shutdown 回滚。
+	base := context.WithoutCancel(parent)
+	// 最大 deadline 防止单连接获取或 SQLite 调用无限等待。
+	deadline := time.Now().Add(maxDuration)
+	// caller 自己设置的更早 deadline 必须保留，不能被 WithoutCancel 静默删除。
+	if parentDeadline, ok := parent.Deadline(); ok && parentDeadline.Before(deadline) {
+		deadline = parentDeadline
+	}
+	// 返回可释放 timer 的有界 detached context。
+	return context.WithDeadline(base, deadline)
 }

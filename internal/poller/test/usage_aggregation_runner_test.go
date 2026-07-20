@@ -2,6 +2,7 @@ package poller_test
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"net/http"
 	"path/filepath"
@@ -16,6 +17,8 @@ import (
 	"cpa-usage-keeper/internal/repository"
 	repositorydto "cpa-usage-keeper/internal/repository/dto"
 
+	"github.com/sirupsen/logrus"
+	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"gorm.io/gorm"
 )
 
@@ -442,6 +445,252 @@ func TestUsageAggregationRunnerShutdownFlushesReadyHeaderSnapshots(t *testing.T)
 	// 断言：关闭前必须非阻塞投递已经越过 Overview gate 的 snapshot。
 	if appender.callCount != 1 || len(appender.snapshots) != 1 || appender.snapshots[0].AuthIndex != "auth-shutdown" {
 		t.Fatalf("expected ready shutdown snapshot to flush once, got calls=%d snapshots=%+v", appender.callCount, appender.snapshots)
+	}
+}
+
+func TestUsageAggregationRunnerShutdownWithoutPendingHeadersSkipsDatabaseWait(t *testing.T) {
+	// 准备：占用唯一数据库连接，并配置非空 header appender 但不放入任何 pending snapshot。
+	db := openUsageAggregationRunnerDatabase(t)
+	sqlDB, err := db.DB()
+	if err != nil {
+		t.Fatalf("load sql db: %v", err)
+	}
+	heldConnection, err := sqlDB.Conn(context.Background())
+	if err != nil {
+		t.Fatalf("hold database connection: %v", err)
+	}
+	t.Cleanup(func() { _ = heldConnection.Close() })
+	runner := poller.NewUsageAggregationRunner(db, &recordingUsageAggregationHeaderAppender{accept: true})
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	done := make(chan error, 1)
+
+	// 执行：以已取消 context 进入只需要执行 shutdown defer 的 Runner。
+	go func() { done <- runner.Run(ctx) }()
+
+	// 断言：没有等待快照时 shutdown 不应为了读取 Overview cursor 等待数据库连接。
+	select {
+	case runErr := <-done:
+		if runErr != nil {
+			t.Fatalf("runner shutdown returned error: %v", runErr)
+		}
+	case <-time.After(time.Second):
+		_ = heldConnection.Close()
+		<-done
+		t.Fatal("runner shutdown waited for database without pending header snapshots")
+	}
+}
+
+func TestUsageAggregationRunnerShutdownBoundsPendingHeaderDatabaseWait(t *testing.T) {
+	// 准备：占用唯一数据库连接，并放入一份需要查询 Overview cursor 的 pending snapshot。
+	db := openUsageAggregationRunnerDatabase(t)
+	sqlDB, err := db.DB()
+	if err != nil {
+		t.Fatalf("load sql db: %v", err)
+	}
+	heldConnection, err := sqlDB.Conn(context.Background())
+	if err != nil {
+		t.Fatalf("hold database connection: %v", err)
+	}
+	t.Cleanup(func() { _ = heldConnection.Close() })
+	runner := poller.NewUsageAggregationRunner(db, &recordingUsageAggregationHeaderAppender{accept: true})
+	runner.NotifyUsageEventsCommitted(
+		[]entities.UsageEvent{{ID: 1}},
+		[]quota.UsageHeaderSnapshot{{AuthIndex: "auth-pending", ObservedAt: time.Now(), Headers: http.Header{"X-Test": []string{"pending"}}}},
+	)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	done := make(chan error, 1)
+
+	// 执行：关闭 Runner 时让 pending snapshot 的 cursor 查询等待唯一连接。
+	go func() { done <- runner.Run(ctx) }()
+
+	// 断言：best-effort shutdown flush 必须有上限，不能无限阻塞 App.Close。
+	select {
+	case runErr := <-done:
+		if runErr != nil {
+			t.Fatalf("runner shutdown returned error: %v", runErr)
+		}
+	case <-time.After(2 * time.Second):
+		_ = heldConnection.Close()
+		<-done
+		t.Fatal("runner shutdown flush waited indefinitely for database connection")
+	}
+}
+
+func TestUsageAggregationRunnerCancellationDoesNotLogBatchFailureWhileWaitingForConnection(t *testing.T) {
+	// 准备：占用唯一数据库连接，让 startup wake 的 inbox 检查停在可取消的连接池等待。
+	db := openUsageAggregationRunnerDatabase(t)
+	sqlDB, err := db.DB()
+	if err != nil {
+		t.Fatalf("load sql db: %v", err)
+	}
+	heldConnection, err := sqlDB.Conn(context.Background())
+	if err != nil {
+		t.Fatalf("hold database connection: %v", err)
+	}
+	t.Cleanup(func() { _ = heldConnection.Close() })
+	initialWaitCount := sqlDB.Stats().WaitCount
+	hook := logrustest.NewGlobal()
+	t.Cleanup(hook.Reset)
+	runner := poller.NewUsageAggregationRunner(db, nil)
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- runner.Run(ctx) }()
+	waitForUsageAggregationRunnerCondition(t, func() bool {
+		return sqlDB.Stats().WaitCount > initialWaitCount
+	})
+
+	// 执行：在数据库等待期间发出正常 App shutdown cancellation。
+	cancel()
+	select {
+	case runErr := <-done:
+		if runErr != nil {
+			t.Fatalf("runner cancellation returned error: %v", runErr)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("runner did not stop after canceling database wait")
+	}
+
+	// 断言：context cancellation 是正常关闭信号，不能记录成聚合批次错误。
+	for _, entry := range hook.AllEntries() {
+		if entry.Level == logrus.ErrorLevel && entry.Message == "usage aggregation batch failed" {
+			t.Fatalf("normal cancellation emitted aggregation error log: %+v", entry)
+		}
+	}
+}
+
+func TestUsageAggregationRunnerShutdownStillLogsDetachedTransactionFailure(t *testing.T) {
+	// 准备：用 SQLite trigger 制造真实 Overview 写入错误，并在写入开始前同时取消 App context。
+	db := openUsageAggregationRunnerDatabase(t)
+	now := time.Date(2026, 7, 20, 12, 0, 0, 0, time.UTC)
+	if _, _, err := repository.InsertUsageEvents(db, []entities.UsageEvent{{EventKey: "runner-shutdown-error", APIGroupKey: "provider-a", Model: "model-a", Timestamp: now, TotalTokens: 1}}); err != nil {
+		t.Fatalf("insert shutdown error event: %v", err)
+	}
+	if err := db.Exec(`CREATE TRIGGER fail_shutdown_overview
+		BEFORE INSERT ON usage_overview_hourly_stats
+		BEGIN
+			SELECT RAISE(ABORT, 'forced shutdown overview failure');
+		END`).Error; err != nil {
+		t.Fatalf("create shutdown failure trigger: %v", err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	callbackName := "test:cancel_before_shutdown_overview_failure"
+	var canceled atomic.Bool
+	if err := db.Callback().Create().Before("gorm:create").Register(callbackName, func(tx *gorm.DB) {
+		// 只在 detached Overview hourly 写入前取消 parent，事务仍会继续命中真实 trigger 错误。
+		if tx.Statement.Table == "usage_overview_hourly_stats" && canceled.CompareAndSwap(false, true) {
+			cancel()
+		}
+	}); err != nil {
+		t.Fatalf("register shutdown failure callback: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Callback().Create().Remove(callbackName) })
+	hook := logrustest.NewGlobal()
+	t.Cleanup(hook.Reset)
+	runner := poller.NewUsageAggregationRunner(db, nil)
+
+	// 执行：startup wake 进入 Overview 事务，parent cancel 与独立 SQLite 错误在同一关闭窗口发生。
+	if err := runner.Run(ctx); err != nil {
+		t.Fatalf("runner shutdown returned error: %v", err)
+	}
+
+	// 断言：只有 cancellation 自身可静默；detached 事务的真实失败仍必须留下错误日志。
+	if !canceled.Load() {
+		t.Fatal("expected callback to cancel App context before trigger failure")
+	}
+	for _, entry := range hook.AllEntries() {
+		if entry.Level == logrus.ErrorLevel && entry.Message == "usage aggregation batch failed" {
+			return
+		}
+	}
+	t.Fatalf("detached transaction failure was hidden during shutdown: %+v", hook.AllEntries())
+}
+
+func TestUsageAggregationRunnerShutdownCancelsPostTransactionHeaderDatabaseWait(t *testing.T) {
+	// 准备：写入待聚合事件和 header snapshot，并在 Overview checkpoint 更新时排队占用唯一连接。
+	db := openUsageAggregationRunnerDatabase(t)
+	sqlDB, err := db.DB()
+	if err != nil {
+		t.Fatalf("load sql db: %v", err)
+	}
+	now := time.Date(2026, 7, 20, 12, 0, 0, 0, time.UTC)
+	if _, _, err := repository.InsertUsageEvents(db, []entities.UsageEvent{{EventKey: "runner-post-transaction-header", APIGroupKey: "provider-a", Model: "model-a", AuthIndex: "auth-header-wait", Timestamp: now, TotalTokens: 1}}); err != nil {
+		t.Fatalf("insert post-transaction header event: %v", err)
+	}
+	var storedEvents []entities.UsageEvent
+	if err := db.Order("id asc").Find(&storedEvents).Error; err != nil {
+		t.Fatalf("load post-transaction header event: %v", err)
+	}
+	runner := poller.NewUsageAggregationRunner(db, &recordingUsageAggregationHeaderAppender{accept: true})
+	runner.NotifyUsageEventsCommitted(storedEvents, []quota.UsageHeaderSnapshot{{AuthIndex: "auth-header-wait", ObservedAt: now, Headers: http.Header{"X-Test": []string{"pending"}}}})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	initialWaitCount := sqlDB.Stats().WaitCount
+	startConnectionWaiter := make(chan struct{})
+	heldConnection := make(chan *sql.Conn, 1)
+	waiterError := make(chan error, 1)
+	go func() {
+		select {
+		case <-startConnectionWaiter:
+			// callback 已确认 Overview 事务持有连接，此时进入连接池等待队列。
+		case <-ctx.Done():
+			return
+		}
+		connection, connectionErr := sqlDB.Conn(ctx)
+		if connectionErr != nil {
+			waiterError <- connectionErr
+			return
+		}
+		heldConnection <- connection
+	}()
+	callbackName := "test:queue_connection_before_post_transaction_header"
+	var waiterStarted atomic.Bool
+	if err := db.Callback().Update().Before("gorm:update").Register(callbackName, func(tx *gorm.DB) {
+		// Overview checkpoint 更新仍在事务内持有连接，此时先把外部 waiter 排到连接池队列头部。
+		if tx.Statement.Table == "usage_overview_aggregation_checkpoints" && waiterStarted.CompareAndSwap(false, true) {
+			close(startConnectionWaiter)
+			deadline := time.Now().Add(time.Second)
+			for sqlDB.Stats().WaitCount <= initialWaitCount && time.Now().Before(deadline) {
+				time.Sleep(time.Millisecond)
+			}
+		}
+	}); err != nil {
+		t.Fatalf("register post-transaction header callback: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Callback().Update().Remove(callbackName) })
+	done := make(chan error, 1)
+	go func() { done <- runner.Run(ctx) }()
+	var connection *sql.Conn
+	select {
+	case connection = <-heldConnection:
+		t.Cleanup(func() { _ = connection.Close() })
+	case connectionErr := <-waiterError:
+		cancel()
+		t.Fatalf("hold post-transaction database connection: %v", connectionErr)
+	case <-time.After(2 * time.Second):
+		cancel()
+		t.Fatal("connection waiter did not acquire the post-transaction slot")
+	}
+	waitForUsageAggregationRunnerCondition(t, func() bool {
+		// 第一次 wait 是外部 holder，第二次 wait 证明 Header cursor 查询正在其后排队。
+		return sqlDB.Stats().WaitCount >= initialWaitCount+2
+	})
+
+	// 执行：在事务已经提交、普通 Header cursor 查询等待连接时取消 App context。
+	cancel()
+
+	// 断言：普通 Header 查询必须响应取消；随后只允许 shutdown best-effort flush 再等待最多一秒。
+	select {
+	case runErr := <-done:
+		if runErr != nil {
+			t.Fatalf("runner shutdown returned error: %v", runErr)
+		}
+	case <-time.After(2 * time.Second):
+		_ = connection.Close()
+		<-done
+		t.Fatal("post-transaction header query ignored App cancellation")
 	}
 }
 
