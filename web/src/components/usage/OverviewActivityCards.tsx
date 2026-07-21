@@ -18,4 +18,3 @@ export function OverviewActivityCards({ activity, loading, requestIdentity }: Ov
     </div>
   );
 }
-

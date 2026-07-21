@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import type { UsageActivityBlock } from '@/lib/types';
 import styles from '@/pages/UsagePage.module.scss';
@@ -78,7 +78,9 @@ export function ActivityHeatmapGrid({
   renderTooltipStats,
 }: ActivityHeatmapGridProps) {
   const [activeTooltip, setActiveTooltip] = useState<ActiveTooltipState | null>(null);
+  const [focusedIndex, setFocusedIndex] = useState(0);
   const gridRef = useRef<HTMLDivElement>(null);
+  const cellRefs = useRef<Array<HTMLDivElement | null>>([]);
   const dateTimeFormatter = useMemo(() => createActivityDateTimeFormatter(timeZone), [timeZone]);
   // render 阶段只对 identity 不一致的旧 tooltip 做一次幂等清理，避免 A→B→A 恢复陈旧状态。
   if (activeTooltip && activeTooltip.requestIdentity !== requestIdentity) {
@@ -147,6 +149,39 @@ export function ActivityHeatmapGrid({
     setActiveTooltip(buildTooltipState(index, anchorEl, requestIdentity));
   }, [buildTooltipState, requestIdentity]);
 
+  const handleCellKeyDown = useCallback((event: ReactKeyboardEvent<HTMLDivElement>, index: number) => {
+    const row = index % ACTIVITY_GRID_ROWS;
+    let nextIndex = index;
+    switch (event.key) {
+    case 'ArrowUp':
+      if (row > 0) nextIndex = index - 1;
+      break;
+    case 'ArrowDown':
+      if (row < ACTIVITY_GRID_ROWS - 1 && index + 1 < blocks.length) nextIndex = index + 1;
+      break;
+    case 'ArrowLeft':
+      if (index >= ACTIVITY_GRID_ROWS) nextIndex = index - ACTIVITY_GRID_ROWS;
+      break;
+    case 'ArrowRight':
+      if (index + ACTIVITY_GRID_ROWS < blocks.length) nextIndex = index + ACTIVITY_GRID_ROWS;
+      break;
+    case 'Home':
+      nextIndex = 0;
+      break;
+    case 'End':
+      nextIndex = Math.max(0, blocks.length - 1);
+      break;
+    default:
+      return;
+    }
+    // 方向键只在当前固定网格内移动焦点，避免浏览器同时滚动页面。
+    event.preventDefault();
+    setFocusedIndex(nextIndex);
+    cellRefs.current[nextIndex]?.focus();
+  }, [blocks.length]);
+
+  const rovingIndex = Math.min(focusedIndex, Math.max(0, blocks.length - 1));
+
   const renderTooltip = (block: UsageActivityBlock, tooltipState: ActiveTooltipState) => {
     const startTime = parseActivityTime(block.start_time);
     const endTime = parseActivityTime(block.end_time);
@@ -197,17 +232,24 @@ export function ActivityHeatmapGrid({
             <div
               // 网格固定为 364 个位置槽，窗口变化只更新槽内数据，不替换全部 DOM 节点。
               key={index}
+              ref={(element) => {
+                cellRefs.current[index] = element;
+              }}
               className={`${styles.activityHeatmapCell} ${active ? styles.activityHeatmapCellActive : ''}`.trim()}
               role="gridcell"
-              tabIndex={0}
+              tabIndex={index === rovingIndex ? 0 : -1}
               aria-rowindex={(index % ACTIVITY_GRID_ROWS) + 1}
               aria-colindex={Math.floor(index / ACTIVITY_GRID_ROWS) + 1}
               aria-label={`${timeRange}: ${getSummary(block, index)}`}
               data-activity-index={index}
               data-activity-start={block.start_time}
               data-activity-end={block.end_time}
-              onFocus={(event) => openTooltip(index, event.currentTarget)}
+              onFocus={(event) => {
+                setFocusedIndex(index);
+                openTooltip(index, event.currentTarget);
+              }}
               onBlur={() => setActiveTooltip(null)}
+              onKeyDown={(event) => handleCellKeyDown(event, index)}
               onPointerEnter={(event) => {
                 if (event.pointerType === 'mouse') openTooltip(index, event.currentTarget);
               }}

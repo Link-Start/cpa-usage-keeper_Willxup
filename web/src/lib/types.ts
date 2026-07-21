@@ -745,7 +745,7 @@ export interface UsageRangeRequest {
 }
 
 export type UsageActivityRequest = UsageRangeRequest | {
-	window: UsageActivityWindow
+	window: '1y'
 }
 
 export interface UsageFilterWindow {

@@ -55,7 +55,7 @@ export function ServiceHealthCard({ activity, loading, requestIdentity }: Servic
     : t('status_bar.no_requests');
 
   return (
-    <article className={`${styles.activityCard} ${styles.requestActivityCard}`} aria-busy={loading}>
+    <article className={styles.activityCard} aria-busy={loading}>
       <div className={styles.activityCardHeader}>
         <div className={styles.sectionTitleBlock}>
           <h3 className={styles.sectionTitle}>{t('usage_stats.service_health_title')}</h3>

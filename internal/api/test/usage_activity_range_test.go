@@ -92,6 +92,7 @@ func TestUsageActivityRangesReturnBackendSelectedFixedTierWindows(t *testing.T) 
 		query        string
 		wantWindow   string
 		wantDuration time.Duration
+		wantDays     int
 	}{
 		{name: "hours", query: "range=8h", wantWindow: "24h", wantDuration: 24 * time.Hour},
 		{name: "today", query: "range=today", wantWindow: "24h", wantDuration: 24 * time.Hour},
@@ -100,7 +101,7 @@ func TestUsageActivityRangesReturnBackendSelectedFixedTierWindows(t *testing.T) 
 		{name: "seven days", query: "range=7d", wantWindow: "7d", wantDuration: 7 * 24 * time.Hour},
 		{name: "eight days", query: "range=8d", wantWindow: "30d", wantDuration: 30 * 24 * time.Hour},
 		{name: "thirty days", query: "range=30d", wantWindow: "30d", wantDuration: 30 * 24 * time.Hour},
-		{name: "one year", query: "window=1y", wantWindow: "1y", wantDuration: 364 * 24 * time.Hour},
+		{name: "one year", query: "window=1y", wantWindow: "1y", wantDays: repository.UsageActivityHeatmapBlocks},
 	}
 
 	for _, testCase := range testCases {
@@ -114,6 +115,7 @@ func TestUsageActivityRangesReturnBackendSelectedFixedTierWindows(t *testing.T) 
 			var payload struct {
 				Window      string    `json:"window"`
 				Grain       string    `json:"grain"`
+				Timezone    string    `json:"timezone"`
 				Rows        int       `json:"rows"`
 				Columns     int       `json:"columns"`
 				WindowStart time.Time `json:"window_start"`
@@ -133,7 +135,17 @@ func TestUsageActivityRangesReturnBackendSelectedFixedTierWindows(t *testing.T) 
 			if payload.Rows != 7 || payload.Columns != 52 || len(payload.Blocks) != repository.UsageActivityHeatmapBlocks {
 				t.Fatalf("unexpected Activity shape: rows=%d columns=%d blocks=%d", payload.Rows, payload.Columns, len(payload.Blocks))
 			}
-			if got := payload.WindowEnd.Sub(payload.WindowStart); got != testCase.wantDuration {
+			if testCase.wantDays > 0 {
+				location, err := time.LoadLocation(payload.Timezone)
+				if err != nil {
+					t.Fatalf("load Activity timezone %q: %v", payload.Timezone, err)
+				}
+				windowStart := payload.WindowStart.In(location)
+				windowEnd := payload.WindowEnd.In(location)
+				if wantEnd := windowStart.AddDate(0, 0, testCase.wantDays); !windowEnd.Equal(wantEnd) {
+					t.Fatalf("Activity calendar end=%s, want %s", windowEnd, wantEnd)
+				}
+			} else if got := payload.WindowEnd.Sub(payload.WindowStart); got != testCase.wantDuration {
 				t.Fatalf("Activity window duration = %s, want %s", got, testCase.wantDuration)
 			}
 			if !payload.Blocks[0].StartTime.Equal(payload.WindowStart) || !payload.Blocks[len(payload.Blocks)-1].EndTime.Equal(payload.WindowEnd) {

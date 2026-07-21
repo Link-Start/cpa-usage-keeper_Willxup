@@ -25,13 +25,14 @@ func TestUsageActivityMapsNormalizedTimeRangesToFixedWindowGrains(t *testing.T) 
 		wantWindow   servicedto.UsageActivityWindow
 		wantGrain    string
 		wantDuration time.Duration
+		wantDays     int
 	}{
 		{name: "hours", filter: servicedto.UsageFilter{Range: "8h", RangeUnit: "hour", RangeCount: 8}, wantWindow: servicedto.UsageActivityWindow24H, wantGrain: "short", wantDuration: 24 * time.Hour},
 		{name: "one day", filter: servicedto.UsageFilter{Range: "today", RangeUnit: "day", RangeCount: 1}, wantWindow: servicedto.UsageActivityWindow24H, wantGrain: "short", wantDuration: 24 * time.Hour},
 		{name: "two days", filter: servicedto.UsageFilter{Range: "2d", RangeUnit: "day", RangeCount: 2}, wantWindow: servicedto.UsageActivityWindow7D, wantGrain: "medium", wantDuration: 7 * 24 * time.Hour},
 		{name: "seven days", filter: servicedto.UsageFilter{Range: "custom", CustomUnit: "day", RangeUnit: "day", RangeCount: 7}, wantWindow: servicedto.UsageActivityWindow7D, wantGrain: "medium", wantDuration: 7 * 24 * time.Hour},
 		{name: "eight days", filter: servicedto.UsageFilter{Range: "8d", RangeUnit: "day", RangeCount: 8}, wantWindow: servicedto.UsageActivityWindow30D, wantGrain: "long", wantDuration: 30 * 24 * time.Hour},
-		{name: "one year", filter: servicedto.UsageFilter{ActivityWindow: servicedto.UsageActivityWindow1Y}, wantWindow: servicedto.UsageActivityWindow1Y, wantGrain: "daily", wantDuration: 364 * 24 * time.Hour},
+		{name: "one year", filter: servicedto.UsageFilter{ActivityWindow: servicedto.UsageActivityWindow1Y}, wantWindow: servicedto.UsageActivityWindow1Y, wantGrain: "daily", wantDays: repository.UsageActivityHeatmapBlocks},
 	}
 
 	for _, testCase := range testCases {
@@ -48,7 +49,11 @@ func TestUsageActivityMapsNormalizedTimeRangesToFixedWindowGrains(t *testing.T) 
 			if activity.Rows != 7 || activity.Columns != 52 || len(activity.Blocks) != repository.UsageActivityHeatmapBlocks {
 				t.Fatalf("unexpected Activity shape: rows=%d columns=%d blocks=%d", activity.Rows, activity.Columns, len(activity.Blocks))
 			}
-			if got := activity.WindowEnd.Sub(activity.WindowStart); got != testCase.wantDuration {
+			if testCase.wantDays > 0 {
+				if wantEnd := activity.WindowStart.AddDate(0, 0, testCase.wantDays); !activity.WindowEnd.Equal(wantEnd) {
+					t.Fatalf("Activity calendar end=%s, want %s", activity.WindowEnd, wantEnd)
+				}
+			} else if got := activity.WindowEnd.Sub(activity.WindowStart); got != testCase.wantDuration {
 				t.Fatalf("Activity duration=%s, want %s", got, testCase.wantDuration)
 			}
 			for index, block := range activity.Blocks {

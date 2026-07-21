@@ -6,7 +6,7 @@ import { OverviewActivityCards } from '../OverviewActivityCards';
 import { buildUsageActivityFixture } from './activityFixtures';
 
 describe('OverviewActivityCards accessibility', () => {
-  it('keeps both dense heatmaps keyboard focusable with complete grid semantics', () => {
+  it('keeps one Tab stop per heatmap with complete grid semantics', () => {
     const html = renderToStaticMarkup(createElement(OverviewActivityCards, {
       activity: buildUsageActivityFixture([10]),
       loading: false,
@@ -16,6 +16,7 @@ describe('OverviewActivityCards accessibility', () => {
     expect(html.match(/role="grid"/g)).toHaveLength(2);
     expect(html.match(/aria-rowcount="7"/g)).toHaveLength(2);
     expect(html.match(/aria-colcount="52"/g)).toHaveLength(2);
-    expect(html.match(/tabindex="0"/g)).toHaveLength(2 * 7 * 52);
+    expect(html.match(/tabindex="0"/g)).toHaveLength(2);
+    expect(html.match(/tabindex="-1"/g)).toHaveLength((2 * 7 * 52) - 2);
   });
 });

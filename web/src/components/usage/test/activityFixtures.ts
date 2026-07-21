@@ -44,4 +44,3 @@ export const buildUsageActivityFixture = (tokenValues: readonly number[] = []): 
     blocks,
   };
 };
-
