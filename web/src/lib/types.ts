@@ -601,6 +601,8 @@ export interface AnalysisLatencyDensityCell {
 }
 
 export interface AnalysisLatencyDiagnostics {
+  supported?: boolean
+  unsupported_reason?: 'range_outside_recent_30_days'
   points: AnalysisLatencyPoint[]
   density: AnalysisLatencyDensityCell[]
   total_points: number
