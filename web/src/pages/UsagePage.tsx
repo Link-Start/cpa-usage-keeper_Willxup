@@ -1410,6 +1410,10 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
         onAuthRequired?.();
         return;
       }
+      if (error instanceof ApiError && error.status === 429) {
+        showTopNotice('error', t('usage_stats.export_busy'));
+        return;
+      }
       showTopNotice('error', t('notification.download_failed'));
     } finally {
       setEventsExportingFormat(null);
