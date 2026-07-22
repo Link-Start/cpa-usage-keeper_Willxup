@@ -1,12 +1,14 @@
 package test
 
 import (
+	"context"
 	"reflect"
 	"testing"
 	"time"
 
 	"cpa-usage-keeper/internal/activity"
 	"cpa-usage-keeper/internal/entities"
+	"cpa-usage-keeper/internal/repository"
 	"cpa-usage-keeper/internal/repository/migration"
 	"cpa-usage-keeper/internal/timeutil"
 	"gorm.io/gorm"
@@ -14,7 +16,7 @@ import (
 
 const usageActivityShortAlignmentMigrationVersion = "20260722_align_usage_activity_short"
 
-func TestUsageActivityShortAlignmentMigrationRebuildsOnlyShortRows(t *testing.T) {
+func TestUsageActivityShortAlignmentMigrationRebuildsOnlyCheckpointedShortRows(t *testing.T) {
 	previousLocal := time.Local
 	location, err := time.LoadLocation("Asia/Shanghai")
 	if err != nil {
@@ -55,7 +57,7 @@ func TestUsageActivityShortAlignmentMigrationRebuildsOnlyShortRows(t *testing.T)
 		t.Fatalf("seed Activity rows: %v", err)
 	}
 	checkpointTime := now.Add(-time.Minute)
-	checkpoint := entities.UsageActivityAggregationCheckpoint{Name: "activity", LastAggregatedUsageEventID: 2, StatsUpdatedAt: &checkpointTime}
+	checkpoint := entities.UsageActivityAggregationCheckpoint{Name: "activity", LastAggregatedUsageEventID: 1, StatsUpdatedAt: &checkpointTime}
 	if err := db.Create(&checkpoint).Error; err != nil {
 		t.Fatalf("seed Activity checkpoint: %v", err)
 	}
@@ -70,8 +72,8 @@ func TestUsageActivityShortAlignmentMigrationRebuildsOnlyShortRows(t *testing.T)
 	}
 
 	assertUsageActivityTotals(t, db, entities.UsageActivityGrainShort, usageActivityTotals{
-		SuccessCount: 1, FailureCount: 1, InputTokens: 110, OutputTokens: 220, ReasoningTokens: 33,
-		CacheReadTokens: 44, CacheCreationTokens: 55, TotalTokens: 462,
+		SuccessCount: 1, InputTokens: 10, OutputTokens: 20, ReasoningTokens: 3,
+		CacheReadTokens: 4, CacheCreationTokens: 5, TotalTokens: 42,
 	})
 	shortRows := loadUsageActivityRowsByGrain(t, db, entities.UsageActivityGrainShort)
 	for _, row := range shortRows {
@@ -95,6 +97,15 @@ func TestUsageActivityShortAlignmentMigrationRebuildsOnlyShortRows(t *testing.T)
 	if after := loadUsageActivityCheckpoint(t, db); !reflect.DeepEqual(after, beforeCheckpoint) {
 		t.Fatalf("Activity checkpoint changed:\n before=%+v\n after=%+v", beforeCheckpoint, after)
 	}
+
+	// checkpoint 之后的 event 由正常增量补齐，short 最终只能累计一次。
+	if err := repository.AggregateUsageActivityStats(context.Background(), db, now); err != nil {
+		t.Fatalf("catch up Activity after short alignment: %v", err)
+	}
+	assertUsageActivityTotals(t, db, entities.UsageActivityGrainShort, usageActivityTotals{
+		SuccessCount: 1, FailureCount: 1, InputTokens: 110, OutputTokens: 220, ReasoningTokens: 33,
+		CacheReadTokens: 44, CacheCreationTokens: 55, TotalTokens: 462,
+	})
 
 	var applied int64
 	if err := db.Table("schema_migrations").Where("version = ?", usageActivityShortAlignmentMigrationVersion).Count(&applied).Error; err != nil {

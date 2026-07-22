@@ -769,6 +769,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   });
   const {
     activity,
+    activityMatchesRequest,
     loading: activityLoading,
     error: activityError,
     requestIdentity: activityRequestIdentity,
@@ -781,6 +782,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     onAuthRequired,
   });
   const activityWindow = manualActivityWindow ?? activity?.window ?? null;
+  const activityWindowIsCurrent = manualActivityWindow !== null || activityMatchesRequest;
   const rangeTimeZone = status?.timezone ?? usage?.timezone ?? timeRangeState.timeZone;
   const handleTimeRangeChange = useCallback((range: UsageTimeRange, nextCustomRange?: UsageCustomRange) => {
     pendingLegacyCustomRangeRef.current = null;
@@ -1898,6 +1900,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                   loading={activityLoading}
                   error={activityError}
                   window={activityWindow}
+                  windowIsCurrent={activityWindowIsCurrent}
                   requestIdentity={activityRequestIdentity}
                   onWindowChange={setActivityWindow}
                 />

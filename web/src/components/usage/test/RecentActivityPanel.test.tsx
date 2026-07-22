@@ -12,6 +12,7 @@ describe('RecentActivityPanel', () => {
       loading: false,
       error: '',
       window: '7d',
+      windowIsCurrent: true,
       requestIdentity: 'admin::2d:::',
       onWindowChange: vi.fn(),
     }));
@@ -31,6 +32,7 @@ describe('RecentActivityPanel', () => {
       loading: false,
       error: 'ACTIVITY_LOAD_FAILED',
       window: '24h',
+      windowIsCurrent: true,
       requestIdentity: 'admin::8h:::',
       onWindowChange: vi.fn(),
     }));
@@ -47,6 +49,7 @@ describe('RecentActivityPanel', () => {
       loading: true,
       error: '',
       window: null,
+      windowIsCurrent: false,
       requestIdentity: 'admin::8h:::',
       onWindowChange: vi.fn(),
     }));
@@ -60,6 +63,7 @@ describe('RecentActivityPanel', () => {
       loading: false,
       error: '',
       window: '24h',
+      windowIsCurrent: true,
       requestIdentity: 'admin::24h:::',
       onWindowChange: vi.fn(),
     }));

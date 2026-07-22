@@ -21,6 +21,7 @@ export interface RecentActivityPanelProps {
   loading: boolean;
   error?: string;
   window: UsageActivityWindow | null;
+  windowIsCurrent: boolean;
   requestIdentity: string;
   onWindowChange: (window: UsageActivityWindow) => void;
 }
@@ -30,6 +31,7 @@ export function RecentActivityPanel({
   loading,
   error,
   window,
+  windowIsCurrent,
   requestIdentity,
   onWindowChange,
 }: RecentActivityPanelProps) {
@@ -63,7 +65,7 @@ export function RecentActivityPanel({
                 key={option.value}
                 type="button"
                 className={`${styles.recentActivityWindowButton} ${window === option.value ? styles.recentActivityWindowButtonActive : ''}`.trim()}
-                onClick={() => window !== option.value && onWindowChange(option.value)}
+                onClick={() => (!windowIsCurrent || window !== option.value) && onWindowChange(option.value)}
                 aria-pressed={window === option.value}
               >
                 {t(option.labelKey)}

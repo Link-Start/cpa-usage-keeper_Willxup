@@ -29,6 +29,7 @@ describe('RecentActivityPanel window switcher', () => {
         loading={false}
         error=""
         window="24h"
+        windowIsCurrent={true}
         requestIdentity="admin::today"
         onWindowChange={onWindowChange}
       />,
@@ -43,6 +44,28 @@ describe('RecentActivityPanel window switcher', () => {
 
     act(() => sevenDayButton?.click());
     expect(onWindowChange).toHaveBeenCalledWith('7d');
+    act(() => root.unmount());
+  });
+
+  it('allows an active stale window to become the new manual selection', () => {
+    const onWindowChange = vi.fn();
+    const root = createRoot(container);
+    act(() => root.render(
+      <RecentActivityPanel
+        activity={buildUsageActivityFixture([1])}
+        loading={true}
+        error=""
+        window="24h"
+        windowIsCurrent={false}
+        requestIdentity="admin::7d"
+        onWindowChange={onWindowChange}
+      />,
+    ));
+
+    const dayButton = Array.from(container.querySelectorAll('button'))
+      .find((button) => button.textContent === 'Day');
+    act(() => dayButton?.click());
+    expect(onWindowChange).toHaveBeenCalledWith('24h');
     act(() => root.unmount());
   });
 });
