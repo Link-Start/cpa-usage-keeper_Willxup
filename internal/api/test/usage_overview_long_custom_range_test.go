@@ -12,7 +12,7 @@ import (
 	"cpa-usage-keeper/internal/entities"
 )
 
-func TestUsageOverviewAloneAcceptsCustomDayRangeOlderThanThirtyDays(t *testing.T) {
+func TestUsageOverviewAcceptsCustomDayRangeOlderThanThirtyDays(t *testing.T) {
 	now := time.Now().In(time.Local)
 	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.Local)
 	startDay := today.AddDate(0, 0, -120)
@@ -46,16 +46,6 @@ func TestUsageOverviewAloneAcceptsCustomDayRangeOlderThanThirtyDays(t *testing.T
 		t.Fatalf("expected 121 complete custom day buckets, got %+v", provider.lastFilter)
 	}
 
-	eventsResponse := httptest.NewRecorder()
-	eventsRequest := httptest.NewRequest(http.MethodGet, "/api/v1/usage/events?"+query.Encode(), nil)
-	router.ServeHTTP(eventsResponse, eventsRequest)
-
-	if eventsResponse.Code != http.StatusBadRequest {
-		t.Fatalf("expected the same long custom Events range to remain rejected, got %d body=%s", eventsResponse.Code, eventsResponse.Body.String())
-	}
-	if provider.filterCalls != 0 {
-		t.Fatalf("expected invalid Events range not to reach provider, got %d calls", provider.filterCalls)
-	}
 }
 
 func TestKeyOverviewAcceptsCustomDayRangeOlderThanThirtyDays(t *testing.T) {

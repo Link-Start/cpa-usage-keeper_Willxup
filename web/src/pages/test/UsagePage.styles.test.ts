@@ -133,6 +133,12 @@ describe('UsagePage toolbar styles', () => {
     expect(keyOverviewPageSource).toContain('fetchKeyOverview(usageRangeQuery, controller.signal)')
   })
 
+  it('shows a dedicated notice when Usage Events export capacity is full', () => {
+    expect(usagePageSource).toContain('error instanceof ApiError && error.status === 429')
+    expect(usagePageSource).toContain("t('usage_stats.export_busy')")
+    expect(i18nSource.match(/export_busy:/g)).toHaveLength(3)
+  })
+
   it('refreshes applied Custom bounds on both dashboard surfaces', () => {
     expect(usagePageSource).toContain('scheduleCustomRangeBoundsRefresh({')
     expect(usagePageSource).toContain('clampStoredUsageRangeStateToCurrentBounds(current')

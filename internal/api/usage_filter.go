@@ -38,6 +38,11 @@ func parseKeyUsageOverviewTimeFilterQuery(req *http.Request, anchor time.Time) (
 	return parseUsageTimeFilterQueryWithOptions(req, anchor, false, timeutil.UsageQueryRangeOptions{AllowLongCustomDayRange: true})
 }
 
+// Events 直接查询仍在保留期内的原始事件，因此只放开 Custom 日范围的历史跨度。
+func parseUsageEventsTimeFilterQuery(req *http.Request, anchor time.Time) (servicedto.UsageFilter, error) {
+	return parseUsageTimeFilterQueryWithOptions(req, anchor, true, timeutil.UsageQueryRangeOptions{AllowLongCustomDayRange: true})
+}
+
 func parseUsageTimeFilterQueryWithClientAPIKey(req *http.Request, anchor time.Time, includeClientAPIKey bool) (servicedto.UsageFilter, error) {
 	return parseUsageTimeFilterQueryWithOptions(req, anchor, includeClientAPIKey, timeutil.UsageQueryRangeOptions{})
 }
@@ -97,7 +102,7 @@ func parseUsageFilterQuery(req *http.Request, anchor time.Time) (servicedto.Usag
 	if req == nil {
 		return servicedto.UsageFilter{}, nil
 	}
-	filter, err := parseUsageTimeFilterQuery(req, anchor)
+	filter, err := parseUsageEventsTimeFilterQuery(req, anchor)
 	if err != nil {
 		return servicedto.UsageFilter{}, err
 	}
