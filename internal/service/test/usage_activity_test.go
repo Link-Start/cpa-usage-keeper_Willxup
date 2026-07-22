@@ -80,6 +80,57 @@ func TestUsageActivityMapsNormalizedTimeRangesToFixedWindowGrains(t *testing.T) 
 	}
 }
 
+func TestUsageActivityDirectWindowsMatchEquivalentNormalizedRanges(t *testing.T) {
+	provider := service.NewUsageService(openUsageActivityServiceDatabase(t))
+	now := time.Date(2026, 7, 20, 12, 34, 56, 0, time.UTC)
+	testCases := []struct {
+		name       string
+		window     servicedto.UsageActivityWindow
+		rangeInput servicedto.UsageFilter
+	}{
+		{name: "day from hours", window: servicedto.UsageActivityWindowDay, rangeInput: servicedto.UsageFilter{Range: "8h", RangeUnit: "hour", RangeCount: 8}},
+		{name: "day from one day", window: servicedto.UsageActivityWindowDay, rangeInput: servicedto.UsageFilter{Range: "1d", RangeUnit: "day", RangeCount: 1}},
+		{name: "week lower boundary", window: servicedto.UsageActivityWindowWeek, rangeInput: servicedto.UsageFilter{Range: "2d", RangeUnit: "day", RangeCount: 2}},
+		{name: "week upper boundary", window: servicedto.UsageActivityWindowWeek, rangeInput: servicedto.UsageFilter{Range: "7d", RangeUnit: "day", RangeCount: 7}},
+		{name: "month lower boundary", window: servicedto.UsageActivityWindowMonth, rangeInput: servicedto.UsageFilter{Range: "8d", RangeUnit: "day", RangeCount: 8}},
+		{name: "month upper boundary", window: servicedto.UsageActivityWindowMonth, rangeInput: servicedto.UsageFilter{Range: "30d", RangeUnit: "day", RangeCount: 30}},
+		{name: "year from Custom day", window: servicedto.UsageActivityWindowYear, rangeInput: servicedto.UsageFilter{Range: "custom", CustomUnit: "day", RangeUnit: "day", RangeCount: 7}},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			direct, err := provider.GetUsageActivity(context.Background(), servicedto.UsageFilter{
+				ActivityWindow: testCase.window,
+				QueryNow:       &now,
+			})
+			if err != nil {
+				t.Fatalf("GetUsageActivity direct window returned error: %v", err)
+			}
+			rangeInput := testCase.rangeInput
+			rangeInput.QueryNow = &now
+			normalized, err := provider.GetUsageActivity(context.Background(), rangeInput)
+			if err != nil {
+				t.Fatalf("GetUsageActivity normalized range returned error: %v", err)
+			}
+
+			if direct.Window != normalized.Window || direct.Grain != normalized.Grain || direct.BucketSeconds != normalized.BucketSeconds {
+				t.Fatalf("Activity identity differs: direct=%q/%q/%d normalized=%q/%q/%d", direct.Window, direct.Grain, direct.BucketSeconds, normalized.Window, normalized.Grain, normalized.BucketSeconds)
+			}
+			if !direct.WindowStart.Equal(normalized.WindowStart) || !direct.WindowEnd.Equal(normalized.WindowEnd) {
+				t.Fatalf("Activity boundaries differ: direct=%s..%s normalized=%s..%s", direct.WindowStart, direct.WindowEnd, normalized.WindowStart, normalized.WindowEnd)
+			}
+			if direct.Rows != normalized.Rows || direct.Columns != normalized.Columns || len(direct.Blocks) != len(normalized.Blocks) {
+				t.Fatalf("Activity shape differs: direct=%dx%d/%d normalized=%dx%d/%d", direct.Rows, direct.Columns, len(direct.Blocks), normalized.Rows, normalized.Columns, len(normalized.Blocks))
+			}
+			for index := range direct.Blocks {
+				if !direct.Blocks[index].StartTime.Equal(normalized.Blocks[index].StartTime) || !direct.Blocks[index].EndTime.Equal(normalized.Blocks[index].EndTime) {
+					t.Fatalf("Activity block %d boundaries differ: direct=%s..%s normalized=%s..%s", index, direct.Blocks[index].StartTime, direct.Blocks[index].EndTime, normalized.Blocks[index].StartTime, normalized.Blocks[index].EndTime)
+				}
+			}
+		})
+	}
+}
+
 func TestCustomDayUsageActivityReadsDailyRollupWithoutRawEvents(t *testing.T) {
 	db := openUsageActivityServiceDatabase(t)
 	now := time.Date(2026, 7, 20, 12, 0, 0, 0, time.UTC)

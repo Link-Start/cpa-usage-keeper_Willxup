@@ -76,6 +76,21 @@ func TestUsageActivityUsesOverviewTimeQueryAndAcceptsOptionalAPIKey(t *testing.T
 	}
 }
 
+func TestUsageActivityRejectsUnknownWindowBeforeCallingService(t *testing.T) {
+	provider := &usageActivityRouteStub{}
+	router := NewRouter(nil, nil, provider, nil, AuthConfig{}, nil, "")
+	response := httptest.NewRecorder()
+
+	router.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/v1/usage/activity?window=unknown", nil))
+
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("unknown Activity window status=%d, want 400: %s", response.Code, response.Body.String())
+	}
+	if provider.calls != 0 {
+		t.Fatalf("unknown Activity window called service %d times, want 0", provider.calls)
+	}
+}
+
 func TestUsageActivityAcceptsLongCustomDayRange(t *testing.T) {
 	provider := &usageActivityRouteStub{activity: &servicedto.UsageActivitySnapshot{
 		Window: servicedto.UsageActivityWindowYear, Grain: "daily", Rows: 7, Columns: 52, Blocks: []servicedto.UsageActivityBlock{},
