@@ -144,6 +144,8 @@ func TestBuildAnalysisLatencyDiagnosticsPreservesSampleOrderAndPairs(t *testing.
 	db := openTestDatabase(t)
 	start := time.Date(2026, 7, 21, 9, 0, 0, 0, time.UTC)
 	end := start.Add(time.Hour)
+	// 把样本放在查询窗口内部，使本测试只验证抽样顺序和配对，不依赖时间边界表示。
+	sampleStart := start.Add(time.Second)
 	generate := true
 	const count = 2601
 	events := make([]entities.UsageEvent, 0, count)
@@ -152,7 +154,7 @@ func TestBuildAnalysisLatencyDiagnosticsPreservesSampleOrderAndPairs(t *testing.
 		latencyMS := ttftMS*10000 + int64(sourceIndex)
 		events = append(events, entities.UsageEvent{
 			EventKey: fmt.Sprintf("latency-%04d", sourceIndex), APIGroupKey: "sk-target", Generate: &generate,
-			Timestamp: start.Add(time.Duration(sourceIndex) * time.Millisecond), LatencyMS: latencyMS, TTFTMS: &ttftMS,
+			Timestamp: sampleStart.Add(time.Duration(sourceIndex) * time.Millisecond), LatencyMS: latencyMS, TTFTMS: &ttftMS,
 		})
 	}
 	if _, _, err := repository.InsertUsageEvents(db, events); err != nil {
@@ -190,7 +192,9 @@ func TestBuildAnalysisLatencyDiagnosticsPreservesSampleOrderAndPairs(t *testing.
 func TestBuildAnalysisLatencyDiagnosticsAvoidsQuadraticAdversarialOrder(t *testing.T) {
 	db := openTestDatabase(t)
 	start := time.Date(2026, 7, 21, 9, 0, 0, 0, time.UTC)
-	end := start.Add(time.Second)
+	end := start.Add(2 * time.Second)
+	// 把样本放在查询窗口内部，使本测试只验证选择算法的退化保护。
+	sampleStart := start.Add(time.Second)
 	generate := true
 	const count = 200000
 	events := make([]entities.UsageEvent, 0, count)
@@ -201,7 +205,7 @@ func TestBuildAnalysisLatencyDiagnosticsAvoidsQuadraticAdversarialOrder(t *testi
 		}
 		events = append(events, entities.UsageEvent{
 			EventKey: fmt.Sprintf("adversarial-%06d", sourceIndex), APIGroupKey: "sk-target", Generate: &generate,
-			Timestamp: start.Add(time.Duration(sourceIndex) * time.Microsecond), LatencyMS: value, TTFTMS: &value,
+			Timestamp: sampleStart.Add(time.Duration(sourceIndex) * time.Microsecond), LatencyMS: value, TTFTMS: &value,
 		})
 	}
 	if _, _, err := repository.InsertUsageEvents(db, events); err != nil {
