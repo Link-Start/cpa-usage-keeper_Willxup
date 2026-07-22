@@ -83,6 +83,16 @@ describe('useRecentActivityWindow', () => {
     expect(latest?.request).toEqual({ window: '1y' });
   });
 
+  it('uses dedicated calendar Activity windows for Today and Yesterday', () => {
+    renderQuery(buildUsageRangeQuery({ range: 'today' }));
+    expect(latest?.manualWindow).toBeNull();
+    expect(latest?.request).toEqual({ window: 'today' });
+
+    renderQuery(buildUsageRangeQuery({ range: 'yesterday' }));
+    expect(latest?.manualWindow).toBeNull();
+    expect(latest?.request).toEqual({ window: 'yesterday' });
+  });
+
   it('clears a manual window for every top time identity change including A to B to A', () => {
     const first = buildUsageRangeQuery({ range: '8h' });
     const second = buildUsageRangeQuery({ range: '24h' });

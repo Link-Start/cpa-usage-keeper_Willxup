@@ -4038,10 +4038,12 @@
 
 .healthTooltipSuccess {
   color: var(--success-color, #22c55e);
+  font-weight: 700;
 }
 
 .healthTooltipFailure {
   color: var(--danger-color, #ef4444);
+  font-weight: 700;
 }
 
 .healthTooltipRate {

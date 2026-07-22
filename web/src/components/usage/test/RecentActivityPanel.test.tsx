@@ -12,6 +12,7 @@ describe('RecentActivityPanel', () => {
       loading: false,
       error: '',
       window: '7d',
+      windowIsCurrent: true,
       requestIdentity: 'admin::2d:::',
       onWindowChange: vi.fn(),
     }));
@@ -19,10 +20,10 @@ describe('RecentActivityPanel', () => {
     expect(html).toContain('Recent Activity');
     expect(html).toContain('Token Activity');
     expect(html).toContain('Request Health Timeline');
-    expect(html).toContain('aria-pressed="true">7d</button>');
-    expect(html).toContain('>24h</button>');
-    expect(html).toContain('>30d</button>');
-    expect(html).toContain('>1y</button>');
+    expect(html).toContain('aria-pressed="true">Week</button>');
+    expect(html).toContain('>Day</button>');
+    expect(html).toContain('>Month</button>');
+    expect(html).toContain('>Year</button>');
   });
 
   it('keeps an Activity error inside the Recent Activity section', () => {
@@ -31,6 +32,7 @@ describe('RecentActivityPanel', () => {
       loading: false,
       error: 'ACTIVITY_LOAD_FAILED',
       window: '24h',
+      windowIsCurrent: true,
       requestIdentity: 'admin::8h:::',
       onWindowChange: vi.fn(),
     }));
@@ -47,6 +49,7 @@ describe('RecentActivityPanel', () => {
       loading: true,
       error: '',
       window: null,
+      windowIsCurrent: false,
       requestIdentity: 'admin::8h:::',
       onWindowChange: vi.fn(),
     }));
@@ -60,13 +63,14 @@ describe('RecentActivityPanel', () => {
       loading: false,
       error: '',
       window: '24h',
+      windowIsCurrent: true,
       requestIdentity: 'admin::24h:::',
       onWindowChange: vi.fn(),
     }));
     const sharedWindow = '07/01 00:00 – 07/02 00:00';
 
     expect(html.match(new RegExp(sharedWindow, 'g'))).toHaveLength(1);
-    expect(html.indexOf(sharedWindow)).toBeLessThan(html.indexOf('>24h</button>'));
+    expect(html.indexOf(sharedWindow)).toBeLessThan(html.indexOf('>Day</button>'));
     expect(html.match(/data-activity-summary=/g)).toHaveLength(2);
     expect(html).toContain('data-activity-summary="token"');
     expect(html).toContain('data-activity-summary="health"');

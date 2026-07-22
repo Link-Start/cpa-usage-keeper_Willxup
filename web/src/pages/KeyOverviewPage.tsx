@@ -187,6 +187,7 @@ export function KeyOverviewPage({ apiKey, onAuthRequired }: KeyOverviewPageProps
   } = useRecentActivityWindow(usageRangeQuery);
   const {
     activity,
+    activityMatchesRequest,
     loading: activityLoading,
     error: activityError,
     requestIdentity: activityRequestIdentity,
@@ -198,6 +199,7 @@ export function KeyOverviewPage({ apiKey, onAuthRequired }: KeyOverviewPageProps
     onAuthRequired,
   });
   const activityWindow = manualActivityWindow ?? activity?.window ?? null;
+  const activityWindowIsCurrent = manualActivityWindow !== null || activityMatchesRequest;
   const rangeTimeZone = usage?.timezone ?? timeRangeState.timeZone;
   const handleTimeRangeChange = useCallback((range: UsageTimeRange, nextCustomRange?: UsageCustomRange) => {
     if (range === 'custom' && nextCustomRange) {
@@ -534,6 +536,7 @@ export function KeyOverviewPage({ apiKey, onAuthRequired }: KeyOverviewPageProps
               loading={activityLoading}
               error={activityError}
               window={activityWindow}
+              windowIsCurrent={activityWindowIsCurrent}
               requestIdentity={activityRequestIdentity}
               onWindowChange={setActivityWindow}
             />

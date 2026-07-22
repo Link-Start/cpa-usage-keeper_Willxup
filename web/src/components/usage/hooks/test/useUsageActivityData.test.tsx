@@ -135,13 +135,16 @@ describe('useUsageActivityData', () => {
       }));
 
     await renderOptions({ viewer: 'admin', request: { range: '24h' }, apiKeyId: '42' });
+    expect(latest?.activityMatchesRequest).toBe(true);
     await renderOptions({ viewer: 'admin', request: { range: '7d' }, apiKeyId: '42' });
 
     expect(latest?.loading).toBe(true);
     expect(latest?.activity?.window).toBe('24h');
+    expect(latest?.activityMatchesRequest).toBe(false);
 
     await act(async () => resolveNext?.(activityFor('7d')));
     expect(latest?.activity?.window).toBe('7d');
+    expect(latest?.activityMatchesRequest).toBe(true);
   });
 
   it('does not reuse Activity data after the API key scope changes', async () => {

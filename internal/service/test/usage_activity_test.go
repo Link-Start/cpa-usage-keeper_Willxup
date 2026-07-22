@@ -39,6 +39,15 @@ func TestUsageActivityMapsNormalizedTimeRangesToFixedWindowGrains(t *testing.T) 
 		t.Run(testCase.name, func(t *testing.T) {
 			filter := testCase.filter
 			filter.QueryNow = &now
+			if filter.Range == "today" || filter.Range == "yesterday" {
+				start := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.Local)
+				if filter.Range == "yesterday" {
+					start = start.AddDate(0, 0, -1)
+				}
+				end := start.AddDate(0, 0, 1).Add(-time.Nanosecond)
+				filter.StartTime = &start
+				filter.EndTime = &end
+			}
 			activity, err := provider.GetUsageActivity(context.Background(), filter)
 			if err != nil {
 				t.Fatalf("GetUsageActivity returned error: %v", err)
@@ -62,6 +71,126 @@ func TestUsageActivityMapsNormalizedTimeRangesToFixedWindowGrains(t *testing.T) 
 				}
 			}
 		})
+	}
+}
+
+func TestUsageActivityNaturalDayUsesExactLocalDayAndExcludesAdjacentEvents(t *testing.T) {
+	previousLocal := time.Local
+	location, err := time.LoadLocation("Asia/Shanghai")
+	if err != nil {
+		t.Fatalf("load location: %v", err)
+	}
+	time.Local = location
+	t.Cleanup(func() { time.Local = previousLocal })
+
+	db := openUsageActivityServiceDatabase(t)
+	dayStart := time.Date(2026, 7, 20, 0, 0, 0, 0, location)
+	dayEnd := dayStart.AddDate(0, 0, 1)
+	events := []entities.UsageEvent{
+		{EventKey: "calendar-before", APIGroupKey: "provider-a", Timestamp: dayStart.Add(-30 * time.Second), InputTokens: 1000, TotalTokens: 1000},
+		{EventKey: "calendar-start", APIGroupKey: "provider-a", Timestamp: dayStart.Add(30 * time.Second), InputTokens: 10, TotalTokens: 10},
+		{EventKey: "calendar-middle", APIGroupKey: "provider-a", Timestamp: dayStart.Add(12 * time.Hour), Failed: true, OutputTokens: 20, TotalTokens: 20},
+		{EventKey: "calendar-end", APIGroupKey: "provider-a", Timestamp: dayEnd.Add(-30 * time.Second), CacheReadTokens: 30, TotalTokens: 30},
+		{EventKey: "calendar-after", APIGroupKey: "provider-a", Timestamp: dayEnd.Add(30 * time.Second), InputTokens: 2000, TotalTokens: 2000},
+	}
+	if _, _, err := repository.InsertUsageEvents(db, events); err != nil {
+		t.Fatalf("insert calendar Activity events: %v", err)
+	}
+	if err := repository.AggregateUsageActivityStats(context.Background(), db, dayEnd.Add(time.Hour)); err != nil {
+		t.Fatalf("aggregate calendar Activity events: %v", err)
+	}
+	// 自然日查询必须完全复用 Activity 聚合行；删除 raw events 后结果仍应完整。
+	if err := db.Where("event_key LIKE ?", "calendar-%").Delete(&entities.UsageEvent{}).Error; err != nil {
+		t.Fatalf("remove raw calendar Activity events: %v", err)
+	}
+
+	filterEnd := dayEnd.Add(-time.Nanosecond)
+	queryNow := dayEnd.Add(12 * time.Hour)
+	activity, err := service.NewUsageService(db).GetUsageActivity(context.Background(), servicedto.UsageFilter{
+		Range:          "yesterday",
+		RangeUnit:      "day",
+		RangeCount:     1,
+		StartTime:      &dayStart,
+		EndTime:        &filterEnd,
+		ActivityWindow: servicedto.UsageActivityWindow("yesterday"),
+		QueryNow:       &queryNow,
+	})
+	if err != nil {
+		t.Fatalf("GetUsageActivity returned error: %v", err)
+	}
+	if activity.Window != servicedto.UsageActivityWindow24H || activity.Grain != string(entities.UsageActivityGrainShort) {
+		t.Fatalf("unexpected calendar Activity identity: window=%q grain=%q", activity.Window, activity.Grain)
+	}
+	if !activity.WindowStart.Equal(dayStart) || !activity.WindowEnd.Equal(dayEnd) {
+		t.Fatalf("unexpected calendar Activity window: %s..%s", activity.WindowStart, activity.WindowEnd)
+	}
+	if activity.Rows != 7 || activity.Columns != 52 || len(activity.Blocks) != repository.UsageActivityHeatmapBlocks {
+		t.Fatalf("unexpected calendar Activity shape: rows=%d columns=%d blocks=%d", activity.Rows, activity.Columns, len(activity.Blocks))
+	}
+	if activity.TotalSuccess != 2 || activity.TotalFailure != 1 || activity.InputTokens != 10 || activity.OutputTokens != 20 || activity.CacheReadTokens != 30 || activity.TotalTokens != 60 {
+		t.Fatalf("calendar Activity included events outside the selected day: %+v", activity)
+	}
+	var blockSuccess, blockFailure, blockTokens int64
+	for index, block := range activity.Blocks {
+		if index > 0 && !activity.Blocks[index-1].EndTime.Equal(block.StartTime) {
+			t.Fatalf("calendar Activity blocks %d and %d are not contiguous", index-1, index)
+		}
+		blockSuccess += block.Success
+		blockFailure += block.Failure
+		blockTokens += block.TotalTokens
+	}
+	if blockSuccess != activity.TotalSuccess || blockFailure != activity.TotalFailure || blockTokens != activity.TotalTokens {
+		t.Fatalf("calendar Activity header and blocks disagree: header=%d/%d/%d blocks=%d/%d/%d", activity.TotalSuccess, activity.TotalFailure, activity.TotalTokens, blockSuccess, blockFailure, blockTokens)
+	}
+}
+
+func TestUsageActivityTodayKeepsFullDayAxisButExcludesFutureData(t *testing.T) {
+	previousLocal := time.Local
+	location, err := time.LoadLocation("Asia/Shanghai")
+	if err != nil {
+		t.Fatalf("load location: %v", err)
+	}
+	time.Local = location
+	t.Cleanup(func() { time.Local = previousLocal })
+
+	db := openUsageActivityServiceDatabase(t)
+	dayStart := time.Date(2026, 7, 20, 0, 0, 0, 0, location)
+	dayEnd := dayStart.AddDate(0, 0, 1)
+	queryNow := dayStart.Add(12 * time.Hour)
+	events := []entities.UsageEvent{
+		{EventKey: "today-past", APIGroupKey: "provider-a", Timestamp: queryNow.Add(-time.Minute), InputTokens: 10, TotalTokens: 10},
+		{EventKey: "today-future", APIGroupKey: "provider-a", Timestamp: queryNow.Add(time.Minute), InputTokens: 1000, TotalTokens: 1000},
+	}
+	if _, _, err := repository.InsertUsageEvents(db, events); err != nil {
+		t.Fatalf("insert Today Activity events: %v", err)
+	}
+	if err := repository.AggregateUsageActivityStats(context.Background(), db, queryNow); err != nil {
+		t.Fatalf("aggregate Today Activity events: %v", err)
+	}
+
+	filterEnd := dayEnd.Add(-time.Nanosecond)
+	activity, err := service.NewUsageService(db).GetUsageActivity(context.Background(), servicedto.UsageFilter{
+		Range:          "today",
+		RangeUnit:      "day",
+		RangeCount:     1,
+		StartTime:      &dayStart,
+		EndTime:        &filterEnd,
+		ActivityWindow: servicedto.UsageActivityWindow("today"),
+		QueryNow:       &queryNow,
+	})
+	if err != nil {
+		t.Fatalf("GetUsageActivity returned error: %v", err)
+	}
+	if !activity.WindowStart.Equal(dayStart) || !activity.WindowEnd.Equal(dayEnd) {
+		t.Fatalf("Today Activity did not keep the full calendar axis: %s..%s", activity.WindowStart, activity.WindowEnd)
+	}
+	if activity.TotalSuccess != 1 || activity.InputTokens != 10 || activity.TotalTokens != 10 {
+		t.Fatalf("Today Activity included data after QueryNow: %+v", activity)
+	}
+	for _, block := range activity.Blocks {
+		if !block.StartTime.Before(queryNow) && block.Success+block.Failure != 0 {
+			t.Fatalf("Today Activity populated future block %+v", block)
+		}
 	}
 }
 

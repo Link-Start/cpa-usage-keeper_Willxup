@@ -35,6 +35,8 @@ export function useRecentActivityWindow(query: UsageRangeQuery): UseRecentActivi
       ? { window: manualWindow }
       : manualWindow
       ? { range: manualWindow }
+      : query.range === 'today' || query.range === 'yesterday'
+        ? { window: query.range }
       : query.range === 'custom'
         ? { range: query.range, unit: query.unit, start: query.start, end: query.end }
         : { range: query.range }

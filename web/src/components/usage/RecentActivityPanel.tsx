@@ -9,13 +9,19 @@ import {
 import { OverviewActivityCards } from './OverviewActivityCards';
 import styles from '@/pages/UsagePage.module.scss';
 
-const ACTIVITY_WINDOWS: readonly UsageActivityWindow[] = ['24h', '7d', '30d', '1y'];
+const ACTIVITY_WINDOWS: readonly { value: UsageActivityWindow; labelKey: string }[] = [
+  { value: '24h', labelKey: 'usage_stats.recent_activity_window_day' },
+  { value: '7d', labelKey: 'usage_stats.recent_activity_window_week' },
+  { value: '30d', labelKey: 'usage_stats.recent_activity_window_month' },
+  { value: '1y', labelKey: 'usage_stats.recent_activity_window_year' },
+];
 
 export interface RecentActivityPanelProps {
   activity: UsageActivityResponse | null;
   loading: boolean;
   error?: string;
   window: UsageActivityWindow | null;
+  windowIsCurrent: boolean;
   requestIdentity: string;
   onWindowChange: (window: UsageActivityWindow) => void;
 }
@@ -25,6 +31,7 @@ export function RecentActivityPanel({
   loading,
   error,
   window,
+  windowIsCurrent,
   requestIdentity,
   onWindowChange,
 }: RecentActivityPanelProps) {
@@ -55,13 +62,13 @@ export function RecentActivityPanel({
           <div className={styles.recentActivityWindowSwitcher} role="group" aria-label={t('usage_stats.recent_activity_window')}>
             {ACTIVITY_WINDOWS.map((option) => (
               <button
-                key={option}
+                key={option.value}
                 type="button"
-                className={`${styles.recentActivityWindowButton} ${window === option ? styles.recentActivityWindowButtonActive : ''}`.trim()}
-                onClick={() => onWindowChange(option)}
-                aria-pressed={window === option}
+                className={`${styles.recentActivityWindowButton} ${window === option.value ? styles.recentActivityWindowButtonActive : ''}`.trim()}
+                onClick={() => (!windowIsCurrent || window !== option.value) && onWindowChange(option.value)}
+                aria-pressed={window === option.value}
               >
-                {option}
+                {t(option.labelKey)}
               </button>
             ))}
           </div>

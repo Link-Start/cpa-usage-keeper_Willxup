@@ -76,6 +76,38 @@ func TestUsageActivityUsesOverviewTimeQueryAndAcceptsOptionalAPIKey(t *testing.T
 	}
 }
 
+func TestUsageActivityAcceptsCalendarDayWindowModes(t *testing.T) {
+	provider := &usageActivityRouteStub{activity: &servicedto.UsageActivitySnapshot{
+		Window: servicedto.UsageActivityWindow24H, Grain: "short", Rows: 7, Columns: 52, Blocks: []servicedto.UsageActivityBlock{},
+	}}
+	router := NewRouter(nil, nil, provider, nil, AuthConfig{}, nil, "")
+
+	for _, window := range []string{"today", "yesterday"} {
+		t.Run(window, func(t *testing.T) {
+			response := httptest.NewRecorder()
+			path := "/api/v1/usage/activity?window=" + window + "&api_key_id=42"
+			router.ServeHTTP(response, httptest.NewRequest(http.MethodGet, path, nil))
+			if response.Code != http.StatusOK {
+				t.Fatalf("Activity %s status=%d body=%s", window, response.Code, response.Body.String())
+			}
+			if provider.lastFilter.ActivityWindow != servicedto.UsageActivityWindow(window) || provider.lastFilter.Range != window {
+				t.Fatalf("unexpected %s Activity filter: %+v", window, provider.lastFilter)
+			}
+			if provider.lastFilter.RangeUnit != "day" || provider.lastFilter.RangeCount != 1 || provider.lastFilter.APIKeyID != "42" {
+				t.Fatalf("unexpected %s Activity identity: %+v", window, provider.lastFilter)
+			}
+			if provider.lastFilter.StartTime == nil || provider.lastFilter.EndTime == nil {
+				t.Fatalf("%s Activity did not preserve calendar bounds: %+v", window, provider.lastFilter)
+			}
+			start := provider.lastFilter.StartTime.In(time.Local)
+			end := provider.lastFilter.EndTime.In(time.Local)
+			if start.Hour() != 0 || start.Minute() != 0 || start.Second() != 0 || !end.Add(time.Nanosecond).Equal(start.AddDate(0, 0, 1)) {
+				t.Fatalf("unexpected %s Activity bounds: %s..%s", window, start, end)
+			}
+		})
+	}
+}
+
 func TestUsageActivityRangesReturnBackendSelectedFixedTierWindows(t *testing.T) {
 	db, err := repository.OpenDatabase(config.Config{SQLitePath: filepath.Join(t.TempDir(), "usage-activity-ranges.db")})
 	if err != nil {
@@ -93,9 +125,11 @@ func TestUsageActivityRangesReturnBackendSelectedFixedTierWindows(t *testing.T) 
 		wantWindow   string
 		wantDuration time.Duration
 		wantDays     int
+		wantCalendar bool
 	}{
 		{name: "hours", query: "range=8h", wantWindow: "24h", wantDuration: 24 * time.Hour},
-		{name: "today", query: "range=today", wantWindow: "24h", wantDuration: 24 * time.Hour},
+		{name: "today", query: "range=today", wantWindow: "24h", wantDuration: 24 * time.Hour, wantCalendar: true},
+		{name: "yesterday", query: "range=yesterday", wantWindow: "24h", wantDuration: 24 * time.Hour, wantCalendar: true},
 		{name: "one day", query: "range=1d", wantWindow: "24h", wantDuration: 24 * time.Hour},
 		{name: "two days", query: "range=2d", wantWindow: "7d", wantDuration: 7 * 24 * time.Hour},
 		{name: "seven days", query: "range=7d", wantWindow: "7d", wantDuration: 7 * 24 * time.Hour},
@@ -134,6 +168,17 @@ func TestUsageActivityRangesReturnBackendSelectedFixedTierWindows(t *testing.T) 
 			}
 			if payload.Rows != 7 || payload.Columns != 52 || len(payload.Blocks) != repository.UsageActivityHeatmapBlocks {
 				t.Fatalf("unexpected Activity shape: rows=%d columns=%d blocks=%d", payload.Rows, payload.Columns, len(payload.Blocks))
+			}
+			if testCase.wantCalendar {
+				location, err := time.LoadLocation(payload.Timezone)
+				if err != nil {
+					t.Fatalf("load Activity timezone %q: %v", payload.Timezone, err)
+				}
+				windowStart := payload.WindowStart.In(location)
+				windowEnd := payload.WindowEnd.In(location)
+				if windowStart.Hour() != 0 || windowStart.Minute() != 0 || windowStart.Second() != 0 || !windowEnd.Equal(windowStart.AddDate(0, 0, 1)) {
+					t.Fatalf("Activity %s did not keep a local calendar day: %s..%s", testCase.name, windowStart, windowEnd)
+				}
 			}
 			if testCase.wantDays > 0 {
 				location, err := time.LoadLocation(payload.Timezone)
