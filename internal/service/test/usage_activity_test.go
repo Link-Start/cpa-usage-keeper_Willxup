@@ -32,6 +32,7 @@ func TestUsageActivityMapsNormalizedTimeRangesToFixedWindowGrains(t *testing.T) 
 		{name: "two days", filter: servicedto.UsageFilter{Range: "2d", RangeUnit: "day", RangeCount: 2}, wantWindow: servicedto.UsageActivityWindow7D, wantGrain: "medium", wantDuration: 7 * 24 * time.Hour},
 		{name: "seven days", filter: servicedto.UsageFilter{Range: "custom", CustomUnit: "day", RangeUnit: "day", RangeCount: 7}, wantWindow: servicedto.UsageActivityWindow7D, wantGrain: "medium", wantDuration: 7 * 24 * time.Hour},
 		{name: "eight days", filter: servicedto.UsageFilter{Range: "8d", RangeUnit: "day", RangeCount: 8}, wantWindow: servicedto.UsageActivityWindow30D, wantGrain: "long", wantDuration: 30 * 24 * time.Hour},
+		{name: "long custom days", filter: servicedto.UsageFilter{Range: "custom", CustomUnit: "day", RangeUnit: "day", RangeCount: 121}, wantWindow: servicedto.UsageActivityWindow1Y, wantGrain: "daily", wantDays: repository.UsageActivityHeatmapBlocks},
 		{name: "one year", filter: servicedto.UsageFilter{ActivityWindow: servicedto.UsageActivityWindow1Y}, wantWindow: servicedto.UsageActivityWindow1Y, wantGrain: "daily", wantDays: repository.UsageActivityHeatmapBlocks},
 	}
 
@@ -71,6 +72,38 @@ func TestUsageActivityMapsNormalizedTimeRangesToFixedWindowGrains(t *testing.T) 
 				}
 			}
 		})
+	}
+}
+
+func TestLongCustomUsageActivityReadsDailyRollupWithoutRawEvents(t *testing.T) {
+	db := openUsageActivityServiceDatabase(t)
+	now := time.Date(2026, 7, 20, 12, 0, 0, 0, time.UTC)
+	bucket, err := repository.UsageActivityBucketForTimestamp(entities.UsageActivityGrainDaily, now.Add(-24*time.Hour))
+	if err != nil {
+		t.Fatalf("resolve daily Activity bucket: %v", err)
+	}
+	row := entities.UsageActivityStat{
+		Grain: entities.UsageActivityGrainDaily, BucketStart: bucket.Start, BucketEnd: bucket.End,
+		APIGroupKey: "provider-a", SuccessCount: 2, FailureCount: 1, InputTokens: 10, TotalTokens: 30,
+	}
+	if err := db.Create(&row).Error; err != nil {
+		t.Fatalf("seed daily Activity row: %v", err)
+	}
+	if err := db.Migrator().DropTable("usage_events"); err != nil {
+		t.Fatalf("drop raw usage events: %v", err)
+	}
+
+	activity, err := service.NewUsageService(db).GetUsageActivity(context.Background(), servicedto.UsageFilter{
+		Range: "custom", CustomUnit: "day", RangeUnit: "day", RangeCount: 121, QueryNow: &now,
+	})
+	if err != nil {
+		t.Fatalf("GetUsageActivity without raw events returned error: %v", err)
+	}
+	if activity.Window != servicedto.UsageActivityWindow1Y || activity.Grain != string(entities.UsageActivityGrainDaily) {
+		t.Fatalf("unexpected long Custom Activity identity: window=%q grain=%q", activity.Window, activity.Grain)
+	}
+	if activity.TotalSuccess != 2 || activity.TotalFailure != 1 || activity.InputTokens != 10 || activity.TotalTokens != 30 {
+		t.Fatalf("long Custom Activity did not use the daily rollup: %+v", activity)
 	}
 }
 

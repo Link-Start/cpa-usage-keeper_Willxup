@@ -76,6 +76,38 @@ func TestUsageActivityUsesOverviewTimeQueryAndAcceptsOptionalAPIKey(t *testing.T
 	}
 }
 
+func TestUsageActivityAcceptsLongCustomDayRange(t *testing.T) {
+	provider := &usageActivityRouteStub{activity: &servicedto.UsageActivitySnapshot{
+		Window: servicedto.UsageActivityWindow1Y, Grain: "daily", Rows: 7, Columns: 52, Blocks: []servicedto.UsageActivityBlock{},
+	}}
+	router := NewRouter(nil, nil, provider, nil, AuthConfig{}, nil, "")
+	now := time.Now().In(time.Local)
+	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.Local)
+	startDay := today.AddDate(0, 0, -120)
+	path := "/api/v1/usage/activity?range=custom&unit=day&start=" + startDay.Format(time.DateOnly) + "&end=" + today.Format(time.DateOnly) + "&api_key_id=42"
+
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, httptest.NewRequest(http.MethodGet, path, nil))
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("long Custom day Activity status=%d body=%s", response.Code, response.Body.String())
+	}
+	if provider.calls != 1 {
+		t.Fatalf("long Custom day Activity provider calls=%d, want 1", provider.calls)
+	}
+	filter := provider.lastFilter
+	if filter.Range != "custom" || filter.CustomUnit != "day" || filter.RangeUnit != "day" || filter.RangeCount != 121 || filter.APIKeyID != "42" {
+		t.Fatalf("unexpected long Custom day Activity filter: %+v", filter)
+	}
+	if filter.QueryNow == nil || filter.StartTime == nil || !filter.StartTime.Equal(startDay) {
+		t.Fatalf("long Custom day Activity did not preserve query time and start: %+v", filter)
+	}
+	expectedEnd := today.AddDate(0, 0, 1)
+	if filter.EndTime == nil || !filter.EndTime.Equal(expectedEnd) || !filter.EndExclusive {
+		t.Fatalf("long Custom day Activity end=%v exclusive=%v, want %s exclusive", filter.EndTime, filter.EndExclusive, expectedEnd)
+	}
+}
+
 func TestUsageActivityAcceptsCalendarDayWindowModes(t *testing.T) {
 	provider := &usageActivityRouteStub{activity: &servicedto.UsageActivitySnapshot{
 		Window: servicedto.UsageActivityWindow24H, Grain: "short", Rows: 7, Columns: 52, Blocks: []servicedto.UsageActivityBlock{},

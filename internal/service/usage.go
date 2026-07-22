@@ -190,6 +190,8 @@ func usageActivityWindowForFilter(filter servicedto.UsageFilter) (servicedto.Usa
 			return servicedto.UsageActivityWindow7D, nil
 		case filter.RangeCount >= 8 && filter.RangeCount <= 30:
 			return servicedto.UsageActivityWindow30D, nil
+		case filter.Range == "custom" && filter.CustomUnit == "day" && filter.RangeCount > 30:
+			return servicedto.UsageActivityWindow1Y, nil
 		}
 	}
 	return "", fmt.Errorf("unsupported activity time range %q (%s:%d)", filter.Range, filter.RangeUnit, filter.RangeCount)
