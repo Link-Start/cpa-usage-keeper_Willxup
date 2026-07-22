@@ -38,6 +38,11 @@ func parseKeyUsageOverviewTimeFilterQuery(req *http.Request, anchor time.Time) (
 	return parseUsageTimeFilterQueryWithOptions(req, anchor, false, timeutil.UsageQueryRangeOptions{AllowLongCustomDayRange: true})
 }
 
+// Analysis 主数据来自 hourly/daily 汇总，因此和 Overview 一样可以独立放开 Custom 日范围。
+func parseUsageAnalysisTimeFilterQuery(req *http.Request, anchor time.Time) (servicedto.UsageFilter, error) {
+	return parseUsageTimeFilterQueryWithOptions(req, anchor, true, timeutil.UsageQueryRangeOptions{AllowLongCustomDayRange: true})
+}
+
 func parseUsageTimeFilterQueryWithClientAPIKey(req *http.Request, anchor time.Time, includeClientAPIKey bool) (servicedto.UsageFilter, error) {
 	return parseUsageTimeFilterQueryWithOptions(req, anchor, includeClientAPIKey, timeutil.UsageQueryRangeOptions{})
 }
