@@ -169,29 +169,33 @@ func (s *usageService) GetUsageActivity(ctx context.Context, filter servicedto.U
 }
 
 func usageActivityWindowForFilter(filter servicedto.UsageFilter) (servicedto.UsageActivityWindow, error) {
-	// 1y 直接选择 daily；today/yesterday 随后归一化为 Day 视图。
-	if filter.ActivityWindow == servicedto.UsageActivityWindow1Y {
-		return servicedto.UsageActivityWindow1Y, nil
+	// 显式 Activity 档位直接选择对应增量粒度；today/yesterday 随后归一化为 Day 视图。
+	switch filter.ActivityWindow {
+	case servicedto.UsageActivityWindowDay,
+		servicedto.UsageActivityWindowWeek,
+		servicedto.UsageActivityWindowMonth,
+		servicedto.UsageActivityWindowYear:
+		return filter.ActivityWindow, nil
 	}
 	if isUsageActivityCalendarDayFilter(filter) {
-		return servicedto.UsageActivityWindow24H, nil
+		return servicedto.UsageActivityWindowDay, nil
 	}
 	switch filter.RangeUnit {
 	case "hour":
 		if filter.RangeCount < 1 {
 			break
 		}
-		return servicedto.UsageActivityWindow24H, nil
+		return servicedto.UsageActivityWindowDay, nil
 	case "day":
 		switch {
+		case filter.Range == "custom" && filter.CustomUnit == "day":
+			return servicedto.UsageActivityWindowYear, nil
 		case filter.RangeCount == 1:
-			return servicedto.UsageActivityWindow24H, nil
+			return servicedto.UsageActivityWindowDay, nil
 		case filter.RangeCount >= 2 && filter.RangeCount <= 7:
-			return servicedto.UsageActivityWindow7D, nil
+			return servicedto.UsageActivityWindowWeek, nil
 		case filter.RangeCount >= 8 && filter.RangeCount <= 30:
-			return servicedto.UsageActivityWindow30D, nil
-		case filter.Range == "custom" && filter.CustomUnit == "day" && filter.RangeCount > 30:
-			return servicedto.UsageActivityWindow1Y, nil
+			return servicedto.UsageActivityWindowMonth, nil
 		}
 	}
 	return "", fmt.Errorf("unsupported activity time range %q (%s:%d)", filter.Range, filter.RangeUnit, filter.RangeCount)
@@ -206,13 +210,13 @@ func isUsageActivityCalendarDayFilter(filter servicedto.UsageFilter) bool {
 
 func usageActivityGrain(window servicedto.UsageActivityWindow) (entities.UsageActivityGrain, error) {
 	switch window {
-	case servicedto.UsageActivityWindow24H:
+	case servicedto.UsageActivityWindowDay:
 		return entities.UsageActivityGrainShort, nil
-	case servicedto.UsageActivityWindow7D:
+	case servicedto.UsageActivityWindowWeek:
 		return entities.UsageActivityGrainMedium, nil
-	case servicedto.UsageActivityWindow30D:
+	case servicedto.UsageActivityWindowMonth:
 		return entities.UsageActivityGrainLong, nil
-	case servicedto.UsageActivityWindow1Y:
+	case servicedto.UsageActivityWindowYear:
 		return entities.UsageActivityGrainDaily, nil
 	default:
 		return "", fmt.Errorf("unsupported activity window %q", window)

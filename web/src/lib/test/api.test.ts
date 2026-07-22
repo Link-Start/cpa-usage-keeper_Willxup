@@ -134,7 +134,7 @@ describe('fetchUsageEvents', () => {
     vi.stubGlobal('window', { __APP_BASE_PATH__: undefined });
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
       ok: true,
-      json: async () => ({ window: '7d', grain: 'medium', rows: 7, columns: 52, blocks: [] }),
+      json: async () => ({ window: 'week', grain: 'medium', rows: 7, columns: 52, blocks: [] }),
     } as Response);
     const signal = new AbortController().signal;
 
@@ -164,17 +164,17 @@ describe('fetchUsageEvents', () => {
     vi.stubGlobal('window', { __APP_BASE_PATH__: undefined });
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
       ok: true,
-      json: async () => ({ window: '1y', grain: 'daily', rows: 7, columns: 52, blocks: [] }),
+      json: async () => ({ window: 'year', grain: 'daily', rows: 7, columns: 52, blocks: [] }),
     } as Response);
     const signal = new AbortController().signal;
 
-    await fetchUsageActivity({ request: { window: '1y' }, apiKeyId: '42', signal });
-    await fetchKeyActivity({ request: { window: '1y' }, signal });
+    await fetchUsageActivity({ request: { window: 'year' }, apiKeyId: '42', signal });
+    await fetchKeyActivity({ request: { window: 'year' }, signal });
 
     const usageUrl = new URL(String(fetchMock.mock.calls[0][0]), 'http://localhost');
     const keyUrl = new URL(String(fetchMock.mock.calls[1][0]), 'http://localhost');
     for (const url of [usageUrl, keyUrl]) {
-      expect(url.searchParams.get('window')).toBe('1y');
+      expect(url.searchParams.get('window')).toBe('year');
       expect(url.searchParams.get('range')).toBeNull();
     }
     expect(usageUrl.searchParams.get('api_key_id')).toBe('42');
@@ -185,7 +185,7 @@ describe('fetchUsageEvents', () => {
     vi.stubGlobal('window', { __APP_BASE_PATH__: undefined });
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
       ok: true,
-      json: async () => ({ window: '24h', grain: 'short', rows: 7, columns: 52, blocks: [] }),
+      json: async () => ({ window: 'day', grain: 'short', rows: 7, columns: 52, blocks: [] }),
     } as Response);
     const signal = new AbortController().signal;
 

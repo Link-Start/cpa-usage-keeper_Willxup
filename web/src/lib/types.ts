@@ -99,7 +99,7 @@ export interface UsageOverviewSeries {
 	cache_read_rate: Array<number | null>
 }
 
-export type UsageActivityWindow = '24h' | '7d' | '30d' | '1y'
+export type UsageActivityWindow = 'day' | 'week' | 'month' | 'year'
 
 export interface UsageActivityBlock {
   start_time: string
@@ -740,7 +740,7 @@ export interface UsageRangeRequest {
 }
 
 export type UsageActivityRequest = UsageRangeRequest | {
-	window: 'today' | 'yesterday' | '1y'
+	window: UsageActivityWindow | 'today' | 'yesterday'
 }
 
 export interface UsageFilterWindow {

@@ -33,7 +33,7 @@ func (s *usageActivityRouteStub) GetUsageActivity(_ context.Context, filter serv
 
 func TestUsageActivityUsesOverviewTimeQueryAndAcceptsOptionalAPIKey(t *testing.T) {
 	provider := &usageActivityRouteStub{activity: &servicedto.UsageActivitySnapshot{
-		Window: servicedto.UsageActivityWindow7D, Grain: "medium", Rows: 7, Columns: 52, Blocks: []servicedto.UsageActivityBlock{},
+		Window: servicedto.UsageActivityWindowWeek, Grain: "medium", Rows: 7, Columns: 52, Blocks: []servicedto.UsageActivityBlock{},
 	}}
 	router := NewRouter(nil, nil, provider, nil, AuthConfig{}, nil, "")
 
@@ -66,19 +66,19 @@ func TestUsageActivityUsesOverviewTimeQueryAndAcceptsOptionalAPIKey(t *testing.T
 	}
 
 	oneYearResponse := httptest.NewRecorder()
-	oneYearPath := "/api/v1/usage/activity?window=1y&api_key_id=42"
+	oneYearPath := "/api/v1/usage/activity?window=year&api_key_id=42"
 	router.ServeHTTP(oneYearResponse, httptest.NewRequest(http.MethodGet, oneYearPath, nil))
 	if oneYearResponse.Code != http.StatusOK {
 		t.Fatalf("Admin one-year Activity status=%d body=%s", oneYearResponse.Code, oneYearResponse.Body.String())
 	}
-	if provider.calls != 2 || provider.lastFilter.ActivityWindow != servicedto.UsageActivityWindow1Y || provider.lastFilter.APIKeyID != "42" {
+	if provider.calls != 2 || provider.lastFilter.ActivityWindow != servicedto.UsageActivityWindowYear || provider.lastFilter.APIKeyID != "42" {
 		t.Fatalf("unexpected Admin one-year Activity filter: calls=%d filter=%+v", provider.calls, provider.lastFilter)
 	}
 }
 
 func TestUsageActivityAcceptsLongCustomDayRange(t *testing.T) {
 	provider := &usageActivityRouteStub{activity: &servicedto.UsageActivitySnapshot{
-		Window: servicedto.UsageActivityWindow1Y, Grain: "daily", Rows: 7, Columns: 52, Blocks: []servicedto.UsageActivityBlock{},
+		Window: servicedto.UsageActivityWindowYear, Grain: "daily", Rows: 7, Columns: 52, Blocks: []servicedto.UsageActivityBlock{},
 	}}
 	router := NewRouter(nil, nil, provider, nil, AuthConfig{}, nil, "")
 	now := time.Now().In(time.Local)
@@ -110,7 +110,7 @@ func TestUsageActivityAcceptsLongCustomDayRange(t *testing.T) {
 
 func TestUsageActivityAcceptsCalendarDayWindowModes(t *testing.T) {
 	provider := &usageActivityRouteStub{activity: &servicedto.UsageActivitySnapshot{
-		Window: servicedto.UsageActivityWindow24H, Grain: "short", Rows: 7, Columns: 52, Blocks: []servicedto.UsageActivityBlock{},
+		Window: servicedto.UsageActivityWindowDay, Grain: "short", Rows: 7, Columns: 52, Blocks: []servicedto.UsageActivityBlock{},
 	}}
 	router := NewRouter(nil, nil, provider, nil, AuthConfig{}, nil, "")
 
@@ -159,15 +159,18 @@ func TestUsageActivityRangesReturnBackendSelectedFixedTierWindows(t *testing.T) 
 		wantDays     int
 		wantCalendar bool
 	}{
-		{name: "hours", query: "range=8h", wantWindow: "24h", wantDuration: 24 * time.Hour},
-		{name: "today", query: "range=today", wantWindow: "24h", wantDuration: 24 * time.Hour, wantCalendar: true},
-		{name: "yesterday", query: "range=yesterday", wantWindow: "24h", wantDuration: 24 * time.Hour, wantCalendar: true},
-		{name: "one day", query: "range=1d", wantWindow: "24h", wantDuration: 24 * time.Hour},
-		{name: "two days", query: "range=2d", wantWindow: "7d", wantDuration: 7 * 24 * time.Hour},
-		{name: "seven days", query: "range=7d", wantWindow: "7d", wantDuration: 7 * 24 * time.Hour},
-		{name: "eight days", query: "range=8d", wantWindow: "30d", wantDuration: 30 * 24 * time.Hour},
-		{name: "thirty days", query: "range=30d", wantWindow: "30d", wantDuration: 30 * 24 * time.Hour},
-		{name: "one year", query: "window=1y", wantWindow: "1y", wantDays: repository.UsageActivityHeatmapBlocks},
+		{name: "hours", query: "range=8h", wantWindow: "day", wantDuration: 24 * time.Hour},
+		{name: "explicit day", query: "window=day", wantWindow: "day", wantDuration: 24 * time.Hour},
+		{name: "today", query: "range=today", wantWindow: "day", wantDuration: 24 * time.Hour, wantCalendar: true},
+		{name: "yesterday", query: "range=yesterday", wantWindow: "day", wantDuration: 24 * time.Hour, wantCalendar: true},
+		{name: "one day", query: "range=1d", wantWindow: "day", wantDuration: 24 * time.Hour},
+		{name: "two days", query: "range=2d", wantWindow: "week", wantDuration: 7 * 24 * time.Hour},
+		{name: "explicit week", query: "window=week", wantWindow: "week", wantDuration: 7 * 24 * time.Hour},
+		{name: "seven days", query: "range=7d", wantWindow: "week", wantDuration: 7 * 24 * time.Hour},
+		{name: "eight days", query: "range=8d", wantWindow: "month", wantDuration: 30 * 24 * time.Hour},
+		{name: "explicit month", query: "window=month", wantWindow: "month", wantDuration: 30 * 24 * time.Hour},
+		{name: "thirty days", query: "range=30d", wantWindow: "month", wantDuration: 30 * 24 * time.Hour},
+		{name: "explicit year", query: "window=year", wantWindow: "year", wantDays: repository.UsageActivityHeatmapBlocks},
 	}
 
 	for _, testCase := range testCases {
@@ -258,7 +261,7 @@ func TestKeyActivityForcesViewerAPIKeyAndUsesAnIndependentRateLimitScope(t *test
 	provider := &usageActivityRouteStub{
 		UsageProvider: &usageEventsStub{},
 		activity: &servicedto.UsageActivitySnapshot{
-			Window:  servicedto.UsageActivityWindow7D,
+			Window:  servicedto.UsageActivityWindowWeek,
 			Grain:   "medium",
 			Rows:    7,
 			Columns: 52,
@@ -278,13 +281,13 @@ func TestKeyActivityForcesViewerAPIKeyAndUsesAnIndependentRateLimitScope(t *test
 	}
 
 	activityResponse := httptest.NewRecorder()
-	activityRequest := httptest.NewRequest(http.MethodGet, "/api/v1/key-activity?window=1y&api_key_id=not-a-number&page=0&result=bogus", nil)
+	activityRequest := httptest.NewRequest(http.MethodGet, "/api/v1/key-activity?window=year&api_key_id=not-a-number&page=0&result=bogus", nil)
 	activityRequest.AddCookie(&http.Cookie{Name: standardSessionCookieName, Value: token})
 	router.ServeHTTP(activityResponse, activityRequest)
 	if activityResponse.Code != http.StatusOK {
 		t.Fatalf("key Activity status=%d body=%s", activityResponse.Code, activityResponse.Body.String())
 	}
-	if provider.lastFilter.APIKeyID != "42" || provider.lastFilter.ActivityWindow != servicedto.UsageActivityWindow1Y {
+	if provider.lastFilter.APIKeyID != "42" || provider.lastFilter.ActivityWindow != servicedto.UsageActivityWindowYear {
 		t.Fatalf("key Activity should force the viewer API key and preserve time semantics: %+v", provider.lastFilter)
 	}
 }

@@ -27,13 +27,18 @@ func TestUsageActivityMapsNormalizedTimeRangesToFixedWindowGrains(t *testing.T) 
 		wantDuration time.Duration
 		wantDays     int
 	}{
-		{name: "hours", filter: servicedto.UsageFilter{Range: "8h", RangeUnit: "hour", RangeCount: 8}, wantWindow: servicedto.UsageActivityWindow24H, wantGrain: "short", wantDuration: 24 * time.Hour},
-		{name: "one day", filter: servicedto.UsageFilter{Range: "today", RangeUnit: "day", RangeCount: 1}, wantWindow: servicedto.UsageActivityWindow24H, wantGrain: "short", wantDuration: 24 * time.Hour},
-		{name: "two days", filter: servicedto.UsageFilter{Range: "2d", RangeUnit: "day", RangeCount: 2}, wantWindow: servicedto.UsageActivityWindow7D, wantGrain: "medium", wantDuration: 7 * 24 * time.Hour},
-		{name: "seven days", filter: servicedto.UsageFilter{Range: "custom", CustomUnit: "day", RangeUnit: "day", RangeCount: 7}, wantWindow: servicedto.UsageActivityWindow7D, wantGrain: "medium", wantDuration: 7 * 24 * time.Hour},
-		{name: "eight days", filter: servicedto.UsageFilter{Range: "8d", RangeUnit: "day", RangeCount: 8}, wantWindow: servicedto.UsageActivityWindow30D, wantGrain: "long", wantDuration: 30 * 24 * time.Hour},
-		{name: "long custom days", filter: servicedto.UsageFilter{Range: "custom", CustomUnit: "day", RangeUnit: "day", RangeCount: 121}, wantWindow: servicedto.UsageActivityWindow1Y, wantGrain: "daily", wantDays: repository.UsageActivityHeatmapBlocks},
-		{name: "one year", filter: servicedto.UsageFilter{ActivityWindow: servicedto.UsageActivityWindow1Y}, wantWindow: servicedto.UsageActivityWindow1Y, wantGrain: "daily", wantDays: repository.UsageActivityHeatmapBlocks},
+		{name: "hours", filter: servicedto.UsageFilter{Range: "8h", RangeUnit: "hour", RangeCount: 8}, wantWindow: servicedto.UsageActivityWindowDay, wantGrain: "short", wantDuration: 24 * time.Hour},
+		{name: "custom hours", filter: servicedto.UsageFilter{Range: "custom", CustomUnit: "hour", RangeUnit: "hour", RangeCount: 8}, wantWindow: servicedto.UsageActivityWindowDay, wantGrain: "short", wantDuration: 24 * time.Hour},
+		{name: "one day", filter: servicedto.UsageFilter{Range: "today", RangeUnit: "day", RangeCount: 1}, wantWindow: servicedto.UsageActivityWindowDay, wantGrain: "short", wantDuration: 24 * time.Hour},
+		{name: "explicit day", filter: servicedto.UsageFilter{ActivityWindow: servicedto.UsageActivityWindowDay}, wantWindow: servicedto.UsageActivityWindowDay, wantGrain: "short", wantDuration: 24 * time.Hour},
+		{name: "one custom day", filter: servicedto.UsageFilter{Range: "custom", CustomUnit: "day", RangeUnit: "day", RangeCount: 1}, wantWindow: servicedto.UsageActivityWindowYear, wantGrain: "daily", wantDays: repository.UsageActivityHeatmapBlocks},
+		{name: "two days", filter: servicedto.UsageFilter{Range: "2d", RangeUnit: "day", RangeCount: 2}, wantWindow: servicedto.UsageActivityWindowWeek, wantGrain: "medium", wantDuration: 7 * 24 * time.Hour},
+		{name: "explicit week", filter: servicedto.UsageFilter{ActivityWindow: servicedto.UsageActivityWindowWeek}, wantWindow: servicedto.UsageActivityWindowWeek, wantGrain: "medium", wantDuration: 7 * 24 * time.Hour},
+		{name: "seven custom days", filter: servicedto.UsageFilter{Range: "custom", CustomUnit: "day", RangeUnit: "day", RangeCount: 7}, wantWindow: servicedto.UsageActivityWindowYear, wantGrain: "daily", wantDays: repository.UsageActivityHeatmapBlocks},
+		{name: "eight days", filter: servicedto.UsageFilter{Range: "8d", RangeUnit: "day", RangeCount: 8}, wantWindow: servicedto.UsageActivityWindowMonth, wantGrain: "long", wantDuration: 30 * 24 * time.Hour},
+		{name: "explicit month", filter: servicedto.UsageFilter{ActivityWindow: servicedto.UsageActivityWindowMonth}, wantWindow: servicedto.UsageActivityWindowMonth, wantGrain: "long", wantDuration: 30 * 24 * time.Hour},
+		{name: "long custom days", filter: servicedto.UsageFilter{Range: "custom", CustomUnit: "day", RangeUnit: "day", RangeCount: 121}, wantWindow: servicedto.UsageActivityWindowYear, wantGrain: "daily", wantDays: repository.UsageActivityHeatmapBlocks},
+		{name: "explicit year", filter: servicedto.UsageFilter{ActivityWindow: servicedto.UsageActivityWindowYear}, wantWindow: servicedto.UsageActivityWindowYear, wantGrain: "daily", wantDays: repository.UsageActivityHeatmapBlocks},
 	}
 
 	for _, testCase := range testCases {
@@ -75,7 +80,7 @@ func TestUsageActivityMapsNormalizedTimeRangesToFixedWindowGrains(t *testing.T) 
 	}
 }
 
-func TestLongCustomUsageActivityReadsDailyRollupWithoutRawEvents(t *testing.T) {
+func TestCustomDayUsageActivityReadsDailyRollupWithoutRawEvents(t *testing.T) {
 	db := openUsageActivityServiceDatabase(t)
 	now := time.Date(2026, 7, 20, 12, 0, 0, 0, time.UTC)
 	bucket, err := repository.UsageActivityBucketForTimestamp(entities.UsageActivityGrainDaily, now.Add(-24*time.Hour))
@@ -94,16 +99,16 @@ func TestLongCustomUsageActivityReadsDailyRollupWithoutRawEvents(t *testing.T) {
 	}
 
 	activity, err := service.NewUsageService(db).GetUsageActivity(context.Background(), servicedto.UsageFilter{
-		Range: "custom", CustomUnit: "day", RangeUnit: "day", RangeCount: 121, QueryNow: &now,
+		Range: "custom", CustomUnit: "day", RangeUnit: "day", RangeCount: 7, QueryNow: &now,
 	})
 	if err != nil {
 		t.Fatalf("GetUsageActivity without raw events returned error: %v", err)
 	}
-	if activity.Window != servicedto.UsageActivityWindow1Y || activity.Grain != string(entities.UsageActivityGrainDaily) {
-		t.Fatalf("unexpected long Custom Activity identity: window=%q grain=%q", activity.Window, activity.Grain)
+	if activity.Window != servicedto.UsageActivityWindowYear || activity.Grain != string(entities.UsageActivityGrainDaily) {
+		t.Fatalf("unexpected Custom day Activity identity: window=%q grain=%q", activity.Window, activity.Grain)
 	}
 	if activity.TotalSuccess != 2 || activity.TotalFailure != 1 || activity.InputTokens != 10 || activity.TotalTokens != 30 {
-		t.Fatalf("long Custom Activity did not use the daily rollup: %+v", activity)
+		t.Fatalf("Custom day Activity did not use the daily rollup: %+v", activity)
 	}
 }
 
@@ -151,7 +156,7 @@ func TestUsageActivityNaturalDayUsesExactLocalDayAndExcludesAdjacentEvents(t *te
 	if err != nil {
 		t.Fatalf("GetUsageActivity returned error: %v", err)
 	}
-	if activity.Window != servicedto.UsageActivityWindow24H || activity.Grain != string(entities.UsageActivityGrainShort) {
+	if activity.Window != servicedto.UsageActivityWindowDay || activity.Grain != string(entities.UsageActivityGrainShort) {
 		t.Fatalf("unexpected calendar Activity identity: window=%q grain=%q", activity.Window, activity.Grain)
 	}
 	if !activity.WindowStart.Equal(dayStart) || !activity.WindowEnd.Equal(dayEnd) {
