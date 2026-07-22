@@ -147,6 +147,19 @@ func TestParseUsageQueryRangeRejectsInvalidInputs(t *testing.T) {
 	}
 }
 
+func TestParseUsageQueryRangeRejectsMissingAnchor(t *testing.T) {
+	if _, err := timeutil.ParseUsageQueryRangeWithOptions(
+		"custom",
+		"day",
+		"2025-07-22",
+		"2026-07-21",
+		time.Time{},
+		timeutil.UsageQueryRangeOptions{MaxCustomDayRangeDays: timeutil.LongCustomDayRangeMaxDays},
+	); err == nil {
+		t.Fatal("expected a missing query anchor to be rejected")
+	}
+}
+
 func TestParseUsageQueryRangeEnforcesLongCustomDayLimit(t *testing.T) {
 	anchor := time.Date(2026, 7, 21, 12, 0, 0, 0, time.Local)
 	today := time.Date(anchor.Year(), anchor.Month(), anchor.Day(), 0, 0, 0, 0, time.Local)

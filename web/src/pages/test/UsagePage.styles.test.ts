@@ -139,11 +139,9 @@ describe('UsagePage toolbar styles', () => {
     expect(i18nSource.match(/export_busy:/g)).toHaveLength(3)
   })
 
-  it('refreshes applied Custom bounds on both dashboard surfaces', () => {
-    expect(usagePageSource).toContain('scheduleCustomRangeBoundsRefresh({')
-    expect(usagePageSource).toContain('clampStoredUsageRangeStateToCurrentBounds(current')
-    expect(keyOverviewPageSource).toContain('scheduleCustomRangeBoundsRefresh({')
-    expect(keyOverviewPageSource).toContain('clampStoredUsageRangeStateToCurrentBounds(current')
+  it('leaves cross-midnight Custom validation to the backend on both dashboard surfaces', () => {
+    expect(usagePageSource).not.toContain('scheduleCustomRangeBoundsRefresh({')
+    expect(keyOverviewPageSource).not.toContain('scheduleCustomRangeBoundsRefresh({')
   })
 
   it('keeps the mobile API Key group and select at full available width', () => {

@@ -20,14 +20,14 @@ import {
 import type { UsageOverviewPayload } from '@/components/usage/hooks/useUsageData';
 import { BrandLink } from '@/components/BrandLink';
 import { getCurrentOverviewUsage, getDailyAveragePanelUsage, getOverviewDisplayLoading, isDailyAverageRange } from '@/utils/usage/overview';
-import { clampStoredUsageRangeStateToCurrentBounds, parseStoredUsageRangeState, scheduleCustomRangeBoundsRefresh, serializeUsageRangeState, type StoredUsageRangeState } from '@/utils/usage/customRange';
+import { parseStoredUsageRangeState, serializeUsageRangeState, type StoredUsageRangeState } from '@/utils/usage/customRange';
 import { buildUsageRangeQuery } from '@/utils/usage/rangeQuery';
 import type { Theme } from '@/types';
 import styles from './KeyOverviewPage.module.scss';
 
 const KEY_OVERVIEW_RANGE_STORAGE_KEY = 'cli-proxy-key-overview-range-v1';
 const OVERVIEW_REALTIME_WINDOW_STORAGE_KEY = 'cli-proxy-usage-overview-realtime-window-v1';
-const DEFAULT_TIME_RANGE: UsageTimeRange = '8h';
+const DEFAULT_TIME_RANGE: UsageTimeRange = 'today';
 const DEFAULT_REALTIME_WINDOW: OverviewRealtimeWindow = '15m';
 const KEY_OVERVIEW_REALTIME_VISIBLE_DIMENSIONS = ['models'] as const;
 const REFRESH_THROTTLE_MS = 1_000;
@@ -335,18 +335,6 @@ export function KeyOverviewPage({ apiKey, onAuthRequired }: KeyOverviewPageProps
       // ignore storage failures
     }
   }, [timeRangeState]);
-
-  useEffect(() => scheduleCustomRangeBoundsRefresh({
-    enabled: timeRange === 'custom' && Boolean(rangeTimeZone),
-    refreshBounds: () => {
-      const timeZone = rangeTimeZone?.trim();
-      if (!timeZone) return;
-      setTimeRangeState((current) => clampStoredUsageRangeStateToCurrentBounds(current, {
-        nowMs: Date.now(),
-        timeZone,
-      }));
-    },
-  }), [rangeTimeZone, timeRange]);
 
   useEffect(() => {
     try {

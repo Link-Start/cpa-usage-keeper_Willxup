@@ -415,54 +415,6 @@ describe('TimeRangeControl', () => {
     expect(document.querySelector<HTMLButtonElement>('[aria-label="usage_stats.range_custom_previous_month"]')?.disabled).toBe(true);
   });
 
-  it.each([
-    { timeZone: 'UTC', beforeMidnight: '2026-07-17T23:59:30.000Z', afterMidnight: '2026-07-18T00:00:01.000Z' },
-    { timeZone: 'Asia/Shanghai', beforeMidnight: '2026-07-17T15:59:30.000Z', afterMidnight: '2026-07-17T16:00:01.000Z' },
-  ])('clamps an open Custom draft before applying across $timeZone midnight', async ({ timeZone, beforeMidnight, afterMidnight }) => {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date(beforeMidnight));
-    const onChange = vi.fn();
-    await renderControl('custom', onChange, {
-      unit: 'day',
-      start: '2025-07-18',
-      end: '2026-07-17',
-    }, timeZone);
-    const trigger = document.querySelector<HTMLButtonElement>('[data-time-range-trigger="desktop"]');
-    await act(async () => trigger?.click());
-
-    vi.setSystemTime(new Date(afterMidnight));
-    await act(async () => document.querySelector<HTMLButtonElement>('[data-custom-summary-apply]')?.click());
-
-    expect(onChange).toHaveBeenCalledWith('custom', {
-      unit: 'day',
-      start: '2025-07-19',
-      end: '2026-07-17',
-    });
-  });
-
-  it.each([
-    { timeZone: 'UTC', beforeMidnight: '2026-07-17T23:59:30.000Z' },
-    { timeZone: 'Asia/Shanghai', beforeMidnight: '2026-07-17T15:59:30.000Z' },
-  ])('refreshes an open Custom calendar across $timeZone midnight', async ({ timeZone, beforeMidnight }) => {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date(beforeMidnight));
-    await renderControl('custom', vi.fn(), {
-      unit: 'day',
-      start: '2025-07-18',
-      end: '2026-07-17',
-    }, timeZone);
-    const trigger = document.querySelector<HTMLButtonElement>('[data-time-range-trigger="desktop"]');
-    await act(async () => trigger?.click());
-    await act(async () => document.querySelector<HTMLButtonElement>('[data-custom-endpoint="start"]')?.click());
-
-    expect(document.querySelector<HTMLButtonElement>('[data-custom-calendar-cell="2025-07-18"]')?.disabled).toBe(false);
-
-    await act(async () => vi.advanceTimersByTimeAsync(60_000));
-
-    expect(document.querySelector<HTMLButtonElement>('[data-custom-calendar-cell="2025-07-18"]')?.disabled).toBe(true);
-    expect(document.querySelector<HTMLButtonElement>('[data-custom-calendar-cell="2025-07-19"]')?.disabled).toBe(false);
-  });
-
   it('keeps crossed-month ranges continuous inside a fixed six-week calendar', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-07-17T07:36:42.000Z'));
@@ -574,6 +526,16 @@ describe('TimeRangeControl', () => {
     expect(document.querySelector('[data-custom-day-picker]')).not.toBeNull();
     expect(document.querySelectorAll('[data-custom-day]').length).toBeGreaterThan(0);
     expect(document.querySelector('input[type="date"], input[type="time"], input[type="datetime-local"]')).toBeNull();
+  });
+
+  it('shows the one-year limit while drafting a Custom day range', async () => {
+    await renderControl('8h');
+    const trigger = document.querySelector<HTMLButtonElement>('[data-time-range-trigger="desktop"]');
+    await act(async () => trigger?.click());
+    await act(async () => document.querySelector<HTMLButtonElement>('[data-time-range-mode="custom"]')?.click());
+
+    expect(document.querySelector('[data-custom-range-limit-hint]')?.textContent)
+      .toBe('usage_stats.range_custom_day_limit_hint');
   });
 
   it('uses two custom 24-slot hour lists and disables too-short end choices', async () => {

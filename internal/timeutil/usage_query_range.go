@@ -41,11 +41,14 @@ func ParseUsageQueryRange(rangeValue, unitValue, startValue, endValue string, an
 	return ParseUsageQueryRangeWithOptions(rangeValue, unitValue, startValue, endValue, anchor, UsageQueryRangeOptions{})
 }
 
-// ParseUsageQueryRangeWithOptions 在保留公共默认限制的基础上应用调用方显式策略。
+// ParseUsageQueryRangeWithOptions 在保留公共默认限制的基础上应用调用方显式策略；anchor 必须提供查询时的当前时间。
 func ParseUsageQueryRangeWithOptions(rangeValue, unitValue, startValue, endValue string, anchor time.Time, options UsageQueryRangeOptions) (UsageQueryRange, error) {
 	rangeValue = strings.TrimSpace(rangeValue)
 	if rangeValue == "" {
 		return UsageQueryRange{}, fmt.Errorf("usage range is required")
+	}
+	if anchor.IsZero() {
+		return UsageQueryRange{}, fmt.Errorf("usage range anchor is required")
 	}
 
 	switch rangeValue {
@@ -132,15 +135,13 @@ func parseCustomUsageDayRange(startValue, endValue string, anchor time.Time, max
 	if startTime.After(endDay) {
 		return UsageQueryRange{}, fmt.Errorf("custom range start must be before end")
 	}
-	if !anchor.IsZero() {
-		localAnchor := NormalizeStorageTime(anchor)
-		today := time.Date(localAnchor.Year(), localAnchor.Month(), localAnchor.Day(), 0, 0, 0, 0, time.Local)
-		if startTime.Before(today.AddDate(0, 0, -(maxDays - 1))) {
-			return UsageQueryRange{}, fmt.Errorf("custom day range must stay within the most recent %d calendar days", maxDays)
-		}
-		if endDay.After(today) {
-			return UsageQueryRange{}, fmt.Errorf("custom day range cannot end in the future")
-		}
+	localAnchor := NormalizeStorageTime(anchor)
+	today := time.Date(localAnchor.Year(), localAnchor.Month(), localAnchor.Day(), 0, 0, 0, 0, time.Local)
+	if startTime.Before(today.AddDate(0, 0, -(maxDays - 1))) {
+		return UsageQueryRange{}, fmt.Errorf("custom day range must stay within the most recent %d calendar days", maxDays)
+	}
+	if endDay.After(today) {
+		return UsageQueryRange{}, fmt.Errorf("custom day range cannot end in the future")
 	}
 
 	count := 1
@@ -173,15 +174,13 @@ func parseCustomUsageHourRange(startValue, endValue string, anchor time.Time) (U
 	if endHour.Sub(startTime)%time.Hour != 0 || selectedHours < 5 || selectedHours > 24 {
 		return UsageQueryRange{}, fmt.Errorf("custom hour range must include between 5 and 24 hours")
 	}
-	if !anchor.IsZero() {
-		localAnchor := NormalizeStorageTime(anchor)
-		currentHour := localAnchor.Add(-time.Duration(localAnchor.Minute())*time.Minute - time.Duration(localAnchor.Second())*time.Second - time.Duration(localAnchor.Nanosecond()))
-		if startTime.Before(currentHour.Add(-23 * time.Hour)) {
-			return UsageQueryRange{}, fmt.Errorf("custom hour range cannot start more than 24 hours ago")
-		}
-		if endHour.After(currentHour) {
-			return UsageQueryRange{}, fmt.Errorf("custom hour range cannot end in the future")
-		}
+	localAnchor := NormalizeStorageTime(anchor)
+	currentHour := localAnchor.Add(-time.Duration(localAnchor.Minute())*time.Minute - time.Duration(localAnchor.Second())*time.Second - time.Duration(localAnchor.Nanosecond()))
+	if startTime.Before(currentHour.Add(-23 * time.Hour)) {
+		return UsageQueryRange{}, fmt.Errorf("custom hour range cannot start more than 24 hours ago")
+	}
+	if endHour.After(currentHour) {
+		return UsageQueryRange{}, fmt.Errorf("custom hour range cannot end in the future")
 	}
 	return UsageQueryRange{
 		Range:        "custom",

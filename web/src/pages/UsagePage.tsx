@@ -37,7 +37,7 @@ import {
   REQUEST_EVENT_COLUMN_IDS,
   type RequestEventColumnId,
 } from '@/components/usage/RequestEventsDetailsCard';
-import { clampStoredUsageRangeStateToCurrentBounds, parseLegacyCustomRange, parseStoredUsageRangeState, scheduleCustomRangeBoundsRefresh, serializeUsageRangeState, type StoredUsageRangeState } from '@/utils/usage/customRange';
+import { clampStoredUsageRangeStateToCurrentBounds, parseLegacyCustomRange, parseStoredUsageRangeState, serializeUsageRangeState, type StoredUsageRangeState } from '@/utils/usage/customRange';
 import { buildUsageRangeQuery } from '@/utils/usage/rangeQuery';
 import { getDailyAveragePanelUsage, isDailyAverageRange } from '@/utils/usage/overview';
 import type { Theme } from '@/types';
@@ -49,7 +49,7 @@ const TIME_RANGE_STORAGE_KEY = 'cli-proxy-usage-time-range-v1';
 const LEGACY_CUSTOM_RANGE_STORAGE_KEY = 'cli-proxy-usage-custom-range-v1';
 const OVERVIEW_REALTIME_WINDOW_STORAGE_KEY = 'cli-proxy-usage-overview-realtime-window-v1';
 export const REQUEST_EVENTS_PREFERENCES_STORAGE_KEY = 'cli-proxy-usage-request-events-preferences-v1';
-const DEFAULT_TIME_RANGE: UsageTimeRange = '8h';
+const DEFAULT_TIME_RANGE: UsageTimeRange = 'today';
 const DEFAULT_REALTIME_WINDOW: OverviewRealtimeWindow = '15m';
 const THEME_OPTIONS: ReadonlyArray<{ value: Theme; labelKey: string }> = [
   { value: 'white', labelKey: 'usage_stats.theme_light' },
@@ -1160,18 +1160,6 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     }
     setTimeRangeState(migratedState);
   }, [rangeTimeZone]);
-
-  useEffect(() => scheduleCustomRangeBoundsRefresh({
-    enabled: timeRange === 'custom' && Boolean(rangeTimeZone),
-    refreshBounds: () => {
-      const timeZone = rangeTimeZone?.trim();
-      if (!timeZone) return;
-      setTimeRangeState((current) => clampStoredUsageRangeStateToCurrentBounds(current, {
-        nowMs: Date.now(),
-        timeZone,
-      }));
-    },
-  }), [rangeTimeZone, timeRange]);
 
   useEffect(() => {
     try {

@@ -140,6 +140,11 @@ function CustomRangeSummary({
         <span>{t(value.unit === 'hour' ? 'usage_stats.range_custom_hours_count' : 'usage_stats.range_custom_days_count', { count: slotCount })}</span>
         <strong>{timeZone}</strong>
       </div>
+      {value.unit === 'day' && (
+        <small className={styles.customRangeLimitHint} data-custom-range-limit-hint>
+          {t('usage_stats.range_custom_day_limit_hint')}
+        </small>
+      )}
       <div className={styles.customSummaryActions}>
         <Button type="button" variant="secondary" size="sm" className={styles.customRangeAction} data-custom-summary-cancel onClick={onCancel}>
           {t('common.cancel')}
@@ -287,6 +292,11 @@ export function CustomRangePanel({ value, timeZone, locale, anchorMs, onChange, 
         </span>
       </div>
       {endpointCards}
+      {value.unit === 'day' && (
+        <small className={styles.customRangeLimitHint} data-custom-range-limit-hint>
+          {t('usage_stats.range_custom_day_limit_hint')}
+        </small>
+      )}
 
       {view === 'day' ? (
         <div className={styles.customCalendar} data-custom-calendar-month={visibleMonth}>
