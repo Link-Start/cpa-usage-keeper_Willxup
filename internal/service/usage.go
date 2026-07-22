@@ -93,7 +93,7 @@ func (s *usageService) GetUsageOverview(ctx context.Context, filter servicedto.U
 	}, nil
 }
 
-// GetUsageActivity 只用统一时间条件选择展示档位；实际 Activity 仍结束于服务器当前时间。
+// GetUsageActivity 用统一时间条件选择档位；today/yesterday 额外保留本地自然日边界。
 func (s *usageService) GetUsageActivity(ctx context.Context, filter servicedto.UsageFilter) (*servicedto.UsageActivitySnapshot, error) {
 	ctx = usageServiceContext(ctx)
 	apiGroupKey, err := s.resolveAPIGroupKey(ctx, filter.APIKeyID)
@@ -115,7 +115,15 @@ func (s *usageService) GetUsageActivity(ctx context.Context, filter servicedto.U
 	if referenceEnd.IsZero() {
 		referenceEnd = time.Now()
 	}
-	grid, err := repository.QueryUsageActivityGrid(ctx, s.db, grain, referenceEnd, apiGroupKey)
+	dataEnd := referenceEnd
+	if isUsageActivityCalendarDayFilter(filter) {
+		if filter.StartTime == nil {
+			return nil, fmt.Errorf("activity calendar window %q requires start time", filter.ActivityWindow)
+		}
+		// Today/Yesterday 只改变网格终点，仍复用普通 Activity 聚合查询。
+		referenceEnd = filter.StartTime.AddDate(0, 0, 1)
+	}
+	grid, err := repository.QueryUsageActivityGrid(ctx, s.db, grain, referenceEnd, dataEnd, apiGroupKey)
 	if err != nil {
 		return nil, err
 	}
@@ -163,9 +171,12 @@ func (s *usageService) GetUsageActivity(ctx context.Context, filter servicedto.U
 }
 
 func usageActivityWindowForFilter(filter servicedto.UsageFilter) (servicedto.UsageActivityWindow, error) {
-	// Activity 专属窗口优先于公共时间条件，目前只有 1y 不属于公共 1-30d 范围。
+	// 1y 直接选择 daily；today/yesterday 随后归一化为 Day 视图。
 	if filter.ActivityWindow == servicedto.UsageActivityWindow1Y {
 		return servicedto.UsageActivityWindow1Y, nil
+	}
+	if isUsageActivityCalendarDayFilter(filter) {
+		return servicedto.UsageActivityWindow24H, nil
 	}
 	switch filter.RangeUnit {
 	case "hour":
@@ -184,6 +195,13 @@ func usageActivityWindowForFilter(filter servicedto.UsageFilter) (servicedto.Usa
 		}
 	}
 	return "", fmt.Errorf("unsupported activity time range %q (%s:%d)", filter.Range, filter.RangeUnit, filter.RangeCount)
+}
+
+func isUsageActivityCalendarDayFilter(filter servicedto.UsageFilter) bool {
+	if filter.ActivityWindow == servicedto.UsageActivityWindowToday || filter.ActivityWindow == servicedto.UsageActivityWindowYesterday {
+		return true
+	}
+	return filter.Range == "today" || filter.Range == "yesterday"
 }
 
 func usageActivityGrain(window servicedto.UsageActivityWindow) (entities.UsageActivityGrain, error) {

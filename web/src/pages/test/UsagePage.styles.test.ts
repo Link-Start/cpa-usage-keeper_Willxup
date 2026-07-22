@@ -409,7 +409,7 @@ describe('UsagePage toolbar styles', () => {
     expect(healthCountRule).toContain('font-size: 10px;')
     expect(tokenValueRule).toContain('color: #3b82f6;')
     expect(serviceHealthCardSource).not.toContain('styles.requestActivityCard')
-    expect(typesSource).toMatch(/UsageActivityRequest\s*=\s*UsageRangeRequest\s*\|\s*\{\s*window:\s*'1y'/)
+    expect(typesSource).toMatch(/UsageActivityRequest\s*=\s*UsageRangeRequest\s*\|\s*\{\s*window:\s*'today'\s*\|\s*'yesterday'\s*\|\s*'1y'/)
     expect(usagePageStyles).toMatch(/@include mobile\s*\{[\s\S]*?\.activitySummary\s*\{[\s\S]*?justify-items:\s*start;[\s\S]*?text-align:\s*left;/)
     expect(usagePageStyles).toMatch(/@include mobile\s*\{[\s\S]*?\.activitySummaryDetails\s*\{[\s\S]*?justify-content:\s*flex-start;/)
   })

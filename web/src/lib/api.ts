@@ -317,7 +317,7 @@ export interface FetchUsageActivityOptions {
 }
 
 const buildUsageActivityParams = (request: UsageActivityRequest): URLSearchParams => {
-  // Activity 专属窗口绕过公共 Usage range；其余请求继续复用 Overview 的时间参数。
+  // 显式 Activity window 使用 window 参数；其余选择复用 Overview 的 range 参数。
   if ('window' in request) {
     const params = new URLSearchParams()
     params.set('window', request.window)

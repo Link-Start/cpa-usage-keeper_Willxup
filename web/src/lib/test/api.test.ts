@@ -181,6 +181,28 @@ describe('fetchUsageEvents', () => {
     expect(keyUrl.searchParams.get('api_key_id')).toBeNull();
   });
 
+  it('loads calendar-day Recent Activity through dedicated window parameters', async () => {
+    vi.stubGlobal('window', { __APP_BASE_PATH__: undefined });
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+      ok: true,
+      json: async () => ({ window: '24h', grain: 'short', rows: 7, columns: 52, blocks: [] }),
+    } as Response);
+    const signal = new AbortController().signal;
+
+    await fetchUsageActivity({ request: { window: 'today' }, apiKeyId: '42', signal });
+    await fetchKeyActivity({ request: { window: 'yesterday' }, signal });
+
+    const usageUrl = new URL(String(fetchMock.mock.calls[0][0]), 'http://localhost');
+    const keyUrl = new URL(String(fetchMock.mock.calls[1][0]), 'http://localhost');
+    expect(usageUrl.searchParams.get('window')).toBe('today');
+    expect(keyUrl.searchParams.get('window')).toBe('yesterday');
+    for (const url of [usageUrl, keyUrl]) {
+      expect(url.searchParams.get('range')).toBeNull();
+    }
+    expect(usageUrl.searchParams.get('api_key_id')).toBe('42');
+    expect(keyUrl.searchParams.get('api_key_id')).toBeNull();
+  });
+
   it('normalizes key overview realtime responses that omit internal usage dimensions', async () => {
     vi.stubGlobal('window', { __APP_BASE_PATH__: undefined });
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({

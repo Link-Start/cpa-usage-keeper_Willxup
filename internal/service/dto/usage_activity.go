@@ -4,7 +4,7 @@ import (
 	"time"
 )
 
-// UsageActivityWindow 是 Recent Activity 接口允许的固定展示窗口。
+// UsageActivityWindow 同时承载固定展示档位和归一化为 Day 视图的自然日请求模式。
 type UsageActivityWindow string
 
 const (
@@ -12,6 +12,9 @@ const (
 	UsageActivityWindow7D  UsageActivityWindow = "7d"
 	UsageActivityWindow30D UsageActivityWindow = "30d"
 	UsageActivityWindow1Y  UsageActivityWindow = "1y"
+	// Today 与 Yesterday 只用于请求，响应统一返回 24h/Day 档位。
+	UsageActivityWindowToday     UsageActivityWindow = "today"
+	UsageActivityWindowYesterday UsageActivityWindow = "yesterday"
 )
 
 // UsageActivityBlock 是 Request Health 与 Token Activity 共用的真实半开时间块。
