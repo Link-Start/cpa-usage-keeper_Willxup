@@ -9,6 +9,7 @@ const usagePageSource = readSource(new URL('../UsagePage.tsx', import.meta.url))
 const keyOverviewPageStyles = readSource(new URL('../KeyOverviewPage.module.scss', import.meta.url))
 const keyOverviewPageSource = readSource(new URL('../KeyOverviewPage.tsx', import.meta.url))
 const requestEventsSource = readSource(new URL('../../components/usage/RequestEventsDetailsCard.tsx', import.meta.url))
+const requestEventsColumnSettingsSource = readSource(new URL('../../components/usage/RequestEventsColumnSettingsModal.tsx', import.meta.url))
 const priceSettingsSource = readSource(new URL('../../components/usage/PriceSettingsCard.tsx', import.meta.url))
 const credentialStyles = readSource(new URL('../../components/usage/credentials/CredentialSections.module.scss', import.meta.url))
 const selectSource = readSource(new URL('../../components/ui/Select.tsx', import.meta.url))
@@ -384,7 +385,7 @@ describe('UsagePage toolbar styles', () => {
 
   it('places the Daily Average reduced-motion override after its animation rules', () => {
     const slotStylesIndex = usagePageStyles.indexOf('.dailyAverageSlot {', usagePageStyles.indexOf('// Stats Layout'))
-    const reducedMotionIndex = usagePageStyles.lastIndexOf('@media (prefers-reduced-motion: reduce)')
+    const reducedMotionIndex = usagePageStyles.indexOf('@media (prefers-reduced-motion: reduce)', slotStylesIndex)
     const reducedMotionStyles = usagePageStyles.slice(reducedMotionIndex)
 
     expect(reducedMotionIndex).toBeGreaterThan(slotStylesIndex)
@@ -1121,5 +1122,35 @@ describe('UsagePage toolbar styles', () => {
     expect(clearFilterButtonBlock).toMatch(/min-height:\s*32px;/)
     expect(clearFilterButtonBlock).not.toContain('margin-bottom')
     expect(usagePageStyles).toMatch(/\.requestEventsClearFiltersButton:global\(\.btn\.btn-sm\)\s*\{[\s\S]*?min-height:\s*32px;[\s\S]*?padding:\s*7px 12px;[\s\S]*?font-size:\s*12px;/)
+  })
+
+  it('matches Request Event header action spacing to Auth Files actions', () => {
+    const requestEventActionsBlock = styleRuleBlock(usagePageStyles, '.requestEventsActions')
+    const credentialActionsBlock = styleRuleBlock(credentialStyles, '.credentialSectionActionButtons')
+
+    expect(credentialActionsBlock).toContain('gap: 10px;')
+    expect(requestEventActionsBlock).toContain('gap: 10px;')
+  })
+
+  it('matches the Request Event column visibility switch to Auth Files Enabled only', () => {
+    const visibilitySwitchBlock = usagePageStyles.slice(
+      usagePageStyles.indexOf('.requestEventsColumnVisibilityControl {'),
+      usagePageStyles.indexOf('.requestEventsColumnSettingsAction:global(.btn.btn-sm) {')
+    )
+
+    expect(visibilitySwitchBlock).toMatch(/\.requestEventsColumnVisibilityTrack\s*\{[\s\S]*?width:\s*42px;[\s\S]*?height:\s*24px;/)
+    expect(visibilitySwitchBlock).toContain('background: linear-gradient(135deg, #2563eb 0%, #38bdf8 58%, #67e8f9 100%);')
+    expect(visibilitySwitchBlock).toMatch(/\.requestEventsColumnVisibilityThumb\s*\{[\s\S]*?width:\s*20px;[\s\S]*?height:\s*20px;/)
+    expect(visibilitySwitchBlock).toContain('background: linear-gradient(145deg, #fff, color-mix(in srgb, var(--bg-primary) 86%, #dbeafe));')
+    expect(visibilitySwitchBlock).toContain('transform: translateX(18px);')
+    expect(requestEventsColumnSettingsSource).toContain('styles.requestEventsColumnVisibilityTrack')
+    expect(requestEventsColumnSettingsSource).toContain('styles.requestEventsColumnVisibilityThumb')
+    expect(credentialStyles).toContain('background: linear-gradient(135deg, #2563eb 0%, #38bdf8 58%, #67e8f9 100%);')
+  })
+
+  it('disables Request Event column switch transitions for reduced motion', () => {
+    expect(usagePageStyles).toMatch(
+      /@media \(prefers-reduced-motion: reduce\)\s*\{[\s\S]*?\.requestEventsColumnVisibilityTrack,[\s\S]*?\.requestEventsColumnVisibilityThumb\s*\{[\s\S]*?transition:\s*none;/
+    )
   })
 })
