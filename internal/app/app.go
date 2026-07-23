@@ -17,6 +17,7 @@ import (
 	"cpa-usage-keeper/internal/cpa"
 	"cpa-usage-keeper/internal/logging"
 	"cpa-usage-keeper/internal/poller"
+	"cpa-usage-keeper/internal/pricing"
 	"cpa-usage-keeper/internal/quota"
 	"cpa-usage-keeper/internal/repository"
 	"cpa-usage-keeper/internal/service"
@@ -65,6 +66,7 @@ type App struct {
 	QuotaAutoRefresh  QuotaRunner
 	BackupMaintenance *DatabaseBackupRunner
 	RecentUsageCache  *repository.UsageRecentEventCache
+	PricingCatalog    *pricing.Catalog
 	LogCloser         io.Closer
 
 	backgroundCancel context.CancelFunc
@@ -107,9 +109,25 @@ func NewWithConfig(cfg config.Config) (*App, error) {
 		logrus.WithError(err).Error("recent usage event cache initialization failed; falling back to database queries")
 		recentUsageCache = nil
 	}
+	pricingSnapshot, err := repository.LoadPricingSnapshot(context.Background(), db)
+	if err != nil {
+		if recentUsageCache != nil {
+			recentUsageCache.Close()
+		}
+		if readDB != db {
+			_ = closeGormDB(readDB)
+		}
+		_ = closeGormDB(db)
+		_ = logCloser.Close()
+		return nil, fmt.Errorf("load pricing snapshot: %w", err)
+	}
+	pricingCatalog := pricing.NewCatalog(pricingSnapshot)
 
 	cpaClient := cpa.NewClient(cfg.CPABaseURL, cfg.CPAManagementKey, cfg.RequestTimeout, cfg.TLSSkipVerify)
-	quotaService := quota.NewServiceWithOptions(db, cpaClient, quota.ServiceOptions{RefreshWorkerLimit: cfg.QuotaRefreshWorkerLimit})
+	quotaService := quota.NewServiceWithOptions(db, cpaClient, quota.ServiceOptions{
+		RefreshWorkerLimit: cfg.QuotaRefreshWorkerLimit,
+		PricingCatalog:     pricingCatalog,
+	})
 	// 单 writer aggregation runner 复用同一个数据库和 quota appender，并在 App.Run 时主动追平。
 	usageAggregationRunner := poller.NewUsageAggregationRunner(db, quotaService)
 	// syncService 仍然是 metadata 和 usage 处理共享的业务服务入口。
@@ -190,7 +208,10 @@ func NewWithConfig(cfg config.Config) (*App, error) {
 	}
 
 	// 所有服务统一接收同一个 DB；Query/Row 走 reader，Create/Update/Delete 和默认事务走 writer。
-	usageService := service.NewUsageServiceWithRecentCache(db, recentUsageCache)
+	usageService := service.NewUsageServiceWithOptions(db, service.UsageServiceOptions{
+		RecentUsage:    recentUsageCache,
+		PricingCatalog: pricingCatalog,
+	})
 	requestLogService := service.NewRequestLogService(db, cpaClient)
 	usageIdentityService := service.NewUsageIdentityServiceWithOptions(db, recentUsageCache, service.UsageIdentityServiceOptions{
 		OnDisplayNameChanged: quotaService.UpdateUsageIdentityDisplayNameSnapshot,
@@ -200,7 +221,7 @@ func NewWithConfig(cfg config.Config) (*App, error) {
 	if cfg.TLSSkipVerify {
 		logrus.WithField("cpa_base_url", cfg.CPABaseURL).Warn("TLS certificate verification is disabled for CPA and Redis queue connections")
 	}
-	pricingService := service.NewPricingService(db, cpaClient)
+	pricingService := service.NewPricingService(db, pricingCatalog, cpaClient)
 	sessionManager := auth.NewSessionManager(cfg.AuthSessionTTL)
 	if cfg.AuthEnabled {
 		// Session Get/List 自动走 reader，Save/Delete 仍由写回调路由到唯一 writer。
@@ -232,6 +253,7 @@ func NewWithConfig(cfg config.Config) (*App, error) {
 		QuotaAutoRefresh:  quotaService,
 		BackupMaintenance: backupMaintenance,
 		RecentUsageCache:  recentUsageCache,
+		PricingCatalog:    pricingCatalog,
 		LogCloser:         logCloser,
 		Router: api.NewRouter(
 			webui.Static,
