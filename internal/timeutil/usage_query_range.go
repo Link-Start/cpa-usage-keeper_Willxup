@@ -1,6 +1,7 @@
 package timeutil
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -13,6 +14,22 @@ const (
 	UsageQueryUnitHour UsageQueryUnit = "hour"
 	UsageQueryUnitDay  UsageQueryUnit = "day"
 )
+
+type usageQueryRangeBoundsConflictError struct {
+	message string
+}
+
+func (err usageQueryRangeBoundsConflictError) Error() string {
+	return err.message
+}
+
+func (usageQueryRangeBoundsConflictError) UsageQueryRangeBoundsConflict() {}
+
+// IsUsageQueryRangeBoundsConflict 判断请求是否仅因当前时间边界推进而失效。
+func IsUsageQueryRangeBoundsConflict(err error) bool {
+	var target interface{ UsageQueryRangeBoundsConflict() }
+	return errors.As(err, &target)
+}
 
 // UsageQueryRange 是脱离 HTTP 与业务 DTO 的规范化 Usage 时间范围。
 type UsageQueryRange struct {
@@ -135,19 +152,22 @@ func parseCustomUsageDayRange(startValue, endValue string, anchor time.Time, max
 	if startTime.After(endDay) {
 		return UsageQueryRange{}, fmt.Errorf("custom range start must be before end")
 	}
-	localAnchor := NormalizeStorageTime(anchor)
-	today := time.Date(localAnchor.Year(), localAnchor.Month(), localAnchor.Day(), 0, 0, 0, 0, time.Local)
-	if startTime.Before(today.AddDate(0, 0, -(maxDays - 1))) {
-		return UsageQueryRange{}, fmt.Errorf("custom day range must stay within the most recent %d calendar days", maxDays)
-	}
-	if endDay.After(today) {
-		return UsageQueryRange{}, fmt.Errorf("custom day range cannot end in the future")
-	}
-
 	count := 1
 	for day := startTime; day.Before(endDay); day = day.AddDate(0, 0, 1) {
 		count++
+		if count > maxDays {
+			return UsageQueryRange{}, fmt.Errorf("custom day range cannot exceed %d calendar days", maxDays)
+		}
 	}
+	localAnchor := NormalizeStorageTime(anchor)
+	today := time.Date(localAnchor.Year(), localAnchor.Month(), localAnchor.Day(), 0, 0, 0, 0, time.Local)
+	if startTime.Before(today.AddDate(0, 0, -(maxDays - 1))) {
+		return UsageQueryRange{}, usageQueryRangeBoundsConflictError{message: fmt.Sprintf("custom day range must stay within the most recent %d calendar days", maxDays)}
+	}
+	if endDay.After(today) {
+		return UsageQueryRange{}, usageQueryRangeBoundsConflictError{message: "custom day range cannot end in the future"}
+	}
+
 	return UsageQueryRange{
 		Range:        "custom",
 		Unit:         UsageQueryUnitDay,
@@ -177,10 +197,10 @@ func parseCustomUsageHourRange(startValue, endValue string, anchor time.Time) (U
 	localAnchor := NormalizeStorageTime(anchor)
 	currentHour := localAnchor.Add(-time.Duration(localAnchor.Minute())*time.Minute - time.Duration(localAnchor.Second())*time.Second - time.Duration(localAnchor.Nanosecond()))
 	if startTime.Before(currentHour.Add(-23 * time.Hour)) {
-		return UsageQueryRange{}, fmt.Errorf("custom hour range cannot start more than 24 hours ago")
+		return UsageQueryRange{}, usageQueryRangeBoundsConflictError{message: "custom hour range cannot start more than 24 hours ago"}
 	}
 	if endHour.After(currentHour) {
-		return UsageQueryRange{}, fmt.Errorf("custom hour range cannot end in the future")
+		return UsageQueryRange{}, usageQueryRangeBoundsConflictError{message: "custom hour range cannot end in the future"}
 	}
 	return UsageQueryRange{
 		Range:        "custom",

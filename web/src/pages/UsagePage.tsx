@@ -1,6 +1,6 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
-import { ApiError, createUsageEventRequestLogDownloadURL, exportUsageEvents, fetchAnalysis, fetchAnalysisLatency, fetchAuthSessions, fetchCpaApiKeyOptions, fetchCpaApiKeySettings, fetchStatus, fetchUpdateCheck, fetchUsageEventModelFilterOptions, fetchUsageEventRequestLog, fetchUsageEventSourceFilterOptions, fetchUsageEvents, fetchVersion, logout, revokeAuthSession, updateCpaApiKeyAlias, type UsageEventsExportFormat } from '@/lib/api';
+import { ApiError, createUsageEventRequestLogDownloadURL, exportUsageEvents, fetchAnalysis, fetchAnalysisLatency, fetchAuthSessions, fetchCpaApiKeyOptions, fetchCpaApiKeySettings, fetchStatus, fetchUpdateCheck, fetchUsageEventModelFilterOptions, fetchUsageEventRequestLog, fetchUsageEventSourceFilterOptions, fetchUsageEvents, fetchVersion, isUsageRangeBoundsConflict, logout, revokeAuthSession, updateCpaApiKeyAlias, type UsageEventsExportFormat } from '@/lib/api';
 import type { AnalysisLatencyDiagnostics, AnalysisResponse, AuthManagedSessionItem, CpaApiKeyOption, CpaApiKeySettingsItem, OverviewRealtimeWindow, StatusResponse, UsageCustomRange, UsageEvent, UsageEventRequestLogResponse, UsageSourceFilterOption, UsageTimeRange, VersionResponse } from '@/lib/types';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import { LanguageSwitcher } from '@/components/ui/LanguageSwitcher';
@@ -36,7 +36,7 @@ import {
   REQUEST_EVENT_COLUMN_IDS,
   type RequestEventColumnId,
 } from '@/components/usage/RequestEventsDetailsCard';
-import { clampStoredUsageRangeStateToCurrentBounds, parseLegacyCustomRange, parseStoredUsageRangeState, serializeUsageRangeState, type StoredUsageRangeState } from '@/utils/usage/customRange';
+import { clampStoredUsageRangeStateToCurrentBounds, parseLegacyCustomRange, parseStoredUsageRangeState, resolveUsageRangeRecoveryTimeZone, serializeUsageRangeState, type StoredUsageRangeState } from '@/utils/usage/customRange';
 import { buildUsageRangeQuery } from '@/utils/usage/rangeQuery';
 import { getDailyAverageCardUsage, isDailyAverageRange } from '@/utils/usage/overview';
 import type { Theme } from '@/types';
@@ -773,6 +773,19 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     manualWindow: manualActivityWindow,
     setWindow: setActivityWindow,
   } = useRecentActivityWindow(usageRangeQuery);
+  const rangeRecoveryTimeZone = resolveUsageRangeRecoveryTimeZone(timeRangeState, status?.timezone);
+  const recoverRangeBoundsConflict = useCallback((error: unknown) => {
+    if (!isUsageRangeBoundsConflict(error)) return false;
+    const timeZone = rangeRecoveryTimeZone?.trim();
+    if (!timeZone) return false;
+    const nextState = clampStoredUsageRangeStateToCurrentBounds(timeRangeState, {
+      nowMs: Date.now(),
+      timeZone,
+    });
+    if (nextState === timeRangeState) return false;
+    setTimeRangeState(nextState);
+    return true;
+  }, [rangeRecoveryTimeZone, timeRangeState]);
 
   const {
     usage,
@@ -788,6 +801,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     customEnd: customRange?.end,
     enabled: activeTab === 'overview',
     apiKeyId: selectedApiKeyId,
+    onRangeBoundsConflict: recoverRangeBoundsConflict,
   });
   const {
     activity,
@@ -1105,6 +1119,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
         if (controller.signal.aborted || analysisRequestControllerRef.current !== controller) return;
         setAnalysisData(null);
         setAnalysisLoading(false);
+        if (recoverRangeBoundsConflict(error)) return;
         if (error instanceof ApiError && error.status === 401) {
           onAuthRequired?.();
           return;
@@ -1120,6 +1135,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
         if (controller.signal.aborted || analysisRequestControllerRef.current !== controller) return;
         setAnalysisLatencyData(null);
         setAnalysisLatencyLoading(false);
+        if (recoverRangeBoundsConflict(error)) return;
         if (error instanceof ApiError && error.status === 401) {
           onAuthRequired?.();
           return;
@@ -1131,7 +1147,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     if (analysisRequestControllerRef.current === controller) {
       analysisRequestControllerRef.current = null;
     }
-  }, [onAuthRequired, selectedApiKeyId, usageRangeQuery]);
+  }, [onAuthRequired, recoverRangeBoundsConflict, selectedApiKeyId, usageRangeQuery]);
 
   useEffect(() => {
     try {
@@ -1343,6 +1359,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
         setEventsTotalCount(0);
         setEventsTotalPages(0);
       }
+      if (recoverRangeBoundsConflict(error)) return;
       if (error instanceof ApiError && error.status === 401) {
         onAuthRequired?.();
         return;
@@ -1354,7 +1371,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
         eventsRequestControllerRef.current = null;
       }
     }
-  }, [eventsModelFilter, eventsPage, eventsPageSize, eventsResultFilter, eventsSourceFilter, onAuthRequired, selectedApiKeyId, usageRangeQuery]);
+  }, [eventsModelFilter, eventsPage, eventsPageSize, eventsResultFilter, eventsSourceFilter, onAuthRequired, recoverRangeBoundsConflict, selectedApiKeyId, usageRangeQuery]);
 
   const resetEventsPage = useCallback(() => {
     setEventsPage(1);
@@ -1393,6 +1410,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
       triggerBrowserFileDownload(file.blob, file.filename);
       showTopNotice('success', t('usage_stats.export_success'));
     } catch (error) {
+      if (recoverRangeBoundsConflict(error)) return;
       if (error instanceof ApiError && error.status === 401) {
         onAuthRequired?.();
         return;
@@ -1405,7 +1423,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     } finally {
       setEventsExportingFormat(null);
     }
-  }, [eventsModelFilter, eventsResultFilter, eventsSourceFilter, onAuthRequired, selectedApiKeyId, showTopNotice, t, usageRangeQuery]);
+  }, [eventsModelFilter, eventsResultFilter, eventsSourceFilter, onAuthRequired, recoverRangeBoundsConflict, selectedApiKeyId, showTopNotice, t, usageRangeQuery]);
 
   const handleRequestLogOpen = useCallback(async (event: UsageEvent) => {
     if (!requestLogAccessEnabled) return;
@@ -1505,12 +1523,13 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   }, [activeTab, credentialSectionVisibility.enabled, loadActivity, loadEvents, loadRealtime, loadUsage, refreshCredentials]);
 
   const handleAutoRefreshError = useCallback((error: unknown) => {
+    if (recoverRangeBoundsConflict(error)) return;
     if (error instanceof ApiError && error.status === 401) {
       onAuthRequired?.();
       return;
     }
     setStatusError(error instanceof Error ? error.message : 'REFRESH_FAILED');
-  }, [onAuthRequired]);
+  }, [onAuthRequired, recoverRangeBoundsConflict]);
 
   const autoRefreshEnabled = shouldAutoRefreshUsageTab({
     activeTab,
@@ -1522,6 +1541,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     try {
       await refreshPageData({ refreshActiveTab });
     } catch (error) {
+      if (recoverRangeBoundsConflict(error)) return;
       if (error instanceof ApiError && error.status === 401) {
         onAuthRequired?.();
         return;
@@ -1530,7 +1550,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     } finally {
       setManualRefreshLoading(false);
     }
-  }, [onAuthRequired, refreshActiveTab]);
+  }, [onAuthRequired, recoverRangeBoundsConflict, refreshActiveTab]);
 
   const handleRequestLogout = useCallback(() => {
     setLogoutConfirmOpen(true);

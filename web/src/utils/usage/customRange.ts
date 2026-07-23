@@ -21,6 +21,14 @@ export interface StoredUsageRangeState {
   timeZone?: string;
 }
 
+export const resolveUsageRangeRecoveryTimeZone = (
+  state: StoredUsageRangeState,
+  projectTimeZone?: string,
+): string | undefined => {
+  if (state.range !== 'custom') return undefined;
+  return projectTimeZone?.trim() || state.timeZone?.trim() || undefined;
+};
+
 export interface UsageCustomRangeSlot {
   value: string;
   label: string;

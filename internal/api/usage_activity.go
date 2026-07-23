@@ -121,7 +121,7 @@ func registerUsageActivityRoute(router gin.IRoutes, usageProvider service.UsageP
 	router.GET("/usage/activity", func(c *gin.Context) {
 		filter, err := parseUsageActivityFilterQuery(c.Request, time.Now())
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			writeUsageFilterParseError(c, err)
 			return
 		}
 		writeUsageActivityResponse(c, usageProvider, filter)
@@ -152,7 +152,7 @@ func registerKeyActivityRoute(router gin.IRoutes, usageProvider service.UsagePro
 		// Key Viewer 复用公共时间参数，但客户端 api_key_id 无论内容为何都不参与解析或过滤。
 		filter, err := parseKeyUsageActivityFilterQuery(c.Request, time.Now())
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			writeUsageFilterParseError(c, err)
 			return
 		}
 		if authHandler != nil && !authHandler.allowKeyOverviewRequest(fmt.Sprint(token), "activity") {

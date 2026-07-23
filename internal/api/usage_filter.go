@@ -9,6 +9,8 @@ import (
 
 	servicedto "cpa-usage-keeper/internal/service/dto"
 	"cpa-usage-keeper/internal/timeutil"
+
+	"github.com/gin-gonic/gin"
 )
 
 var allowedUsageEventsPageSizes = map[int]struct{}{
@@ -17,6 +19,14 @@ var allowedUsageEventsPageSizes = map[int]struct{}{
 	100:  {},
 	500:  {},
 	1000: {},
+}
+
+func writeUsageFilterParseError(c *gin.Context, err error) {
+	status := http.StatusBadRequest
+	if timeutil.IsUsageQueryRangeBoundsConflict(err) {
+		status = http.StatusConflict
+	}
+	c.JSON(status, gin.H{"error": err.Error()})
 }
 
 // parseUsageTimeFilterQuery 只解析通用时间条件和 Admin API Key scope，不读取 Events 专属参数。

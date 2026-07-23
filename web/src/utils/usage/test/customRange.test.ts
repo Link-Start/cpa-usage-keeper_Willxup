@@ -6,6 +6,7 @@ import {
   buildDefaultCustomRange,
   formatCustomRangeLabel,
   parseStoredUsageRangeState,
+  resolveUsageRangeRecoveryTimeZone,
   serializeUsageRangeState,
   normalizeCustomRange,
 } from '../customRange';
@@ -117,6 +118,20 @@ describe('custom usage range slots', () => {
     };
     expect(parseStoredUsageRangeState(serializeUsageRangeState(state), { nowMs: SHANGHAI_NOW })).toEqual(state);
     expect(parseStoredUsageRangeState('{"range":"custom"}', { nowMs: SHANGHAI_NOW })).toEqual({ range: 'today' });
+  });
+
+  it('uses a recovery timezone only for an applied Custom range', () => {
+    expect(resolveUsageRangeRecoveryTimeZone({ range: 'today' }, 'Asia/Shanghai')).toBeUndefined();
+    expect(resolveUsageRangeRecoveryTimeZone({
+      range: 'custom',
+      customRange: { unit: 'day', start: '2026-07-11', end: '2026-07-17' },
+      timeZone: 'Asia/Shanghai',
+    }, ' UTC ')).toBe('UTC');
+    expect(resolveUsageRangeRecoveryTimeZone({
+      range: 'custom',
+      customRange: { unit: 'day', start: '2026-07-11', end: '2026-07-17' },
+      timeZone: 'Asia/Shanghai',
+    }, ' ')).toBe('Asia/Shanghai');
   });
 
   it.each([

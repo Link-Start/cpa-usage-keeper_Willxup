@@ -1,6 +1,7 @@
 package test
 
 import (
+	"errors"
 	"testing"
 	"time"
 
@@ -160,6 +161,31 @@ func TestParseUsageQueryRangeRejectsMissingAnchor(t *testing.T) {
 	}
 }
 
+func TestParseUsageQueryRangeClassifiesCurrentBoundsConflicts(t *testing.T) {
+	anchor := time.Date(2026, 7, 21, 12, 0, 0, 0, time.Local)
+	_, err := timeutil.ParseUsageQueryRangeWithOptions(
+		"custom",
+		"day",
+		"2025-07-20",
+		"2025-07-21",
+		anchor,
+		timeutil.UsageQueryRangeOptions{MaxCustomDayRangeDays: timeutil.LongCustomDayRangeMaxDays},
+	)
+	if err == nil {
+		t.Fatal("expected expired Custom range to be rejected")
+	}
+	var boundsConflict interface{ UsageQueryRangeBoundsConflict() }
+	if !errors.As(err, &boundsConflict) {
+		t.Fatalf("expected current-bounds conflict error, got %T: %v", err, err)
+	}
+
+	_, err = timeutil.ParseUsageQueryRange("custom", "day", "2026-07-21", "2026-07-20", anchor)
+	boundsConflict = nil
+	if err == nil || errors.As(err, &boundsConflict) {
+		t.Fatalf("expected reversed range to remain a regular validation error, got %T: %v", err, err)
+	}
+}
+
 func TestParseUsageQueryRangeEnforcesLongCustomDayLimit(t *testing.T) {
 	anchor := time.Date(2026, 7, 21, 12, 0, 0, 0, time.Local)
 	today := time.Date(anchor.Year(), anchor.Month(), anchor.Day(), 0, 0, 0, 0, time.Local)
@@ -180,14 +206,19 @@ func TestParseUsageQueryRangeEnforcesLongCustomDayLimit(t *testing.T) {
 		t.Fatalf("Custom range count=%d, want 365", result.Count)
 	}
 
-	if _, err := timeutil.ParseUsageQueryRangeWithOptions(
+	_, err = timeutil.ParseUsageQueryRangeWithOptions(
 		"custom",
 		"day",
 		today.AddDate(0, 0, -365).Format(time.DateOnly),
 		today.Format(time.DateOnly),
 		anchor,
 		options,
-	); err == nil {
+	)
+	if err == nil {
 		t.Fatal("expected 366-day Custom range to be rejected")
+	}
+	var boundsConflict interface{ UsageQueryRangeBoundsConflict() }
+	if errors.As(err, &boundsConflict) {
+		t.Fatalf("expected 366-day Custom range to remain a regular validation error, got %T: %v", err, err)
 	}
 }
