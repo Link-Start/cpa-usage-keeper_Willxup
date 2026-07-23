@@ -17,6 +17,11 @@ type gormLogrusLogger struct {
 	slowThreshold time.Duration
 }
 
+func init() {
+	// GORM Scan 会借用全局 recorder；同步过滤它的参数，避免绕过实例 logger 的 ParamsFilter。
+	gormlogger.RecorderParamsFilter = filterGORMParams
+}
+
 // NewGORMLogger 保留 GORM 默认的 warn 阈值，并把实际输出统一交给 Logrus。
 func NewGORMLogger() gormlogger.Interface {
 	return gormLogrusLogger{
@@ -31,7 +36,11 @@ func (l gormLogrusLogger) LogMode(level gormlogger.LogLevel) gormlogger.Interfac
 }
 
 // ParamsFilter 禁止 GORM 把 API Key 等查询实参插入错误或慢查询日志。
-func (gormLogrusLogger) ParamsFilter(_ context.Context, sql string, _ ...interface{}) (string, []interface{}) {
+func (gormLogrusLogger) ParamsFilter(ctx context.Context, sql string, params ...interface{}) (string, []interface{}) {
+	return filterGORMParams(ctx, sql, params...)
+}
+
+func filterGORMParams(_ context.Context, sql string, _ ...interface{}) (string, []interface{}) {
 	return sql, nil
 }
 
