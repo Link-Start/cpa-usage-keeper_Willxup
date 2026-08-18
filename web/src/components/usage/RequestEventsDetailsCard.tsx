@@ -1392,6 +1392,7 @@ export function RequestEventsDetailsCard({
                 <>
                   <span
                     className={styles.requestEventsPaginationPage}
+                    role="status"
                     aria-live="polite"
                     aria-atomic="true"
                     aria-label={t('usage_stats.request_events_loaded_count', { loaded: rows.length, total: totalCount })}
