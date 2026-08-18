@@ -245,6 +245,9 @@ describe('RequestEventsDetailsCard event table virtualization', () => {
       '[class*="requestEventsPaginationFooter"] button',
     );
     expect(loadMoreButton).not.toBeNull();
+    expect(loadMoreButton?.className).toContain('btn-secondary');
+    expect(loadMoreButton?.className).toContain('btn-action');
+    expect(loadMoreButton?.className).toContain('btn-sm');
     await act(async () => {
       loadMoreButton?.click();
     });
