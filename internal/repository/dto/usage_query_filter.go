@@ -22,6 +22,7 @@ type UsageQueryFilter struct {
 	CursorID        int64
 	Model           string
 	AuthIndex       string
+	AuthType        string
 	APIGroupKey     string
 	Result          string
 }

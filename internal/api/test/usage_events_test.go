@@ -1410,6 +1410,25 @@ func TestUsageEventsPassesPaginationAndAuthIndexSourceFilter(t *testing.T) {
 	}
 }
 
+func TestUsageEventsPassesLatestIdentityTypeFilterWithoutRange(t *testing.T) {
+	provider := &usageEventsStub{eventsPage: &servicedto.UsageEventsPage{Events: []servicedto.UsageEventRecord{}, TotalCount: 0, Page: 1, PageSize: 50}}
+	router := NewRouter(nil, nil, provider, nil, AuthConfig{}, nil, "")
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/usage/events?cursor_mode=true&page_size=50&source=shared-auth&auth_type=2", nil)
+	resp := httptest.NewRecorder()
+
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d body=%s", resp.Code, resp.Body.String())
+	}
+	if provider.lastFilter.AuthIndex != "shared-auth" || provider.lastFilter.AuthType != "apikey" || provider.lastFilter.Source != "" {
+		t.Fatalf("expected exact provider identity filter, got %+v", provider.lastFilter)
+	}
+	if provider.lastFilter.StartTime != nil || provider.lastFilter.EndTime != nil || !provider.lastFilter.CursorMode {
+		t.Fatalf("expected unbounded latest cursor filter, got %+v", provider.lastFilter)
+	}
+}
+
 func TestUsageEventsReturnsAndAcceptsCursorPagination(t *testing.T) {
 	eventTimestamp := time.Date(2026, 4, 22, 11, 0, 0, 123456789, time.UTC)
 	provider := &usageEventsStub{eventsPage: &servicedto.UsageEventsPage{
