@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useId, useRef, useState } from 'react'
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Modal } from '@/components/ui/Modal'
+import { IconRefreshCw } from '@/components/ui/icons'
 import { ProviderBrandIcon } from '@/components/ProviderBrandIcon'
 import { RequestEventLogModal } from '@/components/usage/RequestEventLogModal'
 import { ApiError, fetchUsageEvents } from '@/lib/api'
@@ -12,6 +13,7 @@ import { CredentialSubscriptionBadge } from './CredentialSubscriptionBadge'
 import { CredentialRequestEventsList } from './CredentialRequestEventsList'
 import type { CredentialDetailSelection } from './credentialViewModels'
 import styles from './CredentialDetailDrawer.module.scss'
+import credentialStyles from './CredentialSections.module.scss'
 
 const REQUEST_EVENTS_PAGE_SIZE = 50
 
@@ -66,6 +68,8 @@ export function CredentialDetailDrawer({
   const requestsTabId = useId()
   const overviewPanelId = useId()
   const requestsPanelId = useId()
+  const overviewTabRef = useRef<HTMLButtonElement | null>(null)
+  const requestsTabRef = useRef<HTMLButtonElement | null>(null)
   const [activeTab, setActiveTab] = useState<CredentialDetailTab>('overview')
   const [events, setEvents] = useState<UsageEvent[]>([])
   const [eventsLoading, setEventsLoading] = useState(false)
@@ -94,6 +98,13 @@ export function CredentialDetailDrawer({
     setEventsError('')
     setEventsNextCursor(null)
   }, [])
+
+  // 关闭动画继续使用 Modal 的内容快照；同步清理内部状态，保证下次打开不会提交上一凭证的数据。
+  useLayoutEffect(() => {
+    if (open) return
+    setActiveTab('overview')
+    resetRequestEvents()
+  }, [open, resetRequestEvents])
 
   useEffect(() => {
     if (!open || !selectionKey) return
@@ -155,6 +166,36 @@ export function CredentialDetailDrawer({
     firstPageControllerRef.current?.abort()
     loadMoreControllerRef.current?.abort()
   }, [])
+
+  const activateTab = useCallback((tab: CredentialDetailTab, focus = false) => {
+    if (tab === 'overview') onRequestLogClose?.()
+    setActiveTab(tab)
+    if (focus) {
+      const target = tab === 'overview' ? overviewTabRef.current : requestsTabRef.current
+      target?.focus()
+    }
+  }, [onRequestLogClose])
+
+  const handleTabKeyDown = useCallback((event: ReactKeyboardEvent<HTMLButtonElement>) => {
+    const currentTab: CredentialDetailTab = event.currentTarget === requestsTabRef.current ? 'requests' : 'overview'
+    let nextTab: CredentialDetailTab | null = null
+    switch (event.key) {
+      case 'ArrowLeft':
+      case 'ArrowRight':
+        nextTab = currentTab === 'overview' ? 'requests' : 'overview'
+        break
+      case 'Home':
+        nextTab = 'overview'
+        break
+      case 'End':
+        nextTab = 'requests'
+        break
+      default:
+        return
+    }
+    event.preventDefault()
+    activateTab(nextTab, true)
+  }, [activateTab])
 
   const loadMore = useCallback(async () => {
     const cursor = eventsNextCursor?.trim()
@@ -223,32 +264,50 @@ export function CredentialDetailDrawer({
   return (
     <>
       <Modal open={open} title={title} variant="drawer" width={920} className={styles.drawer} onClose={onClose}>
-        <div className={styles.tabs} role="tablist" aria-label={t('usage_stats.credentials_detail_tabs')}>
-          <button
-            id={overviewTabId}
-            type="button"
-            role="tab"
-            aria-selected={activeTab === 'overview'}
-            aria-controls={overviewPanelId}
-            data-credential-detail-tab="overview"
-            onClick={() => {
-              onRequestLogClose?.()
-              setActiveTab('overview')
-            }}
-          >
-            {t('usage_stats.credentials_detail_overview_tab')}
-          </button>
-          <button
-            id={requestsTabId}
-            type="button"
-            role="tab"
-            aria-selected={activeTab === 'requests'}
-            aria-controls={requestsPanelId}
-            data-credential-detail-tab="requests"
-            onClick={() => setActiveTab('requests')}
-          >
-            {t('usage_stats.credentials_detail_requests_tab')}
-          </button>
+        <div className={styles.tabBar} data-credential-detail-tab-bar>
+          <div className={styles.tabs} role="tablist" aria-label={t('usage_stats.credentials_detail_tabs')}>
+            <button
+              ref={overviewTabRef}
+              id={overviewTabId}
+              type="button"
+              role="tab"
+              className={styles.tabButton}
+              aria-selected={activeTab === 'overview'}
+              aria-controls={overviewPanelId}
+              tabIndex={activeTab === 'overview' ? 0 : -1}
+              data-credential-detail-tab="overview"
+              onClick={() => activateTab('overview')}
+              onKeyDown={handleTabKeyDown}
+            >
+              {t('usage_stats.credentials_detail_overview_tab')}
+            </button>
+            <button
+              ref={requestsTabRef}
+              id={requestsTabId}
+              type="button"
+              role="tab"
+              className={styles.tabButton}
+              aria-selected={activeTab === 'requests'}
+              aria-controls={requestsPanelId}
+              tabIndex={activeTab === 'requests' ? 0 : -1}
+              data-credential-detail-tab="requests"
+              onClick={() => activateTab('requests')}
+              onKeyDown={handleTabKeyDown}
+            >
+              {t('usage_stats.credentials_detail_requests_tab')}
+            </button>
+          </div>
+          {activeTab === 'requests' && eventsError && events.length === 0 && !eventsLoading ? (
+            <button
+              type="button"
+              className={`${credentialStyles.credentialRowRefreshButton} ${styles.retryButton}`}
+              data-credential-detail-retry
+              aria-label={t('common.retry')}
+              onClick={() => void loadFirstPage()}
+            >
+              <IconRefreshCw size={13} />
+            </button>
+          ) : null}
         </div>
 
         {activeTab === 'overview' ? (
@@ -289,17 +348,19 @@ export function CredentialDetailDrawer({
         ) : (
           <section id={requestsPanelId} role="tabpanel" aria-labelledby={requestsTabId} className={styles.requestsPanel}>
             {eventsError ? <div className={styles.requestError} role="status">{eventsError}</div> : null}
-            <CredentialRequestEventsList
-              events={events}
-              loading={eventsLoading}
-              hasMore={Boolean(eventsNextCursor)}
-              loadingMore={eventsLoadingMore}
-              autoLoadMore={eventsAutoLoadMore}
-              onLoadMore={() => void loadMore()}
-              requestLogAccessEnabled={requestLogAccessEnabled}
-              onRequestLogOpen={onRequestLogOpen}
-              requestLogLoadingEventId={requestLogLoadingEventId}
-            />
+            {eventsError && events.length === 0 ? null : (
+              <CredentialRequestEventsList
+                events={events}
+                loading={eventsLoading}
+                hasMore={Boolean(eventsNextCursor)}
+                loadingMore={eventsLoadingMore}
+                autoLoadMore={eventsAutoLoadMore}
+                onLoadMore={() => void loadMore()}
+                requestLogAccessEnabled={requestLogAccessEnabled}
+                onRequestLogOpen={onRequestLogOpen}
+                requestLogLoadingEventId={requestLogLoadingEventId}
+              />
+            )}
           </section>
         )}
       </Modal>

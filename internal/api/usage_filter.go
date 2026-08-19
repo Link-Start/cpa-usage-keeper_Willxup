@@ -141,17 +141,29 @@ func decodeUsageEventsCursor(value string) (time.Time, int64, error) {
 }
 
 func parseUsageFilterQuery(req *http.Request, anchor time.Time) (servicedto.UsageFilter, error) {
+	return parseUsageFilterQueryWithLatestIdentity(req, anchor, true)
+}
+
+// Export 保持 Request Events 原有的必选时间范围，不消费详情抽屉的无范围查询例外。
+func parseUsageExportFilterQuery(req *http.Request, anchor time.Time) (servicedto.UsageFilter, error) {
+	return parseUsageFilterQueryWithLatestIdentity(req, anchor, false)
+}
+
+func parseUsageFilterQueryWithLatestIdentity(req *http.Request, anchor time.Time, allowLatestIdentity bool) (servicedto.UsageFilter, error) {
 	if req == nil {
 		return servicedto.UsageFilter{}, nil
 	}
 	query := req.URL.Query()
 	var filter servicedto.UsageFilter
-	if isLatestIdentityCursorQuery(req) {
+	latestIdentityCursorQuery := allowLatestIdentity && isLatestIdentityCursorQuery(req)
+	if latestIdentityCursorQuery {
 		apiKeyID, err := parseUsageAPIKeyID(query.Get("api_key_id"))
 		if err != nil {
 			return servicedto.UsageFilter{}, err
 		}
 		filter.APIKeyID = apiKeyID
+		// 详情只消费游标和 has_more，不为最新请求列表扫描全部历史总数。
+		filter.SkipTotalCount = true
 	} else {
 		var err error
 		filter, err = parseUsageEventsTimeFilterQuery(req, anchor)

@@ -62,6 +62,20 @@ const row = {
 
 const selection: CredentialDetailSelection = { kind: 'ai-provider', row }
 
+const secondSelection: CredentialDetailSelection = {
+  kind: 'ai-provider',
+  row: {
+    ...row,
+    identity: {
+      ...row.identity,
+      id: 'provider-2',
+      identity: 'auth-provider-2',
+    },
+    displayName: 'Provider Two',
+    maskedIdentity: 'auth-provider-2',
+  },
+}
+
 const authFileRow = {
   ...row,
   identity: {
@@ -213,6 +227,91 @@ describe('CredentialDetailDrawer', () => {
     expect(document.body.textContent).toContain('model-2')
   })
 
+  it('clears the previous credential request state before the drawer reopens', async () => {
+    fetchUsageEvents.mockReset()
+    fetchUsageEvents.mockResolvedValue(response('1'))
+    await act(async () => {
+      root.render(
+        <CredentialDetailDrawer
+          open
+          selection={selection}
+          onClose={() => undefined}
+        />,
+      )
+      await Promise.resolve()
+    })
+    await act(async () => {
+      document.body.querySelector<HTMLButtonElement>('[data-credential-detail-tab="requests"]')?.click()
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+    expect(document.body.textContent).toContain('model-1')
+
+    await act(async () => {
+      root.render(
+        <CredentialDetailDrawer
+          open={false}
+          selection={selection}
+          onClose={() => undefined}
+        />,
+      )
+      await Promise.resolve()
+    })
+    await act(async () => {
+      root.render(
+        <CredentialDetailDrawer
+          open
+          selection={secondSelection}
+          onClose={() => undefined}
+        />,
+      )
+      await Promise.resolve()
+    })
+
+    expect(document.body.textContent).toContain('Provider Two')
+    expect(document.body.textContent).not.toContain('model-1')
+    expect(document.body.querySelector('[data-credential-detail-tab="overview"]')?.getAttribute('aria-selected')).toBe('true')
+    expect(fetchUsageEvents).toHaveBeenCalledTimes(1)
+  })
+
+  it('uses roving focus and arrow keys for the detail tabs', async () => {
+    fetchUsageEvents.mockReset()
+    fetchUsageEvents.mockResolvedValue(response('1'))
+    await act(async () => {
+      root.render(
+        <CredentialDetailDrawer
+          open
+          selection={selection}
+          onClose={() => undefined}
+        />,
+      )
+      await Promise.resolve()
+    })
+
+    const overviewTab = document.body.querySelector<HTMLButtonElement>('[data-credential-detail-tab="overview"]')
+    const requestsTab = document.body.querySelector<HTMLButtonElement>('[data-credential-detail-tab="requests"]')
+    expect(overviewTab?.tabIndex).toBe(0)
+    expect(requestsTab?.tabIndex).toBe(-1)
+
+    overviewTab?.focus()
+    await act(async () => {
+      overviewTab?.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }))
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+    expect(document.activeElement).toBe(requestsTab)
+    expect(requestsTab?.getAttribute('aria-selected')).toBe('true')
+    expect(overviewTab?.tabIndex).toBe(-1)
+    expect(requestsTab?.tabIndex).toBe(0)
+
+    await act(async () => {
+      requestsTab?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Home', bubbles: true }))
+      await Promise.resolve()
+    })
+    expect(document.activeElement).toBe(overviewTab)
+    expect(overviewTab?.getAttribute('aria-selected')).toBe('true')
+  })
+
   it('pauses automatic cursor retries after a load-more failure', async () => {
     fetchUsageEvents.mockReset()
     fetchUsageEvents.mockResolvedValueOnce(response('1', 'cursor-1')).mockRejectedValueOnce(new Error('load more failed'))
@@ -250,6 +349,48 @@ describe('CredentialDetailDrawer', () => {
 
     expect(fetchUsageEvents).toHaveBeenCalledTimes(2)
     expect(document.body.textContent).toContain('load more failed')
+  })
+
+  it('offers an initial-load retry at the right side of the tab row', async () => {
+    fetchUsageEvents.mockReset()
+    fetchUsageEvents.mockRejectedValueOnce(new Error('initial load failed')).mockResolvedValueOnce(response('1'))
+    await act(async () => {
+      root.render(
+        <CredentialDetailDrawer
+          open
+          selection={selection}
+          onClose={() => undefined}
+        />,
+      )
+      await Promise.resolve()
+    })
+    await act(async () => {
+      document.body.querySelector<HTMLButtonElement>('[data-credential-detail-tab="requests"]')?.click()
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    const tabBar = document.body.querySelector('[data-credential-detail-tab-bar]')
+    const tabList = document.body.querySelector('[role="tablist"]')
+    const retryButton = document.body.querySelector<HTMLButtonElement>('[data-credential-detail-retry]')
+    expect(tabBar?.contains(retryButton)).toBe(true)
+    expect(tabList?.contains(retryButton)).toBe(false)
+    expect(retryButton?.className).toContain('credentialRowRefreshButton')
+    expect(retryButton?.querySelector('svg')).not.toBeNull()
+    expect(retryButton?.textContent).toBe('')
+    expect(retryButton?.getAttribute('aria-label')).toBe('common.retry')
+    expect(document.body.textContent).toContain('initial load failed')
+    expect(document.body.textContent).not.toContain('usage_stats.request_events_empty_title')
+
+    await act(async () => {
+      retryButton?.click()
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(fetchUsageEvents).toHaveBeenCalledTimes(2)
+    expect(document.body.textContent).toContain('model-1')
+    expect(document.body.querySelector('[data-credential-detail-retry]')).toBeNull()
   })
 
   it('does not keep the request-log modal mounted after the drawer closes', async () => {

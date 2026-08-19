@@ -32,6 +32,7 @@ type UsageFilter struct {
 	CursorMode      bool
 	CursorTimestamp *time.Time
 	CursorID        int64
+	SkipTotalCount  bool
 	Model           string
 	Source          string
 	AuthIndex       string

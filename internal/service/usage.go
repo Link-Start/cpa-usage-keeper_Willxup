@@ -684,6 +684,7 @@ func (s *usageService) ListUsageEvents(ctx context.Context, filter servicedto.Us
 		CursorMode:      filter.CursorMode,
 		CursorTimestamp: filter.CursorTimestamp,
 		CursorID:        filter.CursorID,
+		SkipTotalCount:  filter.SkipTotalCount,
 		Model:           filter.Model,
 		AuthIndex:       filter.AuthIndex,
 		AuthType:        filter.AuthType,
