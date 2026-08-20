@@ -79,6 +79,8 @@ func TestOrderedMigrationsPreservesExecutionOrder(t *testing.T) {
 		"20260731_local_ranking_stats",
 		"20260803_add_cpa_api_key_local_ranking_avatar",
 		"20260813_add_auth_session_client_metadata",
+		// Errors 表只新增独立最终存储，不改变历史 Usage migration 的执行顺序。
+		"20260820_create_error_events",
 	}
 	assertStringSlicesEqual(t, want, got)
 }
