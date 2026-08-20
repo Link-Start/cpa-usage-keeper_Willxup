@@ -60,6 +60,40 @@ func TestCodexQuotaHistoryRunnerMergesDuplicatesAndIgnoresSameCycleRecovery(t *t
 	}
 }
 
+func TestCodexQuotaHistoryRunnerSortsSameBatchByObservationTime(t *testing.T) {
+	// Redis inbox ID/主动刷新完成顺序可能与事件时间相反；同批先到 89、后到更早的 90 仍应保留完整下降线。
+	db := openQuotaTestDatabase(t)
+	seedUsageIdentity(t, db, codexHistoryUsageIdentity("out-of-order-auth"))
+	service := NewServiceWithRegistryAndOptions(db, NewProviderRegistry(nil), ServiceOptions{
+		UsageHeaderSnapshotFlushInterval: time.Hour,
+		CodexQuotaHistoryFlushInterval:   time.Hour,
+		PricingCatalog:                   emptyPricingCatalogForTest(),
+	})
+
+	base := time.Date(2026, 8, 20, 8, 0, 0, 0, time.UTC)
+	resetAt := base.Add(5 * time.Hour)
+	older := codexHistoryPrimarySnapshot("out-of-order-auth", base.Add(time.Minute), 90, resetAt)
+	newer := codexHistoryPrimarySnapshot("out-of-order-auth", base.Add(2*time.Minute), 89, resetAt)
+	// 故意按较新 observation 在前的队列顺序投递；shutdown drain 与正常十秒批次共享同一处理入口。
+	if !service.TryAppendUsageHeaderSnapshots(usageHeaderSnapshotPointers(newer, older)) {
+		service.StopRefreshTasks()
+		t.Fatal("expected out-of-order history observations to enter one batch")
+	}
+	service.StopRefreshTasks()
+
+	cycles := loadCodexQuotaCycles(t, db, "out-of-order-auth")
+	if len(cycles) != 1 {
+		t.Fatalf("expected one out-of-order quota cycle, got %+v", cycles)
+	}
+	segments := loadCodexQuotaSegments(t, db, cycles[0].ID)
+	if len(segments) != 2 || segments[0].RemainingPercent != 90 || segments[1].RemainingPercent != 89 {
+		t.Fatalf("expected chronological 90 to 89 segments despite reverse arrival, got %+v", segments)
+	}
+	if !segments[0].FirstObservedAt.Equal(older.ObservedAt) || !segments[1].FirstObservedAt.Equal(newer.ObservedAt) {
+		t.Fatalf("expected persisted segment times to follow observation order, got %+v", segments)
+	}
+}
+
 func TestCodexQuotaHistoryRunnerAllowsHigherPercentOnlyAfterNewCycleAndKeepsOldPending(t *testing.T) {
 	// 旧周期先下降到 40，新周期恢复 95；新周期生效后的旧 reset 迟到值必须忽略。
 	db := openQuotaTestDatabase(t)

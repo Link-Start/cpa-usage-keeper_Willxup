@@ -147,6 +147,25 @@ func (s *Service) processCodexQuotaHistoryBatch(current map[codexQuotaHistorySta
 	candidates := codexQuotaHistoryCandidates(inputs)
 	// 完整快照引用至此已经释放；后续容器只保存最小 observation 值。
 	verified := s.verifyCodexQuotaHistoryCandidates(candidates)
+	// Redis inbox ID 和主动刷新完成顺序不保证等于事件观察时间；单调比较前必须先恢复同批真实时序。
+	sort.SliceStable(verified, func(left int, right int) bool {
+		leftObservation := verified[left].Observation
+		rightObservation := verified[right].Observation
+		// 先把每个账号的状态机分组，跨账号顺序不会影响各自的周期和百分比比较。
+		leftAuthIndex := strings.TrimSpace(leftObservation.AuthIndex)
+		rightAuthIndex := strings.TrimSpace(rightObservation.AuthIndex)
+		if leftAuthIndex != rightAuthIndex {
+			return leftAuthIndex < rightAuthIndex
+		}
+		// Primary 与 Secondary 拥有独立周期，必须分别按自己的观察时间排序。
+		leftWindowRole := strings.ToLower(strings.TrimSpace(leftObservation.WindowRole))
+		rightWindowRole := strings.ToLower(strings.TrimSpace(rightObservation.WindowRole))
+		if leftWindowRole != rightWindowRole {
+			return leftWindowRole < rightWindowRole
+		}
+		// LastObservedAt 是状态机拒绝迟到 observation 的比较时间；相同时间保留原队列顺序处理冲突。
+		return leftObservation.LastObservedAt.Before(rightObservation.LastObservedAt)
+	})
 	for _, candidate := range verified {
 		// 每条 observation 按账号角色恢复/比较；任一恢复错误只丢当前候选。
 		s.mergeCodexQuotaHistoryObservation(current, &pending, candidate.Observation)
