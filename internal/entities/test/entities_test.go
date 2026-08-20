@@ -34,6 +34,9 @@ func TestAllIncludesCoreModels(t *testing.T) {
 		&UsageLatencyStat{},
 		&AuthSession{},
 		&AppSetting{},
+		// Codex 主额度历史按父周期、子百分比状态段顺序注册，确保全新数据库创建真实外键。
+		&CodexQuotaCycle{},
+		&CodexQuotaPercentSegment{},
 	}
 	if len(items) != len(expected) {
 		t.Fatalf("expected %d registered models, got %d", len(expected), len(items))
