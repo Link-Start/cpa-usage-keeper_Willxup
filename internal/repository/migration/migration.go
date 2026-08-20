@@ -79,6 +79,8 @@ const (
 	migrationAddCPAAPIKeyLocalRankingAvatar = "20260803_add_cpa_api_key_local_ranking_avatar"
 	// migrationAddAuthSessionClientMetadata 保存会话客户端与最近活动信息，旧会话只回填活动时间。
 	migrationAddAuthSessionClientMetadata = "20260813_add_auth_session_client_metadata"
+	// migrationCreateErrorEvents 创建 CPA errors 订阅的独立最终事件表。
+	migrationCreateErrorEvents = "20260820_create_error_events"
 )
 
 type schemaMigration struct {
@@ -196,6 +198,7 @@ func orderedMigrations() []databaseMigration {
 		{version: migrationLocalRankingStats, run: localRankingStatsMigration},
 		{version: migrationAddCPAAPIKeyLocalRankingAvatar, run: addCPAAPIKeyLocalRankingAvatarMigration},
 		{version: migrationAddAuthSessionClientMetadata, run: addAuthSessionClientMetadataMigration},
+		{version: migrationCreateErrorEvents, run: createErrorEventsMigration},
 	}
 }
 

@@ -5,6 +5,7 @@ func All() []any {
 	return []any{
 		&UsageEvent{},
 		&UsageEventArchive{},
+		&ErrorEvent{},
 		&RedisUsageInbox{},
 		&ModelPriceSetting{},
 		&ModelPriceRule{},

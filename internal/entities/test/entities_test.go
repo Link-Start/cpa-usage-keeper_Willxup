@@ -16,6 +16,8 @@ func TestAllIncludesCoreModels(t *testing.T) {
 	expected := []any{
 		&UsageEvent{},
 		&UsageEventArchive{},
+		// Errors 直接写最终表；全新数据库必须随核心模型创建该表。
+		&ErrorEvent{},
 		&RedisUsageInbox{},
 		&ModelPriceSetting{},
 		&ModelPriceRule{},
