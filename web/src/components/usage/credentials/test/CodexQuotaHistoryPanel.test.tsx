@@ -112,6 +112,8 @@ const response: CodexQuotaHistoryResponse = {
   }],
 }
 
+const cloneResponse = (): CodexQuotaHistoryResponse => JSON.parse(JSON.stringify(response)) as CodexQuotaHistoryResponse
+
 describe('CodexQuotaHistoryPanel', () => {
   let container: HTMLDivElement
   let root: Root
@@ -166,10 +168,12 @@ describe('CodexQuotaHistoryPanel', () => {
       borderColor: '#ff5a40',
       backgroundColor: '#ff5a40',
       pointBackgroundColor: '#ff5a40',
-      pointRadius: 0,
+      pointRadius: expect.any(Function),
       pointHoverRadius: 5,
       borderDash: [6, 4],
     })
+    const pointRadius = latestChartData?.datasets[1]?.pointRadius as unknown as ((context: { dataIndex: number }) => number)
+    expect([0, 1, 2, 3].map((dataIndex) => pointRadius({ dataIndex }))).toEqual([0, 0, 0, 0])
     expect(latestChartOptions?.scales?.x?.ticks).toMatchObject({ autoSkip: true, maxTicksLimit: 8, maxRotation: 0 })
     expect(latestChartOptions?.scales?.tokens?.ticks).toMatchObject({ maxTicksLimit: 5 })
     expect(latestChartOptions?.scales?.cost?.ticks).toMatchObject({ maxTicksLimit: 5 })
@@ -182,6 +186,11 @@ describe('CodexQuotaHistoryPanel', () => {
     expect(document.body.textContent).toContain('usage_stats.credentials_quota_history_cycle_start')
     expect(document.body.textContent).toContain('usage_stats.credentials_quota_history_cycle_end')
     expect(document.body.textContent).toContain('usage_stats.credentials_quota_history_first_observed')
+    const accessibleSummary = document.body.querySelector('[data-codex-quota-current-cycle-summary]')
+    expect(accessibleSummary?.textContent).toContain('90% → 89%')
+    expect(accessibleSummary?.textContent).toContain('1.00K Token/1%')
+    expect(accessibleSummary?.textContent).toContain('$1.00/1%')
+    expect(document.body.querySelector('[data-codex-quota-efficiency-chart]')?.getAttribute('aria-hidden')).toBe('true')
 
     const tooltipCallbacks = latestChartOptions?.plugins?.tooltip?.callbacks
     expect(latestChartOptions?.plugins?.tooltip).toMatchObject({
@@ -254,5 +263,85 @@ describe('CodexQuotaHistoryPanel', () => {
       { windowRole: 'secondary', windowSeconds: 18000 },
       expect.any(AbortSignal),
     )
+  })
+
+  it('retries the real window that failed instead of falling back to the default window', async () => {
+    fetchCodexQuotaHistory.mockReset()
+    fetchCodexQuotaHistory
+      .mockResolvedValueOnce(response)
+      .mockRejectedValueOnce(new Error('secondary failed'))
+      .mockResolvedValueOnce(response)
+    await act(async () => {
+      root.render(<CodexQuotaHistoryPanel authIndex="codex-auth" />)
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+    const secondaryButton = [...document.body.querySelectorAll<HTMLButtonElement>('[aria-label="usage_stats.credentials_quota_history_window_selector"] button')]
+      .find((button) => button.textContent?.includes('usage_stats.credentials_quota_history_role_secondary'))
+    await act(async () => {
+      secondaryButton?.click()
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+    const retryButton = document.body.querySelector<HTMLButtonElement>('[role="status"] button')
+    await act(async () => {
+      retryButton?.click()
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+    expect(fetchCodexQuotaHistory).toHaveBeenLastCalledWith(
+      'codex-auth',
+      { windowRole: 'secondary', windowSeconds: 18000 },
+      expect.any(AbortSignal),
+    )
+  })
+
+  it('draws an isolated Cost sample without adding points to a continuous line', async () => {
+    const singleSampleResponse = cloneResponse()
+    singleSampleResponse.current_cycle!.transitions = singleSampleResponse.current_cycle!.transitions.slice(0, 1)
+    fetchCodexQuotaHistory.mockResolvedValue(singleSampleResponse)
+    await act(async () => {
+      root.render(<CodexQuotaHistoryPanel authIndex="codex-auth" />)
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+    const pointRadius = latestChartData?.datasets[1]?.pointRadius as unknown as ((context: { dataIndex: number }) => number)
+    expect(pointRadius({ dataIndex: 0 })).toBe(3)
+  })
+
+  it('shows the Analysis-style pricing hint and hides the partial Cost median', async () => {
+    const partialCostResponse = cloneResponse()
+    const missingCostTransition = partialCostResponse.current_cycle!.transitions[1]
+    missingCostTransition.usage.cost_available = false
+    missingCostTransition.cost_per_point_available = false
+    fetchCodexQuotaHistory.mockResolvedValue(partialCostResponse)
+    await act(async () => {
+      root.render(<CodexQuotaHistoryPanel authIndex="codex-auth" />)
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+    const warning = document.body.querySelector('[data-codex-quota-cost-warning]')
+    expect(warning?.parentElement?.tagName).toBe('HEADER')
+    expect(warning?.textContent).toBe('usage_stats.credentials_quota_history_cost_unavailable')
+    expect(document.body.querySelector('[data-codex-quota-median-summary]')?.textContent).toBe(
+      ' · usage_stats.credentials_quota_history_median · 1.00K Token/1%',
+    )
+    expect(latestChartData?.datasets[1]?.data).toEqual([1, null, null, null])
+    const pointRadius = latestChartData?.datasets[1]?.pointRadius as unknown as ((context: { dataIndex: number }) => number)
+    expect([0, 1, 2, 3].map((dataIndex) => pointRadius({ dataIndex }))).toEqual([3, 0, 0, 0])
+  })
+
+  it('preserves the project-timezone wall clock from API timestamps', async () => {
+    const offsetResponse = cloneResponse()
+    offsetResponse.current_cycle!.first_observed_at = '2026-08-21T13:01:00+08:00'
+    offsetResponse.current_cycle!.last_observed_at = '2026-08-21T14:02:00+08:00'
+    fetchCodexQuotaHistory.mockResolvedValue(offsetResponse)
+    await act(async () => {
+      root.render(<CodexQuotaHistoryPanel authIndex="codex-auth" />)
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+    expect(document.body.textContent).toContain('"start":"Aug 21, 01:01 PM"')
+    expect(document.body.textContent).toContain('"end":"Aug 21, 02:02 PM"')
   })
 })

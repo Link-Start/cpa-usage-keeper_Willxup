@@ -22,4 +22,9 @@ describe('Codex quota history styles', () => {
     expect(quotaHistoryStyles).toMatch(/\.chartLegend\s*\{[\s\S]*?justify-content:\s*center;/)
     expect(quotaHistoryStyles).toMatch(/\.costLine\s*\{[\s\S]*?border-top:\s*2px dashed var\(--quota-cost-line-color, #ff5a40\);/)
   })
+
+  it('matches the Analysis header hint and keeps chart facts available to screen readers', () => {
+    expect(quotaHistoryStyles).toMatch(/\.costHeaderHint\s*\{[\s\S]*?text-align:\s*right;/)
+    expect(quotaHistoryStyles).toMatch(/\.screenReaderOnly\s*\{[\s\S]*?clip-path:\s*inset\(50%\);/)
+  })
 })

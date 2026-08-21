@@ -76,9 +76,9 @@ type CodexQuotaEfficiencyTransition struct {
 	PercentagePoints int
 	// IsDirect 仅在恰好下降一个百分点时为 true。
 	IsDirect bool
-	// IntervalStartedAt 取前一状态段 last_observed_at，属于区间。
+	// IntervalStartedAt 取前一状态段 first_observed_at，不属于区间。
 	IntervalStartedAt time.Time
-	// IntervalEndedAt 取后一状态段 first_observed_at，不属于区间。
+	// IntervalEndedAt 取后一状态段 first_observed_at，属于区间。
 	IntervalEndedAt time.Time
 	// Usage 是这个观察间隔内动态回溯出的 OAuth 用量。
 	Usage CodexQuotaEfficiencyUsage

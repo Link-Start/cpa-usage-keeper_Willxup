@@ -86,9 +86,9 @@ type CodexQuotaHistoryTransition struct {
 	PercentagePoints int `json:"percentage_points"`
 	// IsDirect 表示这是不是可精确归属于一个百分点的直接样本。
 	IsDirect bool `json:"is_direct"`
-	// IntervalStartedAt 属于统计区间。
+	// IntervalStartedAt 是前一百分比首次出现时间，不属于统计区间。
 	IntervalStartedAt time.Time `json:"interval_started_at"`
-	// IntervalEndedAt 不属于统计区间，防止相邻状态重复计数。
+	// IntervalEndedAt 是后一百分比首次出现时间，属于统计区间且只归前一次下降。
 	IntervalEndedAt time.Time `json:"interval_ended_at"`
 	// Usage 是该观察间隔内的请求、Token 与动态 Cost。
 	Usage CodexQuotaHistoryUsage `json:"usage"`

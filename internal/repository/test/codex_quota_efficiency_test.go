@@ -30,13 +30,15 @@ func TestBuildCodexQuotaEfficiencyHistoryClassifiesCycleAndTransitionUsageOnce(t
 		{remaining: 86, first: now.Add(-2 * time.Hour), last: now.Add(-90 * time.Minute)},
 	})
 
-	// 直接下降区间为 [09:10,09:20)，跨档区间为 [09:30,10:00)；边界和稳定段事件只应计入一次。
+	// 变化区间从前一百分比首次观察之后开始，到后一百分比首次观察为止；相邻区间共享的边界事件只归前一区间。
 	seedCodexQuotaEfficiencyUsage(t, db,
 		usageEventForQuotaEfficiency("completed", "oauth", "codex-auth", completed.WindowStartedAt.Add(time.Hour), 2_000_000),
+		usageEventForQuotaEfficiency("direct-first-observation", "oauth", "codex-auth", now.Add(-3*time.Hour), 700_000),
 		usageEventForQuotaEfficiency("direct-start", "oauth", "codex-auth", now.Add(-2*time.Hour-50*time.Minute), 1_000_000),
 		usageEventForQuotaEfficiency("direct-end", "oauth", "codex-auth", now.Add(-2*time.Hour-40*time.Minute), 400_000),
 		usageEventForQuotaEfficiency("stable", "oauth", "codex-auth", now.Add(-time.Hour-50*time.Minute), 500_000),
 		usageEventForQuotaEfficiency("cross-start", "oauth", "codex-auth", now.Add(-2*time.Hour-30*time.Minute), 3_000_000),
+		usageEventForQuotaEfficiency("cross-end", "oauth", "codex-auth", now.Add(-2*time.Hour), 600_000),
 		usageEventForQuotaEfficiency("wrong-auth-type", "api_key", "codex-auth", now.Add(-2*time.Hour-45*time.Minute), 9_000_000),
 		usageEventForQuotaEfficiency("wrong-auth-index", "oauth", "another-auth", now.Add(-2*time.Hour-45*time.Minute), 9_000_000),
 	)
@@ -65,8 +67,8 @@ func TestBuildCodexQuotaEfficiencyHistoryClassifiesCycleAndTransitionUsageOnce(t
 		t.Fatalf("expected completed cycle %d, got %+v", completed.ID, result.CompletedCycles)
 	}
 
-	// 周期总量包含 direct 终点和稳定段事件，但排除非 OAuth 与其它账号。
-	assertCodexQuotaEfficiencyUsage(t, result.CurrentCycle.Usage, 4_900_000, 4.9, true)
+	// 周期总量包含全部账号内事件，但区间会排除前一百分比的首次观察和下降后的稳定段。
+	assertCodexQuotaEfficiencyUsage(t, result.CurrentCycle.Usage, 6_200_000, 6.2, true)
 	if len(result.CurrentCycle.Transitions) != 2 {
 		t.Fatalf("expected two real transitions, got %+v", result.CurrentCycle.Transitions)
 	}
@@ -74,16 +76,22 @@ func TestBuildCodexQuotaEfficiencyHistoryClassifiesCycleAndTransitionUsageOnce(t
 	if direct.FromRemainingPercent != 90 || direct.ToRemainingPercent != 89 || direct.PercentagePoints != 1 || direct.IsDirect != true {
 		t.Fatalf("unexpected direct transition: %+v", direct)
 	}
-	assertCodexQuotaEfficiencyUsage(t, direct.Usage, 1_000_000, 1, true)
-	if direct.TokensPerPoint != 1_000_000 || math.Abs(direct.CostPerPoint-1) > 1e-9 {
+	if !direct.IntervalStartedAt.Equal(now.Add(-3*time.Hour)) || !direct.IntervalEndedAt.Equal(now.Add(-2*time.Hour-40*time.Minute)) {
+		t.Fatalf("unexpected direct interval: %+v", direct)
+	}
+	assertCodexQuotaEfficiencyUsage(t, direct.Usage, 1_400_000, 1.4, true)
+	if direct.TokensPerPoint != 1_400_000 || math.Abs(direct.CostPerPoint-1.4) > 1e-9 {
 		t.Fatalf("unexpected direct per-point values: %+v", direct)
 	}
 	cross := result.CurrentCycle.Transitions[1]
 	if cross.FromRemainingPercent != 89 || cross.ToRemainingPercent != 86 || cross.PercentagePoints != 3 || cross.IsDirect {
 		t.Fatalf("unexpected cross transition: %+v", cross)
 	}
-	assertCodexQuotaEfficiencyUsage(t, cross.Usage, 3_000_000, 3, true)
-	if cross.TokensPerPoint != 1_000_000 || math.Abs(cross.CostPerPoint-1) > 1e-9 {
+	if !cross.IntervalStartedAt.Equal(now.Add(-2*time.Hour-40*time.Minute)) || !cross.IntervalEndedAt.Equal(now.Add(-2*time.Hour)) {
+		t.Fatalf("unexpected cross interval: %+v", cross)
+	}
+	assertCodexQuotaEfficiencyUsage(t, cross.Usage, 3_600_000, 3.6, true)
+	if cross.TokensPerPoint != 1_200_000 || math.Abs(cross.CostPerPoint-1.2) > 1e-9 {
 		t.Fatalf("unexpected cross per-point values: %+v", cross)
 	}
 	assertCodexQuotaEfficiencyUsage(t, result.CompletedCycles[0].Usage, 2_000_000, 2, true)

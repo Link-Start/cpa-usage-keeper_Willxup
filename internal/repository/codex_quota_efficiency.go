@@ -261,12 +261,13 @@ func buildCodexQuotaEfficiencyTransitions(segments []entities.CodexQuotaPercentS
 			continue
 		}
 		transition := repositorydto.CodexQuotaEfficiencyTransition{
-			ID:                    *nextID,
-			FromRemainingPercent:  previous.RemainingPercent,
-			ToRemainingPercent:    current.RemainingPercent,
-			PercentagePoints:      points,
-			IsDirect:              points == 1,
-			IntervalStartedAt:     previous.LastObservedAt,
+			ID:                   *nextID,
+			FromRemainingPercent: previous.RemainingPercent,
+			ToRemainingPercent:   current.RemainingPercent,
+			PercentagePoints:     points,
+			IsDirect:             points == 1,
+			// 前一百分比首次出现后的请求共同消耗这一档额度；重复观察不能把区间起点向后推。
+			IntervalStartedAt:     previous.FirstObservedAt,
 			IntervalEndedAt:       current.FirstObservedAt,
 			Usage:                 repositorydto.CodexQuotaEfficiencyUsage{CostAvailable: true},
 			CostPerPointAvailable: true,
@@ -405,7 +406,8 @@ func codexQuotaEfficiencyTransitionCase(works []codexQuotaEfficiencyCycleWork) (
 			if !transition.IntervalStartedAt.Before(transition.IntervalEndedAt) {
 				continue
 			}
-			parts = append(parts, "WHEN timestamp >= ? AND timestamp < ? THEN ?")
+			// 首次进入前一百分比的请求属于上一区间；首次进入后一百分比的请求完成本次下降。
+			parts = append(parts, "WHEN timestamp > ? AND timestamp <= ? THEN ?")
 			args = append(args, timeutil.FormatStorageTime(transition.IntervalStartedAt), timeutil.FormatStorageTime(transition.IntervalEndedAt), transition.ID)
 		}
 	}
