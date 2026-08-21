@@ -43,8 +43,8 @@ func TestBuildCodexQuotaEfficiencyHistoryClassifiesCycleAndTransitionUsageOnce(t
 		usageEventForQuotaEfficiency("wrong-auth-index", "oauth", "another-auth", now.Add(-2*time.Hour-45*time.Minute), 9_000_000),
 	)
 
-	aggregateQueryCount := 0
-	queryDB := db.Session(&gorm.Session{Logger: codexQuotaEfficiencyQueryLogger{Interface: logger.Default.LogMode(logger.Silent), aggregateQueries: &aggregateQueryCount}})
+	streamQueryCount := 0
+	queryDB := db.Session(&gorm.Session{Logger: codexQuotaEfficiencyQueryLogger{Interface: logger.Default.LogMode(logger.Silent), streamQueries: &streamQueryCount}})
 	result, err := repository.BuildCodexQuotaEfficiencyHistory(context.Background(), queryDB, repositorydto.CodexQuotaEfficiencyQuery{
 		AuthIndex:  "codex-auth",
 		Now:        now,
@@ -95,20 +95,22 @@ func TestBuildCodexQuotaEfficiencyHistoryClassifiesCycleAndTransitionUsageOnce(t
 		t.Fatalf("unexpected cross per-point values: %+v", cross)
 	}
 	assertCodexQuotaEfficiencyUsage(t, result.CompletedCycles[0].Usage, 2_000_000, 2, true)
-	if aggregateQueryCount != 1 {
-		t.Fatalf("expected current and completed Weekly cycles to share one UsageEvent aggregate query, got %d", aggregateQueryCount)
+	if streamQueryCount != 1 {
+		t.Fatalf("expected current and completed Weekly cycles to share one ordered UsageEvent stream, got %d", streamQueryCount)
 	}
 }
 
 type codexQuotaEfficiencyQueryLogger struct {
 	logger.Interface
-	aggregateQueries *int
+	streamQueries *int
 }
 
 func (l codexQuotaEfficiencyQueryLogger) Trace(ctx context.Context, begin time.Time, fc func() (string, int64), err error) {
 	sql, _ := fc()
-	if strings.Contains(sql, "WITH classified AS") && strings.Contains(sql, "FROM usage_events") {
-		(*l.aggregateQueries)++
+	if strings.Contains(sql, "FROM usage_events INDEXED BY idx_usage_events_auth_index_timestamp_id") &&
+		strings.Contains(sql, "ORDER BY timestamp ASC, id ASC") &&
+		!strings.Contains(sql, "CASE WHEN") {
+		(*l.streamQueries)++
 	}
 	l.Interface.Trace(ctx, begin, func() (string, int64) { return sql, 0 }, err)
 }
@@ -165,6 +167,35 @@ func TestBuildCodexQuotaEfficiencyHistoryMarksMissingPricingUnavailable(t *testi
 	if result.CurrentCycle.Transitions[0].CostPerPointAvailable {
 		t.Fatalf("missing price must not be rendered as zero cost: %+v", result.CurrentCycle.Transitions[0])
 	}
+}
+
+func TestBuildCodexQuotaEfficiencyHistoryKeepsPricingRuleDimensionsSeparate(t *testing.T) {
+	now := time.Date(2026, 8, 21, 12, 0, 0, 0, time.UTC)
+	db := openTestDatabase(t)
+	seedCodexQuotaEfficiencyCycle(t, db, "codex-auth", now.Add(-24*time.Hour), now.Add(24*time.Hour), []codexQuotaEfficiencySegmentSeed{
+		{remaining: 90, first: now.Add(-2 * time.Hour), last: now.Add(-90 * time.Minute)},
+		{remaining: 89, first: now.Add(-time.Hour), last: now.Add(-30 * time.Minute)},
+	})
+	defaultTier := usageEventForQuotaEfficiency("default-tier", "oauth", "codex-auth", now.Add(-90*time.Minute), 1_000_000)
+	priorityTier := usageEventForQuotaEfficiency("priority-tier", "oauth", "codex-auth", now.Add(-time.Hour), 1_000_000)
+	priorityTier.ServiceTier = "priority"
+	seedCodexQuotaEfficiencyUsage(t, db, defaultTier, priorityTier)
+
+	result, err := repository.BuildCodexQuotaEfficiencyHistory(context.Background(), db, repositorydto.CodexQuotaEfficiencyQuery{
+		AuthIndex:  "codex-auth",
+		Now:        now,
+		RangeStart: now.Add(-30 * 24 * time.Hour),
+	}, codexQuotaEfficiencyPricingResolverWithRules(t, []pricing.RuleConfig{{
+		Key: "service_tier", Value: "priority", Multiplier: 2,
+	}}))
+	if err != nil {
+		t.Fatalf("BuildCodexQuotaEfficiencyHistory returned error: %v", err)
+	}
+	if result.CurrentCycle == nil || len(result.CurrentCycle.Transitions) != 1 {
+		t.Fatalf("unexpected current cycle: %+v", result.CurrentCycle)
+	}
+	assertCodexQuotaEfficiencyUsage(t, result.CurrentCycle.Usage, 2_000_000, 3, true)
+	assertCodexQuotaEfficiencyUsage(t, result.CurrentCycle.Transitions[0].Usage, 2_000_000, 3, true)
 }
 
 type codexQuotaEfficiencySegmentSeed struct {
@@ -232,6 +263,10 @@ func seedCodexQuotaEfficiencyUsage(t *testing.T, db *gorm.DB, events ...entities
 }
 
 func codexQuotaEfficiencyPricingResolver(t *testing.T) pricing.Resolver {
+	return codexQuotaEfficiencyPricingResolverWithRules(t, nil)
+}
+
+func codexQuotaEfficiencyPricingResolverWithRules(t *testing.T, rules []pricing.RuleConfig) pricing.Resolver {
 	t.Helper()
 	multiplier := 1.0
 	snapshot, err := pricing.CompileSnapshot([]pricing.ModelConfig{{
@@ -240,6 +275,7 @@ func codexQuotaEfficiencyPricingResolver(t *testing.T) pricing.Resolver {
 			PromptPricePer1M: 1,
 			PriceMultiplier:  &multiplier,
 		},
+		Rules: rules,
 	}})
 	if err != nil {
 		t.Fatalf("compile quota efficiency pricing snapshot: %v", err)

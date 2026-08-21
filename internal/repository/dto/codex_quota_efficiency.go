@@ -64,10 +64,8 @@ type CodexQuotaEfficiencyCycle struct {
 	Transitions []CodexQuotaEfficiencyTransition
 }
 
-// CodexQuotaEfficiencyTransition 表示前一状态段最后观察到后一状态段首次观察之间的半开区间。
+// CodexQuotaEfficiencyTransition 表示前一状态段首次观察之后、到后一状态段首次观察（含）的左开右闭区间。
 type CodexQuotaEfficiencyTransition struct {
-	// ID 是一次响应内供 SQL 分类使用的临时编号，不会持久化或暴露为领域身份。
-	ID int64
 	// FromRemainingPercent 是变化前 Keeper 统一的整数剩余百分比。
 	FromRemainingPercent int
 	// ToRemainingPercent 是变化后 Keeper 统一的整数剩余百分比。

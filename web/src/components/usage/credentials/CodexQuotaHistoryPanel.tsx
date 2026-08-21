@@ -138,7 +138,10 @@ function CurrentCycleEfficiencyCard({
   locale?: string
 }) {
   const { t } = useTranslation()
-  const chart = useMemo(() => buildEfficiencyChart(cycle?.transitions ?? [], isDark, t), [cycle?.transitions, isDark, t])
+  const chart = useMemo(
+    () => buildEfficiencyChart(cycle?.transitions ?? [], isDark, t, locale),
+    [cycle?.transitions, isDark, locale, t],
+  )
 
   return (
     <section className={styles.card} data-codex-quota-current-cycle="true">
@@ -175,7 +178,7 @@ function CurrentCycleEfficiencyCard({
           <div className={styles.chartFrame} data-codex-quota-efficiency-chart="combined" aria-hidden="true">
             <Chart type="bar" data={chart.data} options={chart.options} />
           </div>
-          <CurrentCycleAccessibleSummary transitions={cycle.transitions} />
+          <CurrentCycleAccessibleSummary transitions={cycle.transitions} locale={locale} />
           <div className={styles.chartLegend}>
             <span><i className={styles.directDot} />{t('usage_stats.credentials_quota_history_direct')}</span>
             <span><i className={styles.crossDot} />{t('usage_stats.credentials_quota_history_cross')}</span>
@@ -194,7 +197,13 @@ function CurrentCycleEfficiencyCard({
   )
 }
 
-function CurrentCycleAccessibleSummary({ transitions }: { transitions: CodexQuotaHistoryTransition[] }) {
+function CurrentCycleAccessibleSummary({
+  transitions,
+  locale,
+}: {
+  transitions: CodexQuotaHistoryTransition[]
+  locale?: string
+}) {
   const { t } = useTranslation()
   return (
     <ul
@@ -205,6 +214,9 @@ function CurrentCycleAccessibleSummary({ transitions }: { transitions: CodexQuot
       {transitions.map((transition, index) => (
         <li key={`${transition.interval_started_at}:${transition.to_remaining_percent}:${index}`}>
           <span>{transition.from_remaining_percent}% → {transition.to_remaining_percent}%.</span>{' '}
+          <span>
+            {t('usage_stats.credentials_quota_history_interval')}: {formatDateTime(transition.interval_started_at, locale)} → {formatDateTime(transition.interval_ended_at, locale)}.
+          </span>{' '}
           <span>
             {transition.is_direct
               ? t('usage_stats.credentials_quota_history_direct')
@@ -279,7 +291,9 @@ function CompletedCycleCard({ cycle, locale }: { cycle: CodexQuotaHistoryCycle; 
           {t('usage_stats.credentials_quota_history_cycle_total', {
             requests: formatCompactNumber(cycle.usage.requests),
             tokens: formatCompactNumber(cycle.usage.total_tokens),
-            cost: cycle.usage.cost_available ? formatUsd(cycle.usage.total_cost_usd) : '—',
+            cost: cycle.usage.cost_available
+              ? formatUsd(cycle.usage.total_cost_usd)
+              : t('usage_stats.credentials_quota_history_cost_missing'),
           })}
         </small>
       </div>
@@ -319,6 +333,7 @@ function buildEfficiencyChart(
   transitions: CodexQuotaHistoryTransition[],
   isDark: boolean,
   t: (key: string) => string,
+  locale?: string,
 ): {
   data: QuotaEfficiencyChartData
   options: QuotaEfficiencyChartOptions
@@ -399,9 +414,13 @@ function buildEfficiencyChart(
             },
             afterBody: (items) => {
               const point = points[items[0]?.dataIndex]
-              if (!point || point.transition.is_direct) return []
+              if (!point) return []
+              const interval = `${t('usage_stats.credentials_quota_history_interval')}: ${formatDateTime(point.transition.interval_started_at, locale)} → ${formatDateTime(point.transition.interval_ended_at, locale)}`
+              // Direct 与跨百分点样本统一显示真实观察时间；跨百分点再补充整段变化和总用量。
+              if (point.transition.is_direct) return [interval]
               return [
-                `${t('usage_stats.credentials_quota_history_interval')}: ${point.transition.from_remaining_percent}% → ${point.transition.to_remaining_percent}%`,
+                `${t('usage_stats.credentials_quota_history_change')}: ${point.transition.from_remaining_percent}% → ${point.transition.to_remaining_percent}%`,
+                interval,
                 `${t('usage_stats.total_tokens')}: ${formatCompactNumber(point.transition.usage.total_tokens)} Token`,
                 `${t('usage_stats.total_cost')}: ${point.transition.usage.cost_available
                   ? formatUsd(point.transition.usage.total_cost_usd)

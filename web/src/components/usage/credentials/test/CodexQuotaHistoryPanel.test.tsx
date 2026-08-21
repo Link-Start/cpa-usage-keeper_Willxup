@@ -190,6 +190,7 @@ describe('CodexQuotaHistoryPanel', () => {
     expect(accessibleSummary?.textContent).toContain('90% → 89%')
     expect(accessibleSummary?.textContent).toContain('1.00K Token/1%')
     expect(accessibleSummary?.textContent).toContain('$1.00/1%')
+    expect(accessibleSummary?.textContent).toContain('usage_stats.credentials_quota_history_interval: Aug 20, 11:00 AM → Aug 20, 11:30 AM')
     expect(document.body.querySelector('[data-codex-quota-efficiency-chart]')?.getAttribute('aria-hidden')).toBe('true')
 
     const tooltipCallbacks = latestChartOptions?.plugins?.tooltip?.callbacks
@@ -215,12 +216,30 @@ describe('CodexQuotaHistoryPanel', () => {
       'usage_stats.credentials_quota_history_tokens_per_point: 1.00K',
       'usage_stats.credentials_quota_history_cost_per_point: $1.00',
     ])
-    expect(afterBody?.([{ dataIndex: 0 }])).toEqual([])
+    expect(afterBody?.([{ dataIndex: 0 }])).toEqual([
+      'usage_stats.credentials_quota_history_interval: Aug 20, 10:00 AM → Aug 20, 10:10 AM',
+    ])
     expect(afterBody?.([{ dataIndex: 1 }])).toEqual([
-      'usage_stats.credentials_quota_history_interval: 89% → 86%',
+      'usage_stats.credentials_quota_history_change: 89% → 86%',
+      'usage_stats.credentials_quota_history_interval: Aug 20, 11:00 AM → Aug 20, 11:30 AM',
       'usage_stats.total_tokens: 3.00K Token',
       'usage_stats.total_cost: $3.00',
     ])
+  })
+
+  it('explains why an ended cycle total Cost is unavailable', async () => {
+    const missingCycleCostResponse = cloneResponse()
+    missingCycleCostResponse.completed_cycles[0].usage.cost_available = false
+    fetchCodexQuotaHistory.mockResolvedValue(missingCycleCostResponse)
+    await act(async () => {
+      root.render(<CodexQuotaHistoryPanel authIndex="codex-auth" />)
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(document.body.textContent).toContain(
+      'usage_stats.credentials_quota_history_cycle_total:{"requests":"1","tokens":"2.00K","cost":"usage_stats.credentials_quota_history_cost_missing"}',
+    )
   })
 
   it('uses the Analysis tooltip surface in dark mode', async () => {
