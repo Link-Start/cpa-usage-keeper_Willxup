@@ -810,9 +810,16 @@
 
 .heatmapCorner,
 .heatmapHeaderCell,
+.heatmapRowLabel,
+.heatmapCell,
+.heatmapSummaryCell {
+  border-radius: $radius-lg;
+}
+
+.heatmapCorner,
+.heatmapHeaderCell,
 .heatmapCell {
   border: 1px solid var(--border-color);
-  border-radius: 6px;
   background: var(--bg-secondary);
 }
 
@@ -870,7 +877,7 @@
   position: absolute;
   inset: 0;
   z-index: -1;
-  border-radius: 0;
+  border-radius: inherit;
   background: inherit;
   pointer-events: none;
 }
@@ -911,7 +918,6 @@
   align-items: center;
   gap: 8px;
   border: 1px solid var(--border-color);
-  border-radius: 5px;
   background: var(--bg-primary);
   padding: 0 10px;
   outline: none;
@@ -939,7 +945,6 @@
   align-items: center;
   justify-content: center;
   padding: 0 4px;
-  border-radius: 5px;
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.10);
   font-variant-numeric: tabular-nums;
   outline: none;
@@ -962,7 +967,6 @@
   justify-content: center;
   min-width: 0;
   border: 1px solid var(--border-color);
-  border-radius: 5px;
   background: color-mix(in srgb, var(--bg-secondary) 72%, var(--bg-primary));
   color: var(--text-primary);
   padding: 0 5px;
