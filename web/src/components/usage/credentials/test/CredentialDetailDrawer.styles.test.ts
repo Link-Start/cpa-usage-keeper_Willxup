@@ -56,4 +56,14 @@ describe('CredentialDetailDrawer styles', () => {
       expect(radiusDeclarations).toEqual(['border-radius: var(--keeper-card-radius);'])
     }
   })
+
+  it('keeps neutral cards unchanged while allowing list tone classes in request details', () => {
+    const summaryDeclarations = topLevelDeclarations('.summaryMetric')
+
+    expect(summaryDeclarations).toContain('border: 1px solid var(--border-color);')
+    expect(summaryDeclarations).toContain('background: var(--bg-secondary);')
+    expect(scssRule('.summaryMetric')).toContain('> span,\n  > strong,\n  > small')
+    expect(drawerStyles).not.toContain('#3b82f6')
+    expect(drawerStyles).not.toContain('#8b5cf6')
+  })
 })

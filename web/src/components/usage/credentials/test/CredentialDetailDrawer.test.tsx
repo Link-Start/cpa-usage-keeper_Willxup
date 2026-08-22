@@ -279,6 +279,28 @@ describe('CredentialDetailDrawer', () => {
     expect(document.activeElement).toBe(requestsTab)
   })
 
+  it('uses the credential list tones for Overview metrics', async () => {
+    await act(async () => {
+      root.render(
+        <CredentialDetailDrawer
+          open
+          selection={selection}
+          onClose={() => undefined}
+        />,
+      )
+      await Promise.resolve()
+    })
+
+    const tonedMetrics = [...document.body.querySelectorAll<HTMLElement>('[data-credential-detail-metric-tone]')]
+    const tones = tonedMetrics.map((metric) => metric.dataset.credentialDetailMetricTone)
+
+    expect(tones).toEqual(['warning', 'neutral'])
+    expect(tonedMetrics[0]?.querySelector('strong')?.className).toContain('credentialMetricValueWarning')
+    expect(tonedMetrics[1]?.querySelector('strong')?.className).toContain('credentialMetricValueNeutral')
+    expect(document.body.querySelector('small [class*="credentialMetricValueSuccess"]')?.textContent).toBe('usage_stats.success 9')
+    expect(document.body.querySelector('small [class*="credentialMetricValueDanger"]')?.textContent).toBe('usage_stats.failure 1')
+  })
+
   it('loads the dedicated latest-event list lazily and appends the next cursor page on scroll', async () => {
     await act(async () => {
       root.render(
