@@ -21,9 +21,39 @@ const scssRule = (selector: string) => {
   throw new Error(`Unclosed SCSS rule: ${selector}`)
 }
 
+const topLevelDeclarations = (selector: string) => {
+  const rule = scssRule(selector)
+  const openingBrace = rule.indexOf('{')
+  const declarations: string[] = []
+  let nestedDepth = 0
+  let declarationStart = openingBrace + 1
+
+  for (let index = declarationStart; index < rule.length; index += 1) {
+    if (rule[index] === '{') {
+      nestedDepth += 1
+    } else if (rule[index] === '}') {
+      if (nestedDepth === 0) {
+        break
+      }
+      nestedDepth -= 1
+      if (nestedDepth === 0) {
+        declarationStart = index + 1
+      }
+    } else if (rule[index] === ';' && nestedDepth === 0) {
+      declarations.push(rule.slice(declarationStart, index + 1).trim())
+      declarationStart = index + 1
+    }
+  }
+
+  return declarations
+}
+
 describe('CredentialDetailDrawer styles', () => {
   it('uses the shared Keeper radius for every Overview card surface', () => {
-    expect(scssRule('.summaryMetric')).toContain('border-radius: var(--keeper-card-radius);')
-    expect(scssRule('.overviewSection')).toContain('border-radius: var(--keeper-card-radius);')
+    for (const selector of ['.summaryMetric', '.overviewSection']) {
+      const radiusDeclarations = topLevelDeclarations(selector).filter((declaration) => /^border-radius\s*:/.test(declaration))
+
+      expect(radiusDeclarations).toEqual(['border-radius: var(--keeper-card-radius);'])
+    }
   })
 })
