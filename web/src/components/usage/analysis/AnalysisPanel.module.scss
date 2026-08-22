@@ -74,7 +74,7 @@
 .analysisChartSurface {
   padding: 14px;
   background: var(--bg-secondary);
-  border-radius: $radius-lg;
+  border-radius: var(--keeper-card-radius);
   border: 1px solid var(--border-color);
   min-width: 0;
 }
@@ -176,7 +176,7 @@
   min-width: 0;
   padding: 9px 11px;
   border: 1px solid var(--border-color);
-  border-radius: 10px;
+  border-radius: 999px;
   background: color-mix(in srgb, var(--bg-secondary) 72%, transparent);
   color: var(--text-primary);
   font: inherit;
@@ -276,9 +276,9 @@
 
 .latencyMetric {
   border: 1px solid var(--border-color);
-  border-radius: 8px;
+  border-radius: var(--keeper-card-radius);
   background: var(--bg-secondary);
-  padding: 12px;
+  padding: 16px;
   min-width: 0;
 
   span,
@@ -429,7 +429,7 @@
   gap: 0;
   align-items: stretch;
   border: 1px solid var(--border-color);
-  border-radius: 8px;
+  border-radius: var(--keeper-card-radius);
   background: color-mix(in srgb, var(--bg-secondary) 78%, transparent);
   overflow: hidden;
   padding: 0;
@@ -445,7 +445,7 @@
   flex-direction: column;
   justify-content: flex-start;
   min-width: 0;
-  padding: 12px;
+  padding: 16px;
 
   span,
   small {
@@ -496,8 +496,8 @@
   gap: 4px 8px;
   align-items: center;
   border: 1px solid var(--border-color);
-  border-radius: 8px;
-  padding: 10px;
+  border-radius: var(--keeper-card-radius);
+  padding: 16px;
   background: var(--bg-secondary);
   min-width: 0;
 
@@ -610,7 +610,7 @@
 
 .compositionTab {
   border: 1px solid var(--border-color);
-  border-radius: 8px;
+  border-radius: 999px;
   background: var(--bg-secondary);
   color: var(--text-secondary);
   min-height: 34px;
