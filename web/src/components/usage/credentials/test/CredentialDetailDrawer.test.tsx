@@ -137,8 +137,7 @@ const quotaHistoryResponse = {
     has_current_cycle: true,
     last_observed_at: '2026-08-21T11:50:00Z',
   },
-  current_cycle: null,
-  completed_cycles: [],
+  cycles: [],
 }
 
 const response = (id: string, cursor?: string) => ({
