@@ -33,7 +33,7 @@ type codexQuotaHistoryInput struct {
 	Observations []repositorydto.CodexMainQuotaObservation
 	// IdentityVerified 表示主动查询入口已经确认活跃 Codex Auth File；Header 来源固定为 false 并批量回查。
 	IdentityVerified bool
-	// Source 决定 Header/可信队列分流、待写 Header 丢弃、校准权限与失败日志，不写入数据库。
+	// Source 决定 Header/可信队列分流、同账号角色 Header 替代、校准权限与失败日志，不写入数据库。
 	Source RefreshSource
 }
 
@@ -104,19 +104,17 @@ func (s *Service) runCodexQuotaHistoryRunner() {
 			if len(s.codexQuotaHistoryHeaderQueue) == 0 {
 				continue
 			}
-			// Header 第一条只启动固定窗口；可信来源可以中断等待并丢弃本轮尚未落库的 Header。
+			// Header 第一条只启动固定窗口；可信来源可以中断等待并替代同账号角色的待写 Header。
 			timerC, stopTimer := s.codexQuotaHistoryNewTimer(s.codexQuotaHistoryFlushInterval)
 			select {
 			case <-timerC:
 				stopTimer()
 				// 通知只负责唤醒；到点后原子固定两条队列，避免遗漏尚未发布通知的可信输入。
-				inputs := s.takePreferredCodexQuotaHistoryInputs()
-				s.processCodexQuotaHistoryBatch(current, inputs)
+				s.processPreferredCodexQuotaHistoryInputs(current)
 			case <-s.codexQuotaHistoryTrustedWake:
-				// 可信来源没有人为等待；丢弃本轮待写 Header 后，只把可信事实交给 writer。
+				// 可信来源没有人为等待；先写可信事实，再写未被同账号角色覆盖的 Header。
 				stopTimer()
-				inputs := s.takePreferredCodexQuotaHistoryInputs()
-				s.processCodexQuotaHistoryBatch(current, inputs)
+				s.processPreferredCodexQuotaHistoryInputs(current)
 			case <-s.codexQuotaHistoryStopCh:
 				// shutdown 不再等待剩余窗口，封住新投递后直接处理队列中已经接收的数据。
 				stopTimer()
@@ -124,9 +122,8 @@ func (s *Service) runCodexQuotaHistoryRunner() {
 				return
 			}
 		case <-s.codexQuotaHistoryTrustedWake:
-			// 空闲 runner 收到可信来源后同样丢弃当前 Header 队列，不创建十秒 timer。
-			inputs := s.takePreferredCodexQuotaHistoryInputs()
-			s.processCodexQuotaHistoryBatch(current, inputs)
+			// 空闲 runner 收到可信来源后同样立即分流两类事实，不创建十秒 timer。
+			s.processPreferredCodexQuotaHistoryInputs(current)
 		case <-s.codexQuotaHistoryStopCh:
 			// 空闲时收到 shutdown，同样处理 stop 之前已成功入队的全部元素。
 			s.flushQueuedCodexQuotaHistoryOnShutdown(current)
@@ -156,7 +153,7 @@ func (s *Service) takeQueuedCodexQuotaHistoryInputs(includeHeader bool, includeT
 	}
 	s.codexQuotaHistoryMu.Unlock()
 
-	// runner 是两条 channel 的唯一消费者；这里仅按固定边界复制，是否保留 Header 由调用方决定。
+	// runner 是两条 channel 的唯一消费者；这里仅按固定边界复制，来源优先级由调用方决定。
 	inputs := make([]codexQuotaHistoryInput, 0, headerCount+trustedCount)
 	for range headerCount {
 		inputs = append(inputs, <-s.codexQuotaHistoryHeaderQueue)
@@ -167,35 +164,63 @@ func (s *Service) takeQueuedCodexQuotaHistoryInputs(includeHeader bool, includeT
 	return inputs
 }
 
-// takePreferredCodexQuotaHistoryInputs 固定当前两条队列；存在可信来源时丢弃同一边界内的全部 Header。
-func (s *Service) takePreferredCodexQuotaHistoryInputs() []codexQuotaHistoryInput {
+// processPreferredCodexQuotaHistoryInputs 固定两条队列，并让可信事实先于未被覆盖的 Header 独立写入。
+func (s *Service) processPreferredCodexQuotaHistoryInputs(current map[codexQuotaHistoryStateKey]codexQuotaHistoryCurrentState) {
 	inputs := s.takeQueuedCodexQuotaHistoryInputs(true, true)
-	trusted := make([]codexQuotaHistoryInput, 0, len(inputs))
-	for index := range inputs {
-		if codexQuotaHistorySourceIsAuthoritative(inputs[index].Source) {
-			trusted = append(trusted, inputs[index])
+	candidates := codexQuotaHistoryCandidates(inputs)
+	trusted, remainingHeaders := splitPreferredCodexQuotaHistoryCandidates(candidates)
+	// 可信来源必须先完成 writer 调用；无关 Header 随后单独写入，不能反向延迟可信校准。
+	s.processCodexQuotaHistoryCandidateBatch(current, trusted)
+	s.processCodexQuotaHistoryCandidateBatch(current, remainingHeaders)
+}
+
+// splitPreferredCodexQuotaHistoryCandidates 只丢弃被同账号、同角色可信事实替代的 Header 候选。
+func splitPreferredCodexQuotaHistoryCandidates(candidates []codexQuotaHistoryCandidate) ([]codexQuotaHistoryCandidate, []codexQuotaHistoryCandidate) {
+	trusted := make([]codexQuotaHistoryCandidate, 0, len(candidates))
+	trustedKeys := make(map[codexQuotaHistoryStateKey]struct{})
+	for _, candidate := range candidates {
+		if !codexQuotaHistorySourceIsAuthoritative(candidate.Source) {
+			continue
+		}
+		trusted = append(trusted, candidate)
+		key := codexQuotaHistoryCandidateStateKey(candidate)
+		if key.AuthIndex != "" && (key.WindowRole == "primary" || key.WindowRole == "secondary") {
+			trustedKeys[key] = struct{}{}
 		}
 	}
 	if len(trusted) == 0 {
-		return inputs
+		return nil, candidates
 	}
-	// 被丢弃 Header 只损失本轮不足十秒的样本；清空引用让完整快照可尽快回收。
-	for index := range inputs {
-		inputs[index].Snapshot = nil
-		inputs[index].Observations = nil
+
+	remainingHeaders := make([]codexQuotaHistoryCandidate, 0, len(candidates)-len(trusted))
+	for _, candidate := range candidates {
+		if codexQuotaHistorySourceIsAuthoritative(candidate.Source) {
+			continue
+		}
+		// 可信查询只覆盖它实际返回的账号角色；其它账号或同账号另一角色仍保留本轮 Header。
+		if _, superseded := trustedKeys[codexQuotaHistoryCandidateStateKey(candidate)]; superseded {
+			continue
+		}
+		remainingHeaders = append(remainingHeaders, candidate)
 	}
-	return trusted
+	return trusted, remainingHeaders
 }
 
-// processCodexQuotaHistoryBatch 只处理同一来源类别，并按账号、窗口和观察时间恢复内部顺序。
-func (s *Service) processCodexQuotaHistoryBatch(current map[codexQuotaHistoryStateKey]codexQuotaHistoryCurrentState, inputs []codexQuotaHistoryInput) {
-	if len(inputs) == 0 {
+// codexQuotaHistoryCandidateStateKey 统一规范 runner 分流与状态缓存使用的账号角色键。
+func codexQuotaHistoryCandidateStateKey(candidate codexQuotaHistoryCandidate) codexQuotaHistoryStateKey {
+	return codexQuotaHistoryStateKey{
+		AuthIndex:  strings.TrimSpace(candidate.Observation.AuthIndex),
+		WindowRole: strings.ToLower(strings.TrimSpace(candidate.Observation.WindowRole)),
+	}
+}
+
+// processCodexQuotaHistoryCandidateBatch 只处理同一来源类别，并按账号、窗口和观察时间恢复内部顺序。
+func (s *Service) processCodexQuotaHistoryCandidateBatch(current map[codexQuotaHistoryStateKey]codexQuotaHistoryCurrentState, candidates []codexQuotaHistoryCandidate) {
+	if len(candidates) == 0 {
 		return
 	}
 	// 同一批某个账号窗口恢复失败后直接跳过余下候选；下一批会重新创建集合并自然重试。
 	failedRecoveries := make(map[codexQuotaHistoryStateKey]struct{})
-	candidates := codexQuotaHistoryCandidates(inputs)
-	// 完整快照引用至此已经释放；后续容器只保存最小 observation 值。
 	verified := s.verifyCodexQuotaHistoryCandidates(candidates)
 	// Redis inbox ID 和主动刷新完成顺序不保证等于各自观察时间；同类来源内部先恢复真实时序。
 	sort.SliceStable(verified, func(left int, right int) bool {
@@ -576,8 +601,7 @@ func (s *Service) flushCodexQuotaHistory(current map[codexQuotaHistoryStateKey]c
 
 // flushQueuedCodexQuotaHistoryOnShutdown 固定关闭时的剩余数量，并保持与正常批次相同的处理规则。
 func (s *Service) flushQueuedCodexQuotaHistoryOnShutdown(current map[codexQuotaHistoryStateKey]codexQuotaHistoryCurrentState) {
-	inputs := s.takePreferredCodexQuotaHistoryInputs()
-	s.processCodexQuotaHistoryBatch(current, inputs)
+	s.processPreferredCodexQuotaHistoryInputs(current)
 }
 
 // tryAppendCodexQuotaHistorySnapshot 把同一不可变 Header 快照指针非阻塞投递到独立 history 队列。

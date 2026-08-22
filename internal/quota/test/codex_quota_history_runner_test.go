@@ -496,6 +496,52 @@ func TestCodexQuotaHistoryRunnerDiscardsPendingHeaderAndFlushesTrustedImmediatel
 	}
 }
 
+func TestCodexQuotaHistoryRunnerPreservesHeaderOutsideTrustedAccountRole(t *testing.T) {
+	// 账号 A 的可信刷新只能替代 A 的同角色 Header；账号 B 的待写 Header 必须继续独立落库。
+	db := openQuotaTestDatabase(t)
+	seedUsageIdentity(t, db, codexHistoryUsageIdentity("trusted-account"))
+	seedUsageIdentity(t, db, codexHistoryUsageIdentity("header-account"))
+	base := time.Now().Add(-time.Minute).Truncate(time.Second)
+	primaryReset := base.Add(5 * time.Hour)
+	handler := &recordingProviderHandler{output: ProviderOutput{Provider: "codex", Result: CodexResult{Usage: &CodexUsagePayload{
+		RateLimit: &CodexRateLimitInfo{PrimaryWindow: codexHistoryUsageWindow(10, 18_000, primaryReset)},
+	}}}}
+	service := NewServiceWithRegistryAndOptions(db, NewProviderRegistry(map[string]ProviderHandler{"codex": handler}), ServiceOptions{
+		UsageHeaderSnapshotFlushInterval: time.Hour,
+		CodexQuotaHistoryFlushInterval:   time.Hour,
+		PricingCatalog:                   emptyPricingCatalogForTest(),
+	})
+	defer service.StopRefreshTasks()
+
+	trustedAccountHeader := codexHistoryPrimarySnapshot("trusted-account", base, 80, primaryReset)
+	unrelatedHeader := codexHistoryPrimarySnapshot("header-account", base, 76, primaryReset)
+	if !service.TryAppendUsageHeaderSnapshots(usageHeaderSnapshotPointers(trustedAccountHeader, unrelatedHeader)) {
+		t.Fatal("expected both accounts' Header observations to enter delayed history queue")
+	}
+	if _, err := service.Check(context.Background(), CheckRequest{AuthIndex: "trusted-account", Source: RefreshSourceManual}); err != nil {
+		t.Fatalf("trusted active quota check failed: %v", err)
+	}
+
+	// 两个账号都落库后分别检查尾段，证明 A 的 80% 被替代而 B 的 76% 没有被跨账号清空。
+	waitForCodexQuotaCycleCount(t, db, 2)
+	trustedCycles := loadCodexQuotaCycles(t, db, "trusted-account")
+	if len(trustedCycles) != 1 {
+		t.Fatalf("expected one trusted account cycle, got %+v", trustedCycles)
+	}
+	trustedSegments := loadCodexQuotaSegments(t, db, trustedCycles[0].ID)
+	if len(trustedSegments) != 1 || trustedSegments[0].RemainingPercent != 90 {
+		t.Fatalf("expected trusted account Header to be replaced by 90 percent, got %+v", trustedSegments)
+	}
+	unrelatedCycles := loadCodexQuotaCycles(t, db, "header-account")
+	if len(unrelatedCycles) != 1 {
+		t.Fatalf("expected one unrelated Header cycle, got %+v", unrelatedCycles)
+	}
+	unrelatedSegments := loadCodexQuotaSegments(t, db, unrelatedCycles[0].ID)
+	if len(unrelatedSegments) != 1 || unrelatedSegments[0].RemainingPercent != 76 {
+		t.Fatalf("expected unrelated Header 76 percent to persist, got %+v", unrelatedSegments)
+	}
+}
+
 func TestCodexQuotaHistoryRunnerPrefersTrustedQueueAtTimerBoundary(t *testing.T) {
 	// 生产者先写可信队列、再发布通知；timer 到点时必须以两条队列的固定边界为准，不能只探测通知。
 	db := openQuotaTestDatabase(t)
