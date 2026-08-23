@@ -376,10 +376,18 @@ describe('CredentialRequestEventsList', () => {
   })
 
   it('opens the selected request log from the result badge', async () => {
+    const longModel = 'gpt-5.4-codex-reasoning-ultra-long-context-preview-2026-08-21'
+    const logEvent = { ...event, model: longModel }
     const onRequestLogOpen = vi.fn()
+    vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(100)
+    vi.spyOn(HTMLElement.prototype, 'scrollWidth', 'get').mockImplementation(function scrollWidth() {
+      return this.textContent === longModel ? 360 : 80
+    })
+    vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(20)
+    vi.spyOn(HTMLElement.prototype, 'scrollHeight', 'get').mockReturnValue(20)
     await act(async () => root.render(
       <CredentialRequestEventsList
-        events={[event]}
+        events={[logEvent]}
         loading={false}
         hasMore={false}
         loadingMore={false}
@@ -390,8 +398,15 @@ describe('CredentialRequestEventsList', () => {
       />,
     ))
 
+    const modelTarget = Array.from(
+      container.querySelectorAll<HTMLElement>('[data-credential-request-overflow-target]'),
+    ).find((element) => element.textContent === longModel)
+    await act(async () => modelTarget?.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })))
+    expect(document.body.querySelector('[role="tooltip"]')?.textContent).toBe(longModel)
+
     await act(async () => container.querySelector<HTMLButtonElement>('[data-credential-request-log="1"]')?.click())
-    expect(onRequestLogOpen).toHaveBeenCalledWith(event)
+    expect(onRequestLogOpen).toHaveBeenCalledWith(logEvent)
+    expect(document.body.querySelector('[role="tooltip"]')).toBeNull()
     const logButton = container.querySelector<HTMLButtonElement>('[data-credential-request-log="1"]')
     expect(logButton?.className).toContain('requestEventsResultLogButton')
     expect(logButton?.className).toContain('requestEventsResultCompact')
@@ -403,6 +418,51 @@ describe('CredentialRequestEventsList', () => {
   it('detects the dedicated list load-more boundary', () => {
     expect(shouldLoadMoreCredentialRequestEvents({ scrollTop: 1_000, clientHeight: 500, scrollHeight: 1_700 })).toBe(true)
     expect(shouldLoadMoreCredentialRequestEvents({ scrollTop: 100, clientHeight: 500, scrollHeight: 1_700 })).toBe(false)
+  })
+
+  it('keeps the first full cursor page virtualized while appending the next page', async () => {
+    const firstPage = Array.from({ length: 50 }, (_, index) => buildEvent(index))
+    const secondPage = Array.from({ length: 100 }, (_, index) => buildEvent(index))
+    const renderList = (events: UsageEvent[]) => (
+      <CredentialRequestEventsList
+        events={events}
+        loading={false}
+        hasMore={false}
+        loadingMore={false}
+        autoLoadMore
+        onLoadMore={() => undefined}
+      />
+    )
+
+    await act(async () => {
+      root.render(renderList(firstPage))
+      await Promise.resolve()
+    })
+
+    const scroller = container.querySelector<HTMLElement>('[data-credential-request-events-scroller="true"]')!
+    expect(scroller.dataset.virtualized).toBe('true')
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>('[data-credential-request-event-toggle="1"]')?.click()
+    })
+    await act(async () => TestResizeObserver.flush())
+    expect(readVirtualContentHeight(scroller)).toBe(3_650)
+
+    scroller.scrollTop = 2_800
+    await act(async () => {
+      scroller.dispatchEvent(new Event('scroll'))
+      const { promise, resolve } = Promise.withResolvers<void>()
+      window.setTimeout(resolve, 0)
+      await promise
+    })
+    expect(container.querySelector('[data-credential-request-event-toggle="1"]')).toBeNull()
+    const scrollTopBeforeAppend = scroller.scrollTop
+
+    await act(async () => {
+      root.render(renderList(secondPage))
+      await Promise.resolve()
+    })
+    expect(readVirtualContentHeight(scroller)).toBe(7_150)
+    expect(scroller.scrollTop).toBe(scrollTopBeforeAppend)
   })
 
   it('keeps a large loaded history bounded in the DOM and advances the virtual window', async () => {
@@ -442,6 +502,59 @@ describe('CredentialRequestEventsList', () => {
     expect(scrolledRows.length).toBeGreaterThan(0)
     expect(scrolledRows.length).toBeLessThan(100)
     expect(Math.min(...scrolledIndexes)).toBeGreaterThan(Math.min(...initialIndexes))
+  })
+
+  it('clears an overflow tooltip when its virtual row leaves the window', async () => {
+    const longModel = 'gpt-5.4-codex-reasoning-ultra-long-context-preview-2026-08-21'
+    const events = Array.from({ length: 100 }, (_, index) => (
+      index === 0 ? { ...buildEvent(index), model: longModel } : buildEvent(index)
+    ))
+    const onClose = vi.fn()
+    vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(100)
+    vi.spyOn(HTMLElement.prototype, 'scrollWidth', 'get').mockImplementation(function scrollWidth() {
+      return this.textContent === longModel ? 360 : 80
+    })
+    vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(20)
+    vi.spyOn(HTMLElement.prototype, 'scrollHeight', 'get').mockReturnValue(20)
+
+    await act(async () => {
+      root.render(
+        <Modal open title="Credential" variant="drawer" onClose={onClose}>
+          <CredentialRequestEventsList
+            events={events}
+            loading={false}
+            hasMore={false}
+            loadingMore={false}
+            autoLoadMore
+            onLoadMore={() => undefined}
+          />
+        </Modal>,
+      )
+      const { promise, resolve } = Promise.withResolvers<void>()
+      window.setTimeout(resolve, 0)
+      await promise
+    })
+
+    const modelTarget = Array.from(
+      document.body.querySelectorAll<HTMLElement>('[data-credential-request-overflow-target]'),
+    ).find((element) => element.textContent === longModel)
+    await act(async () => modelTarget?.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })))
+    expect(document.body.querySelector('[role="tooltip"]')?.textContent).toBe(longModel)
+
+    const scroller = document.body.querySelector<HTMLElement>('[data-credential-request-events-scroller="true"]')!
+    scroller.scrollTop = 3_500
+    await act(async () => {
+      scroller.dispatchEvent(new Event('scroll'))
+      const { promise, resolve } = Promise.withResolvers<void>()
+      window.setTimeout(resolve, 0)
+      await promise
+    })
+    expect(modelTarget?.isConnected).toBe(false)
+    expect(document.body.querySelector('[role="tooltip"]')).toBeNull()
+
+    const visibleToggle = document.body.querySelector<HTMLButtonElement>('[data-credential-request-event-toggle]')
+    await act(async () => visibleToggle?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })))
+    expect(onClose).toHaveBeenCalledTimes(1)
   })
 
   it('drops the stale height of an expanded row after it leaves the virtual window', async () => {

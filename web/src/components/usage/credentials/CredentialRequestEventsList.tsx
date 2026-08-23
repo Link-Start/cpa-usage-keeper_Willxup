@@ -121,8 +121,10 @@ function OverflowTooltipText({
     return () => {
       window.cancelAnimationFrame(frameId)
       observer?.disconnect()
+      tooltipActions.hideOnMouseLeave(anchor)
+      tooltipActions.hideOnBlur(anchor)
     }
-  }, [measureOverflow, tooltipText])
+  }, [measureOverflow, tooltipActions, tooltipText])
 
   const interactive = overflowing && !disabled
   const sharedProps = {
@@ -328,7 +330,7 @@ export function CredentialRequestEventsList({
   }, [dismissTooltip, tooltipVisible])
 
   const rows = useMemo(() => events.map((event, index) => buildRow(event, index, t)), [events, t])
-  const virtualizeRows = rows.length > VIRTUALIZATION_THRESHOLD
+  const virtualizeRows = rows.length >= VIRTUALIZATION_THRESHOLD
   // TanStack Virtual 依赖内部可变测量状态，不参与 React Compiler 自动记忆化。
   // eslint-disable-next-line react-hooks/incompatible-library
   const rowVirtualizer = useVirtualizer({
@@ -491,7 +493,10 @@ export function CredentialRequestEventsList({
             <RequestEventResultBadge
               failed={row.failed}
               loading={logLoading}
-              onOpen={canOpenLog ? () => onRequestLogOpen?.(row.event) : undefined}
+              onOpen={canOpenLog ? () => {
+                dismissTooltip()
+                onRequestLogOpen?.(row.event)
+              } : undefined}
               dataAttributes={canOpenLog ? { 'data-credential-request-log': row.id } : undefined}
               size="compact"
             />
