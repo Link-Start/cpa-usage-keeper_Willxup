@@ -627,7 +627,6 @@ export async function fetchUsageQuotaCache(authIndexes: string[], signal?: Abort
 
 export interface FetchCodexQuotaHistoryOptions {
   windowRole?: 'primary' | 'secondary'
-  windowSeconds?: number
 }
 
 export async function fetchCodexQuotaHistory(
@@ -637,7 +636,6 @@ export async function fetchCodexQuotaHistory(
 ): Promise<CodexQuotaHistoryResponse> {
   const params = new URLSearchParams()
   if (options.windowRole) params.set('window_role', options.windowRole)
-  if (options.windowSeconds != null) params.set('window_seconds', String(options.windowSeconds))
   const query = params.toString()
   const response = await apiFetch(`${apiPath(`/quota/history/${encodeURIComponent(authIndex)}`)}${query ? `?${query}` : ''}`, { signal })
   if (!response.ok) {
