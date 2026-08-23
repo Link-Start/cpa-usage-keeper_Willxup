@@ -912,15 +912,18 @@ describe('UsagePage toolbar styles', () => {
     expect(apiKeySettingsMobileBlock).toMatch(/\.apiKeySettingsItem\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1fr\);/)
     expect(apiKeySettingsMobileBlock).toMatch(/\.apiKeySettingsItem\s*\{[^}]*align-items:\s*stretch;/)
     expect(apiKeySettingsMobileBlock).toMatch(/\.apiKeyAliasField\s*\{[\s\S]*?width:\s*100%;/)
-    expect(apiKeySettingsMobileBlock).toMatch(/\.apiKeyAliasField\s*\{[\s\S]*?:global\(\.form-group\)\s*\{[\s\S]*?width:\s*100%;/)
-    expect(apiKeySettingsMobileBlock).toMatch(/\.apiKeyAliasField\s*\{[\s\S]*?:global\(\.form-group\)\s*\{[\s\S]*?min-width:\s*0;/)
-    expect(apiKeySettingsMobileBlock).toMatch(/\.apiKeyAliasField\s*\{[\s\S]*?:global\(\.form-group\)\s*\{[\s\S]*?margin-bottom:\s*0;/)
     expect(apiKeySettingsMobileBlock).toMatch(/\.apiKeyAliasInput\s*\{[\s\S]*?max-width:\s*100%;/)
   })
 
   it('keeps Settings data cards and alias controls on the shared rounded layout', () => {
     const apiKeySettingsListBlock = styleRuleBlock(usagePageStyles, '.apiKeySettingsList')
     const apiKeyAliasInputBlock = styleRuleBlock(usagePageStyles, '.apiKeyAliasInput:global(.input)')
+    const apiKeyAliasFieldBlock = usagePageStyles.slice(
+      usagePageStyles.indexOf('.apiKeyAliasField {'),
+      usagePageStyles.indexOf('.apiKeyFieldLabel,'),
+    )
+    const apiKeyNameRowBlock = styleRuleBlock(usagePageStyles, '.apiKeySettingsNameRow')
+    const apiKeyCopyIconBlock = styleRuleBlock(usagePageStyles, '.apiKeySettingsCopyIconButton')
     const sessionSettingsItemBlock = styleRuleBlock(usagePageStyles, '.sessionSettingsItem')
     const tabletBlock = usagePageStyles.slice(
       usagePageStyles.indexOf('@include tablet {\n  .apiKeySettingsList'),
@@ -928,7 +931,16 @@ describe('UsagePage toolbar styles', () => {
     )
 
     expect(apiKeySettingsListBlock).toContain('grid-template-columns: repeat(2, minmax(0, 1fr));')
+    expect(apiKeyAliasInputBlock).toContain('height: 32px;')
+    expect(apiKeyAliasInputBlock).toContain('min-height: 32px;')
+    expect(apiKeyAliasInputBlock).toContain('padding: 6px 12px;')
+    expect(apiKeyAliasInputBlock).toContain('line-height: 18px;')
     expect(apiKeyAliasInputBlock).toContain('border-radius: 999px;')
+    expect(apiKeyAliasInputBlock).not.toContain('height: 40px;')
+    expect(apiKeyAliasFieldBlock).toMatch(/:global\(\.form-group\)\s*\{[\s\S]*?width:\s*100%;[\s\S]*?min-width:\s*0;[\s\S]*?margin-bottom:\s*0;/)
+    expect(apiKeyNameRowBlock).toContain('grid-template-columns: minmax(0, 1fr) auto;')
+    expect(apiKeyCopyIconBlock).toContain('width: 28px;')
+    expect(apiKeyCopyIconBlock).toContain('height: 28px;')
     expect(sessionSettingsItemBlock).toContain('border-radius: 20px;')
     expect(tabletBlock).toMatch(/\.apiKeySettingsList\s*\{[\s\S]*?grid-template-columns:\s*minmax\(0, 1fr\);/)
   })
@@ -1002,7 +1014,7 @@ describe('UsagePage toolbar styles', () => {
 
   it('keeps Session and API Key Settings row actions compact like Model Pricing actions', () => {
     const apiKeyButtonsBlock = usagePageStyles.slice(
-      usagePageStyles.indexOf('.apiKeySettingsCopyButton,'),
+      usagePageStyles.indexOf('.apiKeySettingsSaveButton {'),
       usagePageStyles.indexOf('.sessionSettingsCard:global(.card)')
     )
     const sessionButtonBlock = usagePageStyles.slice(
@@ -1013,7 +1025,8 @@ describe('UsagePage toolbar styles', () => {
     expect(usagePageStyles).not.toContain('.settingsCompactAction')
     expect(apiKeyButtonsBlock).not.toContain('min-height: 40px;')
     expect(sessionButtonBlock).not.toContain('min-height: 40px;')
-    expect(apiKeySettingsSource.match(/appearance="action"/g)).toHaveLength(2)
+    expect(apiKeySettingsSource.match(/appearance="action"/g)).toHaveLength(1)
+    expect(apiKeySettingsSource).not.toContain('styles.apiKeySettingsCopyButton')
     expect(sessionSettingsSource.match(/appearance="action"/g)).toHaveLength(3)
   })
 
@@ -1512,11 +1525,11 @@ describe('Pricing rules component boundary', () => {
 
   it('matches the compact model-pricing control sizes and aligns each rule row', () => {
     expect(priceRulesSource.match(/className=\{styles\.ruleInput\}/g)).toHaveLength(3)
-    expect(styleRuleBlock(priceRulesStyles, '.ruleInput')).toMatch(/height:\s*40px;/)
+    expect(styleRuleBlock(priceRulesStyles, '.ruleInput')).toMatch(/height:\s*32px;/)
     expect(styleRuleBlock(priceRulesStyles, '.ruleInput')).toMatch(/border-radius:\s*999px;/)
     expect(priceRulesStyles).toMatch(/\.ruleRow\s+:global\(\.form-group > label\)\s*\{[\s\S]*?font-size:\s*10px;/)
     expect(styleRuleBlock(priceRulesStyles, '.removeButton')).not.toMatch(/min-height:/)
-    expect(styleRuleBlock(priceRulesStyles, '.removeButton')).toMatch(/margin-top:\s*20px;/)
+    expect(styleRuleBlock(priceRulesStyles, '.removeButton')).toMatch(/margin-top:\s*16px;/)
     expect(priceRulesStyles).not.toContain('.actionButton')
     expect(priceRulesSource.match(/appearance="action"/g)).toHaveLength(4)
     expect(priceRulesSource).not.toContain('usageStyles')

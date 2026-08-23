@@ -1921,10 +1921,18 @@
   min-width: 0;
 }
 
+.apiKeySettingsNameRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  min-height: 32px;
+}
+
 .apiKeySettingsName {
   display: -webkit-box;
   min-width: 0;
-  min-height: 40px;
   overflow: hidden;
   color: var(--text-primary);
   font-size: 13px;
@@ -1933,6 +1941,42 @@
   word-break: break-all;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
+}
+
+.apiKeySettingsCopyIconButton {
+  appearance: none;
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease;
+
+  &:hover:not(:disabled) {
+    background: var(--bg-primary);
+    color: var(--text-primary);
+  }
+
+  &:focus-visible {
+    outline: 2px solid color-mix(in srgb, var(--primary-color) 54%, transparent);
+    outline-offset: -2px;
+  }
+
+  &:disabled {
+    cursor: not-allowed;
+    opacity: 0.45;
+  }
+}
+
+.apiKeySettingsCopyIconButtonCopied {
+  color: var(--success-color);
 }
 
 .apiKeySettingsMeta {
@@ -1958,6 +2002,12 @@
   flex-direction: column;
   gap: 5px;
   min-width: 0;
+
+  :global(.form-group) {
+    width: 100%;
+    min-width: 0;
+    margin-bottom: 0;
+  }
 }
 
 .apiKeyFieldLabel,
@@ -1971,19 +2021,24 @@
 
 .apiKeyAliasInput:global(.input) {
   width: 100%;
+  height: 32px;
+  min-height: 32px;
+  box-sizing: border-box;
+  padding: 6px 12px;
   border-radius: 999px;
+  font-size: 12px;
+  line-height: 18px;
 }
 
 .apiKeySettingsActions {
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  align-self: stretch;
+  align-self: end;
   gap: 8px;
   min-width: 0;
 }
 
-.apiKeySettingsCopyButton,
 .apiKeySettingsSaveButton {
   min-width: 68px;
   justify-content: center;
@@ -2233,19 +2288,12 @@
     justify-content: stretch;
   }
 
-  .apiKeySettingsCopyButton,
   .apiKeySettingsSaveButton {
     flex: 1 1 0;
   }
 
   .apiKeyAliasField {
     width: 100%;
-
-    :global(.form-group) {
-      width: 100%;
-      min-width: 0;
-      margin-bottom: 0;
-    }
   }
 
   .apiKeyAliasInput {
