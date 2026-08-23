@@ -918,6 +918,21 @@ describe('UsagePage toolbar styles', () => {
     expect(apiKeySettingsMobileBlock).toMatch(/\.apiKeyAliasInput\s*\{[\s\S]*?max-width:\s*100%;/)
   })
 
+  it('keeps Settings data cards and alias controls on the shared rounded layout', () => {
+    const apiKeySettingsListBlock = styleRuleBlock(usagePageStyles, '.apiKeySettingsList')
+    const apiKeyAliasInputBlock = styleRuleBlock(usagePageStyles, '.apiKeyAliasInput:global(.input)')
+    const sessionSettingsItemBlock = styleRuleBlock(usagePageStyles, '.sessionSettingsItem')
+    const tabletBlock = usagePageStyles.slice(
+      usagePageStyles.indexOf('@include tablet {\n  .apiKeySettingsList'),
+      usagePageStyles.indexOf('@include mobile {\n  .apiKeySettingsCard:global(.card)'),
+    )
+
+    expect(apiKeySettingsListBlock).toContain('grid-template-columns: repeat(2, minmax(0, 1fr));')
+    expect(apiKeyAliasInputBlock).toContain('border-radius: 999px;')
+    expect(sessionSettingsItemBlock).toContain('border-radius: 20px;')
+    expect(tabletBlock).toMatch(/\.apiKeySettingsList\s*\{[\s\S]*?grid-template-columns:\s*minmax\(0, 1fr\);/)
+  })
+
   it('lets Session Management content shrink until it needs to scroll', () => {
     const sessionSettingsBodyBlock = usagePageStyles.slice(
       usagePageStyles.indexOf('.sessionSettingsBody {'),
@@ -959,6 +974,7 @@ describe('UsagePage toolbar styles', () => {
     expect(clientBlock).toMatch(/white-space:\s*normal;/)
     expect(clientBlock).toMatch(/overflow-wrap:\s*anywhere;/)
     expect(clientBlock).toContain('border: 1px solid var(--border-color);')
+    expect(clientBlock).toContain('border-radius: 16px;')
     expect(clientBlock).toContain('background: var(--bg-tertiary);')
     expect(clientBlock).not.toMatch(/text-overflow:\s*ellipsis;/)
     expect(clientBlock).not.toMatch(/white-space:\s*nowrap;/)
