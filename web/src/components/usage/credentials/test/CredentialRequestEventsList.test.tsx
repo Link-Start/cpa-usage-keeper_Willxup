@@ -3,6 +3,7 @@
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { Modal } from '@/components/ui/Modal'
 import type { UsageEvent } from '@/lib/types'
 import {
   CredentialRequestEventsList,
@@ -66,9 +67,14 @@ const rect = (width: number, height: number): DOMRect => ({
 })
 
 class TestResizeObserver implements ResizeObserver {
-  constructor(private readonly callback: ResizeObserverCallback) {}
+  private static readonly instances = new Set<TestResizeObserver>()
+  private readonly targets = new Set<Element>()
 
-  observe(target: Element) {
+  constructor(private readonly callback: ResizeObserverCallback) {
+    TestResizeObserver.instances.add(this)
+  }
+
+  private emit(target: Element) {
     const contentRect = target.getBoundingClientRect()
     this.callback([{
       target,
@@ -79,8 +85,41 @@ class TestResizeObserver implements ResizeObserver {
     } as unknown as ResizeObserverEntry], this)
   }
 
-  disconnect() {}
-  unobserve() {}
+  observe(target: Element) {
+    this.targets.add(target)
+    this.emit(target)
+  }
+
+  disconnect() {
+    this.targets.clear()
+    TestResizeObserver.instances.delete(this)
+  }
+
+  unobserve(target: Element) {
+    this.targets.delete(target)
+  }
+
+  static flush() {
+    for (const instance of TestResizeObserver.instances) {
+      for (const target of instance.targets) {
+        if (target.isConnected) instance.emit(target)
+      }
+    }
+  }
+
+  static reset() {
+    TestResizeObserver.instances.clear()
+  }
+}
+
+const readVirtualContentHeight = (scroller: HTMLElement): number => {
+  const spacerHeight = Array.from(
+    scroller.querySelectorAll<HTMLTableRowElement>('[data-credential-request-events-spacer]'),
+  ).reduce((total, spacer) => total + (Number.parseFloat(spacer.style.height) || 0), 0)
+  const renderedHeight = Array.from(
+    scroller.querySelectorAll<HTMLElement>('[data-credential-request-event-group]'),
+  ).reduce((total, group) => total + group.getBoundingClientRect().height, 0)
+  return spacerHeight + renderedHeight
 }
 
 describe('CredentialRequestEventsList', () => {
@@ -89,6 +128,7 @@ describe('CredentialRequestEventsList', () => {
 
   beforeEach(() => {
     globalThis.IS_REACT_ACT_ENVIRONMENT = true
+    TestResizeObserver.reset()
     vi.stubGlobal('ResizeObserver', TestResizeObserver)
     vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
       callback(performance.now())
@@ -97,6 +137,10 @@ describe('CredentialRequestEventsList', () => {
     vi.stubGlobal('cancelAnimationFrame', () => undefined)
     vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function getBoundingClientRect() {
       if (this.dataset.credentialRequestEventsScroller === 'true') return rect(920, 600)
+      if (this.dataset.credentialRequestEventGroup) {
+        const expanded = this.querySelector('[data-credential-request-event-details]') !== null
+        return rect(920, expanded ? 220 : 70)
+      }
       if (this instanceof HTMLTableRowElement) {
         const spacerHeight = Number.parseFloat(this.style.height)
         return rect(920, Number.isFinite(spacerHeight) ? spacerHeight : 52)
@@ -117,6 +161,7 @@ describe('CredentialRequestEventsList', () => {
     await act(async () => root.unmount())
     container.remove()
     document.body.innerHTML = ''
+    TestResizeObserver.reset()
     vi.unstubAllGlobals()
     vi.restoreAllMocks()
   })
@@ -279,6 +324,48 @@ describe('CredentialRequestEventsList', () => {
     expect(document.body.querySelector('[role="tooltip"]')).toBeNull()
   })
 
+  it('dismisses a focused overflow tooltip before Escape reaches the drawer', async () => {
+    const longModel = 'gpt-5.4-codex-reasoning-ultra-long-context-preview-2026-08-21'
+    const onClose = vi.fn()
+    vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(100)
+    vi.spyOn(HTMLElement.prototype, 'scrollWidth', 'get').mockImplementation(function scrollWidth() {
+      return this.textContent === longModel ? 360 : 80
+    })
+    vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(20)
+    vi.spyOn(HTMLElement.prototype, 'scrollHeight', 'get').mockReturnValue(20)
+
+    await act(async () => {
+      root.render(
+        <Modal open title="Credential" variant="drawer" onClose={onClose}>
+          <CredentialRequestEventsList
+            events={[{ ...event, model: longModel }]}
+            loading={false}
+            hasMore={false}
+            loadingMore={false}
+            autoLoadMore
+            onLoadMore={() => undefined}
+          />
+        </Modal>,
+      )
+      const { promise, resolve } = Promise.withResolvers<void>()
+      window.setTimeout(resolve, 0)
+      await promise
+    })
+
+    const modelTarget = Array.from(
+      document.body.querySelectorAll<HTMLElement>('[data-credential-request-overflow-target]'),
+    ).find((element) => element.textContent === longModel)
+    await act(async () => modelTarget?.focus())
+    expect(document.body.querySelector('[role="tooltip"]')?.textContent).toBe(longModel)
+
+    await act(async () => modelTarget?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })))
+    expect(document.body.querySelector('[role="tooltip"]')).toBeNull()
+    expect(onClose).not.toHaveBeenCalled()
+
+    await act(async () => modelTarget?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })))
+    expect(onClose).toHaveBeenCalledTimes(1)
+  })
+
   it('opens the selected request log from the result badge', async () => {
     const onRequestLogOpen = vi.fn()
     await act(async () => root.render(
@@ -346,6 +433,47 @@ describe('CredentialRequestEventsList', () => {
     expect(scrolledRows.length).toBeGreaterThan(0)
     expect(scrolledRows.length).toBeLessThan(100)
     expect(Math.min(...scrolledIndexes)).toBeGreaterThan(Math.min(...initialIndexes))
+  })
+
+  it('drops the stale height of an expanded row after it leaves the virtual window', async () => {
+    const events = Array.from({ length: 100 }, (_, index) => buildEvent(index))
+    await act(async () => {
+      root.render(
+        <CredentialRequestEventsList
+          events={events}
+          loading={false}
+          hasMore={false}
+          loadingMore={false}
+          autoLoadMore
+          onLoadMore={() => undefined}
+        />,
+      )
+      await Promise.resolve()
+    })
+
+    const scroller = container.querySelector<HTMLElement>('[data-credential-request-events-scroller="true"]')!
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>('[data-credential-request-event-toggle="1"]')?.click()
+      TestResizeObserver.flush()
+    })
+    expect(readVirtualContentHeight(scroller)).toBe(7_150)
+
+    scroller.scrollTop = 3_500
+    await act(async () => {
+      scroller.dispatchEvent(new Event('scroll'))
+      const { promise, resolve } = Promise.withResolvers<void>()
+      window.setTimeout(resolve, 0)
+      await promise
+    })
+    expect(container.querySelector('[data-credential-request-event-toggle="1"]')).toBeNull()
+
+    const nextToggle = container.querySelector<HTMLButtonElement>('[data-credential-request-event-toggle]')
+    expect(nextToggle).not.toBeNull()
+    await act(async () => {
+      nextToggle?.click()
+      TestResizeObserver.flush()
+    })
+    expect(readVirtualContentHeight(scroller)).toBe(7_150)
   })
 
   it('fully renders a small event page without virtual spacer rows', async () => {
