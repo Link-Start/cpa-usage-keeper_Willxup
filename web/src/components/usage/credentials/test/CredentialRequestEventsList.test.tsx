@@ -18,20 +18,31 @@ const event: UsageEvent = {
   id: '1',
   request_id: 'request-1',
   timestamp: '2026-08-17T10:00:00Z',
+  api_key: 'Team Alpha',
   model: 'gpt-5.6',
+  model_alias: 'keeper-gpt',
+  reasoning_effort: 'high',
+  service_tier: 'priority',
+  response_service_tier: 'flex',
+  executor_type: 'OpenAIResponsesExecutor',
   endpoint: 'POST /v1/responses',
   failed: false,
-  latency_ms: 120,
-  ttft_ms: 30,
+  latency_ms: 1_240,
+  ttft_ms: 320,
+  speed_tps: 42.5,
+  client_ip: '192.0.2.10',
+  x_forwarded_for: '198.51.100.7, 192.0.2.10',
+  user_agent: 'Codex CLI/1.2.3',
   cost_available: true,
-  cost_usd: 0.01,
+  cost_usd: 0.012345,
+  pricing_style: 'openai',
   tokens: {
-    input_tokens: 10,
-    output_tokens: 5,
-    reasoning_tokens: 0,
-    cache_read_tokens: 0,
-    cache_creation_tokens: 0,
-    total_tokens: 15,
+    input_tokens: 1_000,
+    output_tokens: 300,
+    reasoning_tokens: 80,
+    cache_read_tokens: 600,
+    cache_creation_tokens: 100,
+    total_tokens: 1_300,
   },
 }
 
@@ -110,7 +121,7 @@ describe('CredentialRequestEventsList', () => {
     vi.restoreAllMocks()
   })
 
-  it('renders only the compact credential event fields without page query chrome', async () => {
+  it('renders the compact credential event columns with stacked request metadata', async () => {
     await act(async () => root.render(
       <CredentialRequestEventsList
         events={[event]}
@@ -123,15 +134,149 @@ describe('CredentialRequestEventsList', () => {
     ))
 
     expect(container.querySelector('[data-credential-request-events-list="true"]')).not.toBeNull()
+    expect(container.textContent).not.toContain('Team Alpha')
     expect(container.textContent).toContain('gpt-5.6')
+    expect(container.textContent).toContain('keeper-gpt')
+    expect(container.textContent).toContain('high')
     expect(container.textContent).toContain('SSE')
-    expect(container.textContent).toContain('15')
+    expect(container.textContent).not.toContain('usage_stats.speed_mode_fast')
+    expect(container.textContent).not.toContain('usage_stats.speed_mode_flex')
+    expect(container.textContent).toContain('1,300')
+    expect(container.textContent).toContain('usage_stats.reasoning_tokens 80')
+    expect(container.textContent).toContain('60.00%')
+    expect(container.textContent).toContain('usage_stats.credentials_detail_cache_read 600')
+    expect(container.textContent).toContain('usage_stats.credentials_detail_cache_write 100')
+    expect(container.textContent).not.toContain('usage_stats.cache_read_tokens')
+    expect(container.textContent).not.toContain('usage_stats.cache_creation_tokens')
+    expect(container.textContent).toContain('42.5 t/s')
+    expect(container.textContent).toContain('usage_stats.credentials_detail_pricing_style_openai')
+    expect(container.textContent).not.toContain('usage_stats.model_price_style usage_stats.model_price_style_openai')
+    expect(container.querySelector('[data-credential-request-timestamp="1"]')?.textContent)
+      .toBe('10:00:002026/08/17')
+    expect(container.querySelector('[data-credential-request-model="1"]')?.textContent)
+      .toBe('gpt-5.6keeper-gptusage_stats.reasoning_effort high')
+    expect(container.textContent).not.toContain('usage_stats.model_alias')
+    expect(container.querySelector('[data-credential-request-model="1"]')?.getAttribute('title')).toBeNull()
+    expect(Array.from(container.querySelectorAll('[data-credential-request-sub-label]')).map((label) => label.textContent)).toEqual([
+      'usage_stats.reasoning_effort',
+      'usage_stats.input_tokens',
+      'usage_stats.output_tokens',
+      'usage_stats.credentials_detail_cache_read',
+      'usage_stats.credentials_detail_cache_write',
+      'usage_stats.ttft',
+      'usage_stats.speed',
+    ])
+    expect(Array.from(container.querySelectorAll('thead th')).map((cell) => cell.textContent)).toEqual([
+      'usage_stats.request_events_timestamp',
+      'usage_stats.model_name',
+      'usage_stats.request_type',
+      'usage_stats.request_events_result',
+      'usage_stats.total_tokens',
+      'usage_stats.credentials_detail_cache_column',
+      'usage_stats.latency',
+      'usage_stats.total_cost',
+    ])
     expect(container.textContent).not.toContain('usage_stats.request_events_title')
     expect(container.textContent).not.toContain('usage_stats.request_events_subtitle')
     expect(container.textContent).not.toContain('usage_stats.request_events_columns')
     expect(container.textContent).not.toContain('usage_stats.request_events_filter_model')
     expect(container.textContent).not.toContain('usage_stats.request_events_filter_source')
     expect(container.textContent).not.toContain('usage_stats.request_events_filter_result')
+  })
+
+  it('expands only metadata that is absent from the compact row', async () => {
+    await act(async () => root.render(
+      <CredentialRequestEventsList
+        events={[event]}
+        loading={false}
+        hasMore={false}
+        loadingMore={false}
+        autoLoadMore
+        onLoadMore={() => undefined}
+      />,
+    ))
+
+    const toggle = container.querySelector<HTMLButtonElement>('[data-credential-request-event-toggle="1"]')
+    expect(toggle?.getAttribute('aria-expanded')).toBe('false')
+    expect(toggle?.querySelector('path')?.getAttribute('d')).toBe('m9 18 6-6-6-6')
+    expect(container.querySelector('[data-credential-request-event-details="1"]')).toBeNull()
+
+    await act(async () => toggle?.click())
+
+    const details = container.querySelector('[data-credential-request-event-details="1"]')
+    expect(toggle?.getAttribute('aria-expanded')).toBe('true')
+    expect(toggle?.querySelector('path')?.getAttribute('d')).toBe('m6 9 6 6 6-6')
+    expect(details?.querySelectorAll('[data-credential-request-detail-group]')).toHaveLength(2)
+    expect(details?.querySelectorAll('[data-credential-request-detail-item]')).toHaveLength(7)
+    for (const item of details?.querySelectorAll('[data-credential-request-detail-item]') ?? []) {
+      expect(item.children).toHaveLength(2)
+    }
+    expect(details?.textContent).toContain('usage_stats.credentials_detail_request_context')
+    expect(details?.textContent).toContain('usage_stats.credentials_detail_client_context')
+    expect(details?.textContent).toContain('Team Alpha')
+    expect(details?.textContent).toContain('usage_stats.speed_mode_fast')
+    expect(details?.textContent).toContain('usage_stats.speed_mode_flex')
+    expect(details?.textContent).toContain('OpenAIResponsesExecutor')
+    expect(details?.textContent).toContain('192.0.2.10')
+    expect(details?.textContent).toContain('198.51.100.7, 192.0.2.10')
+    expect(details?.textContent).toContain('Codex CLI/1.2.3')
+    expect(details?.textContent).not.toContain('request-1')
+    expect(details?.textContent).not.toContain('keeper-gpt')
+    expect(details?.textContent).not.toContain('42.5 t/s')
+  })
+
+  it('shows the shared tooltip only when compact or detail text is actually truncated', async () => {
+    const longModel = 'gpt-5.4-codex-reasoning-ultra-long-context-preview-2026-08-21'
+    const longUserAgent = 'codex-cli/0.42.0 (linux; x86_64) long-user-agent-preview-with-extra-runtime-metadata'
+    vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(100)
+    vi.spyOn(HTMLElement.prototype, 'scrollWidth', 'get').mockImplementation(function scrollWidth() {
+      return this.textContent === longModel ? 360 : 80
+    })
+    vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(20)
+    vi.spyOn(HTMLElement.prototype, 'scrollHeight', 'get').mockImplementation(function scrollHeight() {
+      return this.textContent === longUserAgent ? 40 : 20
+    })
+
+    await act(async () => root.render(
+      <CredentialRequestEventsList
+        events={[{ ...event, model: longModel, user_agent: longUserAgent }]}
+        loading={false}
+        hasMore={false}
+        loadingMore={false}
+        autoLoadMore
+        onLoadMore={() => undefined}
+      />,
+    ))
+
+    const findValue = (value: string) => Array.from(
+      container.querySelectorAll<HTMLElement>('[data-credential-request-overflow-target]'),
+    ).find((element) => element.textContent === value)
+
+    const modelTarget = findValue(longModel)
+    const aliasTarget = findValue('keeper-gpt')
+    expect(modelTarget?.tabIndex).toBe(0)
+    expect(aliasTarget?.tabIndex).toBe(-1)
+
+    await act(async () => modelTarget?.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })))
+    expect(document.body.querySelector('[role="tooltip"]')?.textContent).toBe(longModel)
+    await act(async () => modelTarget?.dispatchEvent(new MouseEvent('mouseout', { bubbles: true })))
+
+    await act(async () => aliasTarget?.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })))
+    expect(document.body.querySelector('[role="tooltip"]')).toBeNull()
+
+    await act(async () => container.querySelector<HTMLButtonElement>('[data-credential-request-event-toggle="1"]')?.click())
+    const userAgentTarget = findValue(longUserAgent)
+    const clientIPTarget = findValue('192.0.2.10')
+    expect(userAgentTarget?.className).toContain('detailUserAgentValue')
+    expect(userAgentTarget?.tabIndex).toBe(0)
+    expect(clientIPTarget?.tabIndex).toBe(-1)
+
+    await act(async () => userAgentTarget?.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })))
+    expect(document.body.querySelector('[role="tooltip"]')?.textContent).toBe(longUserAgent)
+    await act(async () => userAgentTarget?.dispatchEvent(new MouseEvent('mouseout', { bubbles: true })))
+
+    await act(async () => clientIPTarget?.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })))
+    expect(document.body.querySelector('[role="tooltip"]')).toBeNull()
   })
 
   it('opens the selected request log from the result badge', async () => {
@@ -149,8 +294,14 @@ describe('CredentialRequestEventsList', () => {
       />,
     ))
 
-    await act(async () => container.querySelector<HTMLButtonElement>('tbody button')?.click())
+    await act(async () => container.querySelector<HTMLButtonElement>('[data-credential-request-log="1"]')?.click())
     expect(onRequestLogOpen).toHaveBeenCalledWith(event)
+    const logButton = container.querySelector<HTMLButtonElement>('[data-credential-request-log="1"]')
+    expect(logButton?.className).toContain('requestEventsResultLogButton')
+    expect(logButton?.className).toContain('requestEventsResultCompact')
+    expect(logButton?.querySelector('[class*="requestEventsResultLogIcon"]')).not.toBeNull()
+    expect(logButton?.querySelector('svg')?.getAttribute('width')).toBe('9')
+    expect(container.querySelector('[data-credential-request-event-details="1"]')).toBeNull()
   })
 
   it('detects the dedicated list load-more boundary', () => {
