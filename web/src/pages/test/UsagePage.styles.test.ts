@@ -136,7 +136,7 @@ describe('UsagePage toolbar styles', () => {
     expect(tokenActivityCardSource).toContain('keeper-card-title-track')
     expect(statCardsSource).not.toContain('keeper-card-surface')
     expect(dailyAverageCardSource).not.toContain('keeper-card-surface')
-    expect(analysisChartSurface).toContain('border-radius: $radius-lg;')
+    expect(analysisChartSurface).toContain('border-radius: var(--keeper-card-radius);')
   })
 
   it('keeps only the ranking source switch beside Refresh in the shared top toolbar', () => {
