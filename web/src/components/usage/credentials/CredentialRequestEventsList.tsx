@@ -75,7 +75,7 @@ interface CredentialRequestEventRow {
 }
 
 type OverflowTooltipActions = Pick<ReturnType<typeof usePortalTooltip>,
-  'showOnMouseEnter' | 'hideOnMouseLeave' | 'showOnFocus' | 'hideOnBlur' | 'dismiss'>
+  'showOnMouseEnter' | 'hideOnMouseLeave' | 'showOnFocus' | 'hideOnBlur'>
 
 interface OverflowTooltipTextProps {
   as: 'span' | 'strong' | 'small'
@@ -141,13 +141,6 @@ function OverflowTooltipText({
       : undefined,
     onBlur: interactive
       ? (event: React.FocusEvent<HTMLElement>) => tooltipActions.hideOnBlur(event.currentTarget)
-      : undefined,
-    onKeyDown: interactive
-      ? (event: React.KeyboardEvent<HTMLElement>) => {
-          if (event.key !== 'Escape' || !tooltipActions.dismiss()) return
-          event.preventDefault()
-          event.stopPropagation()
-        }
       : undefined,
   }
   if (as === 'strong') return <strong ref={anchorRef} {...sharedProps}>{children}</strong>
@@ -315,14 +308,25 @@ export function CredentialRequestEventsList({
     hideOnMouseLeave: hideTooltipOnMouseLeave,
     showOnFocus: showTooltipOnFocus,
     hideOnBlur: hideTooltipOnBlur,
-    dismiss: dismissTooltip,
   }), [
-    dismissTooltip,
     hideTooltipOnBlur,
     hideTooltipOnMouseLeave,
     showTooltipOnFocus,
     showTooltipOnMouseEnter,
   ])
+  const tooltipVisible = tooltip !== null
+
+  useEffect(() => {
+    if (!tooltipVisible) return
+    const handleTooltipEscape = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape' || !dismissTooltip()) return
+      event.preventDefault()
+      event.stopPropagation()
+    }
+    document.addEventListener('keydown', handleTooltipEscape, true)
+    return () => document.removeEventListener('keydown', handleTooltipEscape, true)
+  }, [dismissTooltip, tooltipVisible])
+
   const rows = useMemo(() => events.map((event, index) => buildRow(event, index, t)), [events, t])
   const virtualizeRows = rows.length > VIRTUALIZATION_THRESHOLD
   // TanStack Virtual 依赖内部可变测量状态，不参与 React Compiler 自动记忆化。
@@ -347,9 +351,11 @@ export function CredentialRequestEventsList({
     const previousExpandedRowId = previousExpandedRowIdRef.current
     previousExpandedRowIdRef.current = expandedRowId
     if (!virtualizeRows || previousExpandedRowId === null || previousExpandedRowId === expandedRowId) return
-    // 离屏展开项收起时不会再触发 ResizeObserver；切换前清理旧尺寸，避免虚拟总高度持续累积。
-    rowVirtualizer.measure()
-  }, [expandedRowId, rowVirtualizer, virtualizeRows])
+    const previousIndex = rows.findIndex((row) => row.id === previousExpandedRowId)
+    if (previousIndex < 0) return
+    // 定点恢复上一展开项，让虚拟器同步补偿视口上方的高度变化，避免总高度累积和滚动跳动。
+    rowVirtualizer.resizeItem(previousIndex, VIRTUAL_ROW_HEIGHT)
+  }, [expandedRowId, rowVirtualizer, rows, virtualizeRows])
 
   useEffect(() => {
     if (expandedRowId && !rows.some((row) => row.id === expandedRowId)) {

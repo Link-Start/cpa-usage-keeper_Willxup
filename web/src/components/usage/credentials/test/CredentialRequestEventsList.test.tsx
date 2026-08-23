@@ -324,7 +324,7 @@ describe('CredentialRequestEventsList', () => {
     expect(document.body.querySelector('[role="tooltip"]')).toBeNull()
   })
 
-  it('dismisses a focused overflow tooltip before Escape reaches the drawer', async () => {
+  it('dismisses focused and hovered overflow tooltips before Escape reaches the drawer', async () => {
     const longModel = 'gpt-5.4-codex-reasoning-ultra-long-context-preview-2026-08-21'
     const onClose = vi.fn()
     vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(100)
@@ -362,7 +362,16 @@ describe('CredentialRequestEventsList', () => {
     expect(document.body.querySelector('[role="tooltip"]')).toBeNull()
     expect(onClose).not.toHaveBeenCalled()
 
-    await act(async () => modelTarget?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })))
+    const rowToggle = document.body.querySelector<HTMLButtonElement>('[data-credential-request-event-toggle="1"]')
+    await act(async () => rowToggle?.focus())
+    await act(async () => modelTarget?.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })))
+    expect(document.body.querySelector('[role="tooltip"]')?.textContent).toBe(longModel)
+
+    await act(async () => rowToggle?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })))
+    expect(document.body.querySelector('[role="tooltip"]')).toBeNull()
+    expect(onClose).not.toHaveBeenCalled()
+
+    await act(async () => rowToggle?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })))
     expect(onClose).toHaveBeenCalledTimes(1)
   })
 
@@ -452,8 +461,13 @@ describe('CredentialRequestEventsList', () => {
     })
 
     const scroller = container.querySelector<HTMLElement>('[data-credential-request-events-scroller="true"]')!
+    scroller.scrollTo = ((options: ScrollToOptions) => {
+      if (typeof options.top === 'number') scroller.scrollTop = options.top
+    }) as typeof scroller.scrollTo
     await act(async () => {
       container.querySelector<HTMLButtonElement>('[data-credential-request-event-toggle="1"]')?.click()
+    })
+    await act(async () => {
       TestResizeObserver.flush()
     })
     expect(readVirtualContentHeight(scroller)).toBe(7_150)
@@ -467,13 +481,19 @@ describe('CredentialRequestEventsList', () => {
     })
     expect(container.querySelector('[data-credential-request-event-toggle="1"]')).toBeNull()
 
-    const nextToggle = container.querySelector<HTMLButtonElement>('[data-credential-request-event-toggle]')
+    const nextToggle = container.querySelector<HTMLButtonElement>(
+      'tbody[data-index="50"] [data-credential-request-event-toggle]',
+    )
     expect(nextToggle).not.toBeNull()
+    const scrollTopBeforeSwitch = scroller.scrollTop
     await act(async () => {
       nextToggle?.click()
+    })
+    await act(async () => {
       TestResizeObserver.flush()
     })
     expect(readVirtualContentHeight(scroller)).toBe(7_150)
+    expect(scroller.scrollTop).toBe(scrollTopBeforeSwitch - 150)
   })
 
   it('fully renders a small event page without virtual spacer rows', async () => {
