@@ -28,9 +28,37 @@ describe('Codex quota history styles', () => {
     expect(quotaHistoryStyles).toMatch(/\.screenReaderOnly\s*\{[\s\S]*?clip-path:\s*inset\(50%\);/)
   })
 
-  it('keeps cycle metadata inline on desktop and splits it into clean mobile rows', () => {
-    expect(quotaHistoryStyles).toMatch(/\.currentObservedRange::before,\s*\.medianSummary::before\s*\{[\s\S]*?content:\s*' · ';/)
-    expect(quotaHistoryStyles).toMatch(/@include mobile\s*\{[\s\S]*?\.currentCycleRange,\s*\.currentObservedRange,\s*\.medianSummary\s*\{[\s\S]*?display:\s*block;/)
-    expect(quotaHistoryStyles).toMatch(/@include mobile\s*\{[\s\S]*?\.currentObservedRange::before,\s*\.medianSummary::before\s*\{[\s\S]*?content:\s*none;/)
+  it('wraps current-cycle ranges as complete content blocks at every width', () => {
+    expect(quotaHistoryStyles).toMatch(/\.currentCycleMeta\s*\{[\s\S]*?display:\s*flex;[\s\S]*?flex-wrap:\s*wrap;/)
+    expect(quotaHistoryStyles).toMatch(/\.currentCycleRange,\s*\.currentObservedRange\s*\{[\s\S]*?min-width:\s*0;[\s\S]*?flex:\s*0 1 auto;/)
+    expect(quotaHistoryStyles).not.toMatch(/@include mobile\s*\{[\s\S]*?\.currentCycleRange,\s*\.currentObservedRange/)
+  })
+
+  it('shows the three quota summaries in one row and stacks all three from the card width', () => {
+    const summaryStyles = quotaHistoryStyles.slice(
+      quotaHistoryStyles.indexOf('.chartSummary {'),
+      quotaHistoryStyles.indexOf('.chartSummaryRow'),
+    )
+    const summaryRowStyles = quotaHistoryStyles.slice(
+      quotaHistoryStyles.indexOf('.chartSummaryRow'),
+      quotaHistoryStyles.indexOf('.chartSummaryMetric'),
+    )
+    const narrowSummaryStyles = quotaHistoryStyles.slice(
+      quotaHistoryStyles.indexOf('@container quota-history-card'),
+      quotaHistoryStyles.indexOf('.screenReaderOnly'),
+    )
+    expect(quotaHistoryStyles).toMatch(/\.card\s*\{[\s\S]*?container:\s*quota-history-card \/ inline-size;/)
+    expect(summaryStyles).toContain('display: grid')
+    expect(summaryStyles).toContain('grid-template-columns: repeat(3, minmax(0, 1fr))')
+    expect(summaryStyles).toContain('border-top: 1px solid var(--border-color)')
+    expect(summaryStyles).not.toContain('620px')
+    expect(summaryRowStyles).toMatch(/\.chartSummaryRow\s*\{[\s\S]*?display:\s*grid;[\s\S]*?grid-template-rows:\s*max-content max-content;/)
+    expect(summaryRowStyles).toMatch(/& \+ &\s*\{[\s\S]*?border-left:\s*1px solid var\(--border-color\);/)
+    expect(summaryRowStyles).toMatch(/dd\s*\{[\s\S]*?display:\s*grid;[\s\S]*?grid-template-columns:\s*repeat\(3, max-content\);[\s\S]*?justify-content:\s*center;/)
+    expect(quotaHistoryStyles).toMatch(/\.chartSummaryMetric\s*\{[\s\S]*?display:\s*grid;[\s\S]*?grid-template-columns:\s*14px max-content;/)
+    expect(narrowSummaryStyles).toMatch(/@container quota-history-card \(max-width:\s*640px\)/)
+    expect(narrowSummaryStyles).toMatch(/\.chartSummary\s*\{[\s\S]*?grid-template-columns:\s*minmax\(0, 1fr\);/)
+    expect(narrowSummaryStyles).toMatch(/\.chartSummaryRow\s*\{[\s\S]*?grid-template-columns:\s*108px minmax\(0, 1fr\);/)
+    expect(narrowSummaryStyles).toMatch(/dd\s*\{[\s\S]*?grid-template-columns:\s*repeat\(3, minmax\(0, 1fr\)\);/)
   })
 })
