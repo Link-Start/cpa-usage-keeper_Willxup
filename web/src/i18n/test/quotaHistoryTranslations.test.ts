@@ -7,4 +7,14 @@ describe('Codex quota history translations', () => {
     expect(i18n.getResource('en', 'translation', 'usage_stats.credentials_quota_history_records_title')).toBe('Cycle Records In The Last 30 Days')
     expect(i18n.getResource('en', 'translation', 'usage_stats.credentials_quota_history_cycle_count')).toBe('{{count}} Cycles')
   })
+
+  it.each([
+    ['en', '1-point sample', 'Multi-point average', '{{count}}-point average'],
+    ['zh', '单百分点样本', '多百分点均摊', '{{count}} 个百分点均摊'],
+    ['zh-TW', '單百分點樣本', '多百分點均攤', '{{count}} 個百分點均攤'],
+  ])('describes exact and averaged percentage-point samples clearly in %s', (language, direct, cross, crossPoints) => {
+    expect(i18n.getResource(language, 'translation', 'usage_stats.credentials_quota_history_direct')).toBe(direct)
+    expect(i18n.getResource(language, 'translation', 'usage_stats.credentials_quota_history_cross')).toBe(cross)
+    expect(i18n.getResource(language, 'translation', 'usage_stats.credentials_quota_history_cross_points')).toBe(crossPoints)
+  })
 })
