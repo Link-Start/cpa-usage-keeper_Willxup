@@ -1370,10 +1370,19 @@ describe('UsagePage toolbar styles', () => {
     expect(requestEventColumnDefinitionBlock('total_tokens')).toContain('styles.requestEventsNoWrapCell')
   })
 
-  it('keeps Request Event Log long text columns controlled', () => {
-    expect(usagePageStyles).toMatch(/\.requestEventsAPIKeyCell\s*\{[\s\S]*?min-width:\s*135px;/)
-    expect(usagePageStyles).toMatch(/\.requestEventsAPIKeyCell\s*\{[\s\S]*?max-width:\s*240px;/)
-    expect(usagePageStyles).toMatch(/\.requestEventsSourceCell\s*\{[\s\S]*?min-width:\s*165px;/)
+  it('caps Request Event Log long text columns without forcing short aliases wide', () => {
+    const apiKeyCellBlock = Array.from(
+      usagePageStyles.matchAll(/\.requestEventsAPIKeyCell\s*\{([^}]*)\}/g),
+      (match) => match[1],
+    ).at(-1) ?? ''
+    const sourceCellBlock = styleRuleBlock(usagePageStyles, '.requestEventsSourceCell {')
+    const deletedTagBlock = styleRuleBlock(usagePageStyles, '.requestEventsDeletedTag')
+
+    expect(apiKeyCellBlock).toMatch(/max-width:\s*240px;/)
+    expect(apiKeyCellBlock).not.toContain('min-width:')
+    expect(sourceCellBlock).toMatch(/max-width:\s*280px;/)
+    expect(sourceCellBlock).not.toContain('min-width:')
+    expect(deletedTagBlock).toContain('white-space: nowrap;')
     expect(usagePageStyles).toMatch(/\.modelCell\s*\{[\s\S]*?min-width:\s*110px;/)
     expect(usagePageStyles).toMatch(/\.modelCell\s*\{[\s\S]*?max-width:\s*240px;/)
     expect(usagePageStyles).not.toContain('.requestEventsAuthIndex')
