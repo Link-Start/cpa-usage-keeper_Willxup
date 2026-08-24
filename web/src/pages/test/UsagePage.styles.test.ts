@@ -121,6 +121,14 @@ describe('UsagePage toolbar styles', () => {
     expect(usagePageStyles).toMatch(/\.requestEventsTableWrapper\s*\{[\s\S]*?border:\s*0;[\s\S]*?border-radius:\s*0;/)
   })
 
+  it('uses the stacked primary emphasis for standalone request event values', () => {
+    const primaryValueBlock = styleRuleBlock(usagePageStyles, '.requestEventsStackedPrimary,')
+
+    expect(primaryValueBlock).toContain('color: var(--text-primary);')
+    expect(primaryValueBlock).toContain('font-weight: 700;')
+    expect(usagePageStyles).toContain('.requestEventsPrimaryCell {')
+  })
+
   it('routes Analysis and Activity cards through the global surface and heading contract', () => {
     const analysisChartSurface = styleRuleBlock(analysisPanelStyles, '\n.analysisChartSurface {')
 
@@ -1355,15 +1363,26 @@ describe('UsagePage toolbar styles', () => {
     expect(requestEventsSource).not.toContain('styles.durationCell')
   })
 
-  it('uses the shared adaptive style for the Request Event Log reasoning column', () => {
+  it('folds reasoning tokens into the adaptive Tokens column', () => {
     expect(usagePageStyles).not.toContain('.requestEventsReasoningHeader')
-    expect(requestEventColumnDefinitionBlock('reasoning_tokens')).toContain('styles.requestEventsNoWrapCell')
+    expect(requestEventsSource).not.toContain("id: 'reasoning_tokens',")
+    expect(requestEventColumnDefinitionBlock('total_tokens')).toContain('row.reasoningTokensLabel')
+    expect(requestEventColumnDefinitionBlock('total_tokens')).toContain('styles.requestEventsNoWrapCell')
   })
 
-  it('keeps Request Event Log long text columns controlled', () => {
-    expect(usagePageStyles).toMatch(/\.requestEventsAPIKeyCell\s*\{[\s\S]*?min-width:\s*135px;/)
-    expect(usagePageStyles).toMatch(/\.requestEventsAPIKeyCell\s*\{[\s\S]*?max-width:\s*240px;/)
-    expect(usagePageStyles).toMatch(/\.requestEventsSourceCell\s*\{[\s\S]*?min-width:\s*165px;/)
+  it('caps Request Event Log long text columns without forcing short aliases wide', () => {
+    const apiKeyCellBlock = Array.from(
+      usagePageStyles.matchAll(/\.requestEventsAPIKeyCell\s*\{([^}]*)\}/g),
+      (match) => match[1],
+    ).at(-1) ?? ''
+    const sourceCellBlock = styleRuleBlock(usagePageStyles, '.requestEventsSourceCell {')
+    const deletedTagBlock = styleRuleBlock(usagePageStyles, '.requestEventsDeletedTag')
+
+    expect(apiKeyCellBlock).toMatch(/max-width:\s*240px;/)
+    expect(apiKeyCellBlock).not.toContain('min-width:')
+    expect(sourceCellBlock).toMatch(/max-width:\s*280px;/)
+    expect(sourceCellBlock).not.toContain('min-width:')
+    expect(deletedTagBlock).toContain('white-space: nowrap;')
     expect(usagePageStyles).toMatch(/\.modelCell\s*\{[\s\S]*?min-width:\s*110px;/)
     expect(usagePageStyles).toMatch(/\.modelCell\s*\{[\s\S]*?max-width:\s*240px;/)
     expect(usagePageStyles).not.toContain('.requestEventsAuthIndex')
@@ -1383,17 +1402,10 @@ describe('UsagePage toolbar styles', () => {
       'service_tier',
       'result',
       'request_type',
-      'endpoint',
-      'ttft',
       'latency',
       'speed',
-      'input_tokens',
-      'output_tokens',
-      'reasoning_tokens',
-      'cache_read_tokens',
-      'cache_creation_tokens',
-      'cache_read_rate',
       'total_tokens',
+      'cache_read_rate',
       'total_cost',
     ]
     const noWrapCellBlock = usagePageStyles.slice(
@@ -1410,6 +1422,11 @@ describe('UsagePage toolbar styles', () => {
       expect(block).toMatch(/header:\s*<th[^>]*styles\.requestEventsNoWrapCell/)
       expect(block).toMatch(/renderCell:[\s\S]*<td[^>]*styles\.requestEventsNoWrapCell/)
     })
+
+    const executorBlock = requestEventColumnDefinitionBlock('executor_type')
+    expect(executorBlock).toMatch(/header:\s*<th[^>]*styles\.requestEventsNoWrapCell/)
+    expect(executorBlock).toContain('styles.requestEventsExecutorCell')
+    expect(usagePageStyles).toMatch(/\.requestEventsExecutorCell\s*\{[\s\S]*?white-space:\s*nowrap;/)
 
     const clientMetadataRenderer = requestEventsSource.slice(
       requestEventsSource.indexOf('const renderClientMetadataCell'),

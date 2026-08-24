@@ -1711,6 +1711,7 @@
   background: var(--danger-badge-bg, #fee2e2);
   border: 1px solid var(--danger-badge-border, #fca5a5);
   vertical-align: middle;
+  white-space: nowrap;
 }
 
 .requestCountCell {
@@ -3141,6 +3142,38 @@
   font-variant-numeric: tabular-nums;
 }
 
+.requestEventsStackedCell {
+  min-width: 0;
+  vertical-align: middle;
+
+  > span {
+    display: block;
+    max-width: 240px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
+.requestEventsStackedPrimary,
+.requestEventsPrimaryCell {
+  color: var(--text-primary);
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.requestEventsStackedSecondary {
+  margin-top: 3px;
+  color: var(--text-tertiary);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+.requestEventsStackedLabel {
+  color: var(--text-secondary);
+}
+
 .requestEventsSpeedModeCell {
   cursor: default;
 
@@ -3156,16 +3189,14 @@
     ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New',
     monospace;
   font-size: 11px;
-  max-width: 280px;
   word-break: break-all;
 }
 
 .requestEventsSourceCell {
-  min-width: 165px;
+  max-width: 280px;
 }
 
 .requestEventsAPIKeyCell {
-  min-width: 135px;
   max-width: 240px;
 }
 
@@ -3173,14 +3204,25 @@
   display: inline-flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 5px;
+  gap: 4px;
   max-width: 100%;
 }
 
+.requestEventsSourceIdentity {
+  display: inline-flex;
+  max-width: 100%;
+  align-items: center;
+  gap: 6px;
+}
+
 .requestEventsSourceValue {
+  min-width: 0;
+  overflow: hidden;
   color: var(--text-primary);
   font-weight: 650;
   line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .requestEventsSourceTags {
@@ -3188,6 +3230,13 @@
   flex-wrap: wrap;
   gap: 4px;
   align-items: center;
+}
+
+.requestEventsExecutorCell {
+  max-width: 190px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .requestEventsLogViewer {
