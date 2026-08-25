@@ -316,6 +316,7 @@ function QuotaSummaryMetric({
     <span
       className={styles.chartSummaryMetric}
       data-codex-quota-summary-metric={kind}
+      role="img"
       aria-label={`${label}: ${value}`}
     >
       <img src={icon} alt="" aria-hidden="true" />

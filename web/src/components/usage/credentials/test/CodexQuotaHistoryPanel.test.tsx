@@ -285,7 +285,10 @@ describe('CodexQuotaHistoryPanel', () => {
       'used',
       'full-estimate',
     ])
-    expect(currentSummary?.querySelector('[data-codex-quota-summary="median"] [data-codex-quota-summary-metric="requests"]')?.textContent).toBe('20')
+    const medianRequestMetric = currentSummary?.querySelector('[data-codex-quota-summary="median"] [data-codex-quota-summary-metric="requests"]')
+    expect(medianRequestMetric?.textContent).toBe('20')
+    expect(medianRequestMetric?.getAttribute('role')).toBe('img')
+    expect(medianRequestMetric?.getAttribute('aria-label')).toBe('usage_stats.total_requests: 20')
     expect(currentSummary?.querySelector('[data-codex-quota-summary="median"] [data-codex-quota-summary-metric="tokens"]')?.textContent).toBe('1.00K')
     expect(currentSummary?.querySelector('[data-codex-quota-summary="median"] [data-codex-quota-summary-metric="cost"]')?.textContent).toBe('$1.00')
     expect(currentSummary?.querySelector('[data-codex-quota-summary="used"] [data-codex-quota-summary-metric="requests"]')?.textContent).toBe('14')
