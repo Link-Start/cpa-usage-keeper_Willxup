@@ -3,6 +3,19 @@ import { describe, expect, it } from 'vitest'
 
 const quotaHistoryStyles = readFileSync(new URL('../CodexQuotaHistoryPanel.module.scss', import.meta.url), 'utf8')
 
+const scssRule = (selector: string) => {
+  const start = quotaHistoryStyles.indexOf(selector)
+  expect(start).toBeGreaterThanOrEqual(0)
+  const openingBrace = quotaHistoryStyles.indexOf('{', start + selector.length)
+  expect(openingBrace).toBeGreaterThan(start)
+  let depth = 1
+  for (let index = openingBrace + 1; index < quotaHistoryStyles.length; index += 1) {
+    if (quotaHistoryStyles[index] === '{') depth += 1
+    if (quotaHistoryStyles[index] === '}' && --depth === 0) return quotaHistoryStyles.slice(start, index + 1)
+  }
+  throw new Error(`Unclosed SCSS rule: ${selector}`)
+}
+
 describe('Codex quota history styles', () => {
   it('uses the Keeper card contract for the two top-level sections', () => {
     expect(quotaHistoryStyles).toMatch(/\.card,\s*\.historySection\s*\{[\s\S]*?border-radius:\s*var\(--keeper-card-radius\);/)
@@ -95,5 +108,20 @@ describe('Codex quota history styles', () => {
     expect(narrowCycleSummaryStyles).toMatch(/@container quota-cycle-card \(max-width:\s*560px\)/)
     expect(mobileCycleSummaryStyles).toMatch(/\.chartSummaryRow\s*\{[\s\S]*?grid-template-columns:\s*minmax\(0, 1fr\);/)
     expect(mobileCycleSummaryStyles).toMatch(/dd\s*\{[\s\S]*?justify-content:\s*start;/)
+  })
+
+  it('keeps transition details four-column until the cycle card narrows, then two-column at every viewport', () => {
+    const transitionGrid = scssRule('.transitionHeader,')
+    const compactTransitionGrid = scssRule('@container quota-cycle-card (max-width: 720px)')
+    const tabletStyles = scssRule('@include tablet')
+    const mobileStyles = scssRule('@include mobile')
+
+    expect(transitionGrid).toContain('grid-template-columns: minmax(126px, 0.8fr) minmax(170px, 1.2fr) minmax(125px, 0.9fr) minmax(145px, 1fr);')
+    expect(compactTransitionGrid).toMatch(/\.transitionHeader\s*\{[\s\S]*?display:\s*none;/)
+    expect(compactTransitionGrid).toMatch(/\.transitionRow\s*\{[\s\S]*?grid-template-columns:\s*repeat\(2, minmax\(0, 1fr\)\);/)
+    expect(tabletStyles).not.toContain('.transitionHeader')
+    expect(tabletStyles).not.toContain('.transitionRow')
+    expect(mobileStyles).not.toContain('.transitionRow')
+    expect(quotaHistoryStyles).not.toMatch(/\.transitionRow\s*\{\s*grid-template-columns:\s*1fr;/)
   })
 })
