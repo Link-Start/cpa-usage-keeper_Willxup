@@ -1,6 +1,6 @@
 import { useState, useMemo, useCallback, useEffect, useRef, type MouseEvent as ReactMouseEvent } from 'react';
 import { useTranslation } from 'react-i18next';
-import { ApiError, appPath, createUsageEventRequestLogDownloadURL, exportUsageEvents, fetchAnalysis, fetchAnalysisLatency, fetchAuthSessions, fetchCpaApiKeyOptions, fetchCpaApiKeySettings, fetchStatus, fetchUpdateCheck, fetchUsageEventModelFilterOptions, fetchUsageEventRequestLog, fetchUsageEventSourceFilterOptions, fetchUsageEvents, fetchVersion, isUsageRangeBoundsConflict, logout, revokeAuthSession, updateCpaApiKeyAlias, type UsageEventsExportFormat } from '@/lib/api';
+import { ApiError, appPath, createUsageEventRequestLogDownloadURL, exportUsageEvents, fetchAnalysis, fetchAnalysisLatency, fetchAuthSessions, fetchCpaApiKeyOptions, fetchCpaApiKeySettings, fetchStatus, fetchUpdateCheck, fetchUsageEventModelFilterOptions, fetchUsageEventRequestLog, fetchUsageEventSourceFilterOptions, fetchUsageEvents, fetchVersion, isUsageRangeBoundsConflict, logout, revokeAuthSession, updateAuthSessionAlias, updateCpaApiKeyAlias, type UsageEventsExportFormat } from '@/lib/api';
 import type { AnalysisLatencyDiagnostics, AnalysisResponse, AuthManagedSessionItem, CpaApiKeyOption, CpaApiKeySettingsItem, OverviewRealtimeWindow, StatusResponse, UsageCustomRange, UsageEvent, UsageEventRequestLogResponse, UsageSourceFilterOption, UsageTimeRange, VersionResponse } from '@/lib/types';
 import { DEFAULT_USAGE_TAB, getUsageTabPath, handleUsageTabKeyActivation, resolveInitialUsageTab, shouldHandleUsageNavigation, USAGE_TAB_OPTIONS, type UsageTab } from '@/lib/usageNavigation';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
@@ -822,6 +822,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   const [authSessionsLoading, setAuthSessionsLoading] = useState(false);
   const [authSessionsError, setAuthSessionsError] = useState('');
   const [authSessionRevokingId, setAuthSessionRevokingId] = useState<string | null>(null);
+  const [authSessionAliasSavingId, setAuthSessionAliasSavingId] = useState<string | null>(null);
   const authSessionsRequestControllerRef = useRef<AbortController | null>(null);
   const [statusError, setStatusError] = useState('');
   const [updateCheckLoading, setUpdateCheckLoading] = useState(false);
@@ -1100,6 +1101,26 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
       setAuthSessionRevokingId(null);
     }
   }, [loadAuthSessions, onAuthRequired, showTopNotice, t]);
+
+  const handleSaveAuthSessionAlias = useCallback(async (id: string, alias: string) => {
+    setAuthSessionAliasSavingId(id);
+    setAuthSessionsError('');
+    try {
+      const updated = await updateAuthSessionAlias(id, alias);
+      setAuthSessions((current) => current.map((session) => (session.id === updated.id ? { ...session, ...updated } : session)));
+      showTopNotice('success', t('usage_stats.session_settings_alias_save_success'));
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 401) {
+        onAuthRequired?.();
+      } else {
+        setAuthSessionsError(error instanceof Error ? error.message : 'Failed to update auth session alias');
+        showTopNotice('error', t('usage_stats.session_settings_alias_save_failed'));
+      }
+      throw error;
+    } finally {
+      setAuthSessionAliasSavingId((current) => (current === id ? null : current));
+    }
+  }, [onAuthRequired, showTopNotice, t]);
 
   const loadAnalysis = useCallback(async () => {
     if (!usageRangeQuery.valid) return;
@@ -2214,7 +2235,9 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                   sessions={authSessions}
                   loading={authSessionsLoading}
                   revokingId={authSessionRevokingId}
+                  aliasSavingId={authSessionAliasSavingId}
                   onLogout={handleRevokeAuthSession}
+                  onSaveAlias={handleSaveAuthSessionAlias}
                 />
                 <ApiKeySettingsCard
                   apiKeys={apiKeySettings}
