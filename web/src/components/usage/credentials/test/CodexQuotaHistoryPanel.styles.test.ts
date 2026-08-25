@@ -1,7 +1,11 @@
 import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
+import { compile } from 'sass'
 import { describe, expect, it } from 'vitest'
 
-const quotaHistoryStyles = readFileSync(new URL('../CodexQuotaHistoryPanel.module.scss', import.meta.url), 'utf8')
+const quotaHistoryStylesUrl = new URL('../CodexQuotaHistoryPanel.module.scss', import.meta.url)
+const quotaHistoryStyles = readFileSync(quotaHistoryStylesUrl, 'utf8')
+const compiledQuotaHistoryStyles = compile(fileURLToPath(quotaHistoryStylesUrl), { style: 'expanded' }).css
 
 const scssRule = (selector: string) => {
   const start = quotaHistoryStyles.indexOf(selector)
@@ -47,7 +51,7 @@ describe('Codex quota history styles', () => {
     expect(quotaHistoryStyles).not.toMatch(/@include mobile\s*\{[\s\S]*?\.currentCycleRange,\s*\.currentObservedRange/)
   })
 
-  it('shows the three quota summaries in one row and stacks all three from the card width', () => {
+  it('switches chart summaries directly from three columns to top-labeled rows at one card width', () => {
     const summaryStyles = quotaHistoryStyles.slice(
       quotaHistoryStyles.indexOf('.chartSummary {'),
       quotaHistoryStyles.indexOf('.chartSummaryRow'),
@@ -60,9 +64,6 @@ describe('Codex quota history styles', () => {
       quotaHistoryStyles.indexOf('@container quota-history-card'),
       quotaHistoryStyles.indexOf('.screenReaderOnly'),
     )
-    const mobileSummaryStyles = narrowSummaryStyles.slice(
-      narrowSummaryStyles.indexOf('@container quota-history-card (max-width: 560px)'),
-    )
     expect(quotaHistoryStyles).toMatch(/\.card\s*\{[\s\S]*?container:\s*quota-history-card \/ inline-size;/)
     expect(summaryStyles).toContain('display: grid')
     expect(summaryStyles).toContain('grid-template-columns: repeat(3, minmax(0, 1fr))')
@@ -74,15 +75,15 @@ describe('Codex quota history styles', () => {
     expect(quotaHistoryStyles).toMatch(/\.chartSummaryMetric\s*\{[\s\S]*?display:\s*grid;[\s\S]*?grid-template-columns:\s*14px max-content;/)
     expect(narrowSummaryStyles).toMatch(/@container quota-history-card \(max-width:\s*640px\)/)
     expect(narrowSummaryStyles).toMatch(/\.chartSummary\s*\{[\s\S]*?grid-template-columns:\s*minmax\(0, 1fr\);/)
-    expect(narrowSummaryStyles).toMatch(/\.chartSummaryRow\s*\{[\s\S]*?grid-template-columns:\s*108px minmax\(0, 1fr\);/)
+    expect(narrowSummaryStyles).toMatch(/\.chartSummaryRow\s*\{[\s\S]*?grid-template-columns:\s*minmax\(0, 1fr\);[\s\S]*?grid-template-rows:\s*max-content max-content;/)
+    expect(narrowSummaryStyles).toMatch(/dt\s*\{[\s\S]*?text-align:\s*left;/)
     expect(narrowSummaryStyles).toMatch(/dd\s*\{[\s\S]*?grid-template-columns:\s*repeat\(3, max-content\);[\s\S]*?justify-content:\s*start;/)
-    expect(narrowSummaryStyles).toMatch(/\.chartSummaryMetric\s*\{[\s\S]*?grid-template-columns:\s*14px max-content;[\s\S]*?white-space:\s*nowrap;/)
-    expect(narrowSummaryStyles).toMatch(/@container quota-history-card \(max-width:\s*560px\)/)
-    expect(mobileSummaryStyles).toMatch(/\.chartSummaryRow\s*\{[\s\S]*?grid-template-columns:\s*minmax\(0, 1fr\);/)
-    expect(mobileSummaryStyles).toMatch(/dd\s*\{[\s\S]*?justify-content:\s*start;/)
+    expect(compiledQuotaHistoryStyles).toMatch(/@container quota-history-card \(max-width: 640px\) \{[\s\S]*?\.chartSummary > \.chartSummaryRow \+ \.chartSummaryRow \{\s*border-left: 0;/)
+    expect(compiledQuotaHistoryStyles).not.toContain('.chartSummary > .chartSummaryRow + .chartSummary > .chartSummaryRow')
+    expect(narrowSummaryStyles).not.toMatch(/@container quota-history-card \(max-width:\s*560px\)/)
   })
 
-  it('pairs completed cycle summaries in two rows and keeps each metric set horizontal when the card narrows', () => {
+  it('collapses current and completed summaries into the same direct narrow layout', () => {
     const cycleSummaryStyles = quotaHistoryStyles.slice(
       quotaHistoryStyles.indexOf('.cycleSummary {'),
       quotaHistoryStyles.indexOf('@container quota-cycle-card'),
@@ -90,9 +91,6 @@ describe('Codex quota history styles', () => {
     const narrowCycleSummaryStyles = quotaHistoryStyles.slice(
       quotaHistoryStyles.indexOf('@container quota-cycle-card'),
       quotaHistoryStyles.indexOf('.currentStatus,'),
-    )
-    const mobileCycleSummaryStyles = narrowCycleSummaryStyles.slice(
-      narrowCycleSummaryStyles.indexOf('@container quota-cycle-card (max-width: 560px)'),
     )
     expect(quotaHistoryStyles).toMatch(/\.cycleCard\s*\{[\s\S]*?container:\s*quota-cycle-card \/ inline-size;/)
     expect(cycleSummaryStyles).toMatch(/>\s*\.chartSummaryRow\s*\{[\s\S]*?border-left:\s*0;/)
@@ -102,12 +100,12 @@ describe('Codex quota history styles', () => {
     expect(cycleSummaryStyles).toMatch(/dd\s*\{[\s\S]*?grid-template-columns:\s*repeat\(3, max-content\);[\s\S]*?justify-content:\s*center;/)
     expect(cycleSummaryStyles).toMatch(/\.chartSummaryMetric\s*\{[\s\S]*?grid-template-columns:\s*14px max-content;/)
     expect(narrowCycleSummaryStyles).toMatch(/@container quota-cycle-card \(max-width:\s*640px\)/)
-    expect(narrowCycleSummaryStyles).toMatch(/\.cycleSummary\s*\{[\s\S]*?grid-template-columns:\s*minmax\(0, 1fr\);/)
-    expect(narrowCycleSummaryStyles).toMatch(/\.chartSummaryRow\s*\{[\s\S]*?grid-template-columns:\s*108px minmax\(0, 1fr\);/)
+    expect(narrowCycleSummaryStyles).toMatch(/\.currentCycleSummary,\s*\.completedCycleSummary\s*\{[\s\S]*?grid-template-columns:\s*minmax\(0, 1fr\);/)
+    expect(narrowCycleSummaryStyles).toMatch(/\.chartSummaryRow:nth-child\(n\)\s*\{[\s\S]*?grid-template-columns:\s*minmax\(0, 1fr\);[\s\S]*?grid-template-rows:\s*max-content max-content;/)
+    expect(narrowCycleSummaryStyles).toMatch(/\.chartSummaryRow:nth-child\(n\)\s*\{[\s\S]*?margin-top:\s*0;[\s\S]*?border-top:\s*0;[\s\S]*?border-left:\s*0;/)
+    expect(narrowCycleSummaryStyles).toMatch(/dt\s*\{[\s\S]*?text-align:\s*left;/)
     expect(narrowCycleSummaryStyles).toMatch(/dd\s*\{[\s\S]*?grid-template-columns:\s*repeat\(3, max-content\);[\s\S]*?justify-content:\s*start;/)
-    expect(narrowCycleSummaryStyles).toMatch(/@container quota-cycle-card \(max-width:\s*560px\)/)
-    expect(mobileCycleSummaryStyles).toMatch(/\.chartSummaryRow\s*\{[\s\S]*?grid-template-columns:\s*minmax\(0, 1fr\);/)
-    expect(mobileCycleSummaryStyles).toMatch(/dd\s*\{[\s\S]*?justify-content:\s*start;/)
+    expect(narrowCycleSummaryStyles).not.toMatch(/@container quota-cycle-card \(max-width:\s*560px\)/)
   })
 
   it('keeps transition details four-column until the cycle card narrows, then two-column at every viewport', () => {

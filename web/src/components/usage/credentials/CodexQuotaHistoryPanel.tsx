@@ -210,26 +210,28 @@ function CurrentCycleEfficiencyCard({
       </header>
       {!cycle ? (
         <div className={styles.emptyState}>{t('usage_stats.credentials_quota_history_no_current')}</div>
-      ) : cycle.transitions.length === 0 ? (
-        <div className={styles.emptyState}>{t('usage_stats.credentials_quota_history_no_transition')}</div>
       ) : (
         <>
-          <div className={styles.chartFrame} data-codex-quota-efficiency-chart="combined" aria-hidden="true">
-            <Chart type="bar" data={chart.data} options={chart.options} />
-          </div>
-          <CurrentCycleAccessibleSummary transitions={cycle.transitions} locale={locale} />
-          <div className={styles.chartLegend}>
-            <span><i className={styles.directDot} />{t('usage_stats.credentials_quota_history_direct')}</span>
-            <span><i className={styles.crossDot} />{t('usage_stats.credentials_quota_history_cross')}</span>
-            <span>
-              <i
-                className={styles.costLine}
-                data-codex-quota-cost-legend="true"
-                style={{ '--quota-cost-line-color': USAGE_CHART_REQUESTS_LINE_COLOR } as CSSProperties}
-              />
-              {t('usage_stats.credentials_quota_history_cost_per_point')}
-            </span>
-          </div>
+          {cycle.transitions.length === 0 ? (
+            <div className={styles.emptyState}>{t('usage_stats.credentials_quota_history_no_transition')}</div>
+          ) : <>
+            <div className={styles.chartFrame} data-codex-quota-efficiency-chart="combined" aria-hidden="true">
+              <Chart type="bar" data={chart.data} options={chart.options} />
+            </div>
+            <CurrentCycleAccessibleSummary transitions={cycle.transitions} locale={locale} />
+            <div className={styles.chartLegend}>
+              <span><i className={styles.directDot} />{t('usage_stats.credentials_quota_history_direct')}</span>
+              <span><i className={styles.crossDot} />{t('usage_stats.credentials_quota_history_cross')}</span>
+              <span>
+                <i
+                  className={styles.costLine}
+                  data-codex-quota-cost-legend="true"
+                  style={{ '--quota-cost-line-color': USAGE_CHART_REQUESTS_LINE_COLOR } as CSSProperties}
+                />
+                {t('usage_stats.credentials_quota_history_cost_per_point')}
+              </span>
+            </div>
+          </>}
           <CurrentCycleQuotaSummary summary={summary} />
         </>
       )}
