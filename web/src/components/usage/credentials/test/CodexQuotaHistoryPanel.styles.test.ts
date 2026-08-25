@@ -61,4 +61,31 @@ describe('Codex quota history styles', () => {
     expect(narrowSummaryStyles).toMatch(/\.chartSummaryRow\s*\{[\s\S]*?grid-template-columns:\s*108px minmax\(0, 1fr\);/)
     expect(narrowSummaryStyles).toMatch(/dd\s*\{[\s\S]*?grid-template-columns:\s*repeat\(3, minmax\(0, 1fr\)\);/)
   })
+
+  it('pairs completed cycle summaries in two rows and keeps each metric set horizontal when the card narrows', () => {
+    const cycleSummaryStyles = quotaHistoryStyles.slice(
+      quotaHistoryStyles.indexOf('.cycleSummary {'),
+      quotaHistoryStyles.indexOf('@container quota-cycle-card'),
+    )
+    const narrowCycleSummaryStyles = quotaHistoryStyles.slice(
+      quotaHistoryStyles.indexOf('@container quota-cycle-card'),
+      quotaHistoryStyles.indexOf('.currentStatus,'),
+    )
+    const mobileCycleSummaryStyles = narrowCycleSummaryStyles.slice(
+      narrowCycleSummaryStyles.indexOf('@container quota-cycle-card (max-width: 420px)'),
+    )
+    expect(quotaHistoryStyles).toMatch(/\.cycleCard\s*\{[\s\S]*?container:\s*quota-cycle-card \/ inline-size;/)
+    expect(cycleSummaryStyles).toMatch(/>\s*\.chartSummaryRow\s*\{[\s\S]*?border-left:\s*0;/)
+    expect(cycleSummaryStyles).toMatch(/\.completedCycleSummary\s*\{[\s\S]*?grid-template-columns:\s*repeat\(2, minmax\(0, 1fr\)\);/)
+    expect(cycleSummaryStyles).toMatch(/\.completedCycleSummary\s*\{[\s\S]*?\.chartSummaryRow:nth-child\(n \+ 3\)\s*\{[\s\S]*?border-top:\s*1px solid var\(--border-color\);/)
+    expect(cycleSummaryStyles).toMatch(/\.currentCycleSummary\s*\{[\s\S]*?grid-template-columns:\s*repeat\(3, minmax\(0, 1fr\)\);/)
+    expect(cycleSummaryStyles).toMatch(/dd\s*\{[\s\S]*?grid-template-columns:\s*repeat\(3, max-content\);[\s\S]*?justify-content:\s*center;/)
+    expect(cycleSummaryStyles).toMatch(/\.chartSummaryMetric\s*\{[\s\S]*?grid-template-columns:\s*14px max-content;/)
+    expect(narrowCycleSummaryStyles).toMatch(/@container quota-cycle-card \(max-width:\s*720px\)/)
+    expect(narrowCycleSummaryStyles).toMatch(/\.cycleSummary\s*\{[\s\S]*?grid-template-columns:\s*minmax\(0, 1fr\);/)
+    expect(narrowCycleSummaryStyles).toMatch(/\.chartSummaryRow\s*\{[\s\S]*?grid-template-columns:\s*108px minmax\(0, 1fr\);/)
+    expect(narrowCycleSummaryStyles).toMatch(/dd\s*\{[\s\S]*?grid-template-columns:\s*repeat\(3, max-content\);/)
+    expect(narrowCycleSummaryStyles).toMatch(/@container quota-cycle-card \(max-width:\s*420px\)/)
+    expect(mobileCycleSummaryStyles).toMatch(/dd\s*\{\s*grid-template-columns:\s*repeat\(3, max-content\);/)
+  })
 })
