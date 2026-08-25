@@ -71,6 +71,15 @@ func openSessionAliasDatabase(t *testing.T) *gorm.DB {
 	if err != nil {
 		t.Fatalf("open session alias database: %v", err)
 	}
+	sqlDB, err := db.DB()
+	if err != nil {
+		t.Fatalf("load session alias sql database: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := sqlDB.Close(); err != nil {
+			t.Errorf("close session alias database: %v", err)
+		}
+	})
 	if err := db.AutoMigrate(&entities.AuthSession{}); err != nil {
 		t.Fatalf("migrate session alias database: %v", err)
 	}
