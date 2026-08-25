@@ -19,10 +19,12 @@ describe('AiProviderCredentialsSection', () => {
         page={1}
         totalPages={1}
         pageSize={10}
+        activeOnly={false}
         sort="priority"
         loading={false}
         onPageChange={() => undefined}
         onPageSizeChange={() => undefined}
+        onActiveOnlyChange={() => undefined}
         onSortChange={() => undefined}
       />,
     )
@@ -80,10 +82,12 @@ describe('AiProviderCredentialsSection', () => {
         page={1}
         totalPages={1}
         pageSize={10}
+        activeOnly={false}
         sort="priority"
         loading={false}
         onPageChange={() => undefined}
         onPageSizeChange={() => undefined}
+        onActiveOnlyChange={() => undefined}
         onSortChange={() => undefined}
       />,
     )
