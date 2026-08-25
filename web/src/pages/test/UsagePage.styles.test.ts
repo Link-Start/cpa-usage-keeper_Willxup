@@ -20,6 +20,7 @@ const credentialStyles = readSource(new URL('../../components/usage/credentials/
 const selectSource = readSource(new URL('../../components/ui/Select.tsx', import.meta.url))
 const apiIndexSource = readSource(new URL('../../components/usage/index.ts', import.meta.url))
 const apiClientSource = readSource(new URL('../../lib/api.ts', import.meta.url))
+const usageNavigationSource = readSource(new URL('../../lib/usageNavigation.ts', import.meta.url))
 const i18nSource = readSource(new URL('../../i18n/index.ts', import.meta.url))
 const typesSource = readSource(new URL('../../lib/types.ts', import.meta.url))
 const pricingDataSource = readSource(new URL('../../components/usage/hooks/usePricingData.ts', import.meta.url))
@@ -826,7 +827,7 @@ describe('UsagePage toolbar styles', () => {
     expect(i18nSource).not.toContain("tab_analysis: 'API & Models'")
     expect(i18nSource).not.toContain("tab_analysis: 'API 与模型'")
     expect(i18nSource).not.toContain("tab_analysis: 'API 與模型'")
-    expect(usagePageSource).toContain("const USAGE_TAB_OPTIONS = ['overview', 'analysis', 'ranking', 'events', 'auth-files', 'ai-provider', 'settings'] as const")
+    expect(usageNavigationSource).toMatch(/USAGE_TAB_OPTIONS = \[\s*'overview',\s*'analysis',\s*'ranking',\s*'events',\s*'auth-files',\s*'ai-provider',\s*'settings',\s*\] as const/)
   })
 
   it('keeps Sign out as the rightmost shared main action after Check Updates', () => {
@@ -865,6 +866,7 @@ describe('UsagePage toolbar styles', () => {
 
   it('removes per-tab frames while keeping connected tab labels stable at every width', () => {
     const connectedTabPill = styleRuleBlock(usagePageStyles, '.tabBarConnected .tabPill')
+    const tabPill = styleRuleBlock(usagePageStyles, '.tabPill')
 
     expect(connectedTabPill).toContain('min-height: 32px;')
     expect(connectedTabPill).toContain('padding: 7px 12px;')
@@ -875,6 +877,25 @@ describe('UsagePage toolbar styles', () => {
     expect(connectedTabPill).toContain('font-weight: 700;')
     expect(connectedTabPill).toContain('white-space: nowrap;')
     expect(connectedTabPill).not.toContain('transform:')
+    expect(tabPill).toContain('text-decoration: none;')
+  })
+
+  it('renders primary navigation as direct links without replacing activeTab rendering', () => {
+    const navigationStart = usagePageSource.indexOf('{tabOptions.map((option) => (')
+    const navigationEnd = usagePageSource.indexOf('))}', navigationStart)
+    const navigationBlock = usagePageSource.slice(navigationStart, navigationEnd)
+
+    expect(navigationStart).toBeGreaterThanOrEqual(0)
+    expect(navigationEnd).toBeGreaterThan(navigationStart)
+    expect(navigationBlock).toContain('<a')
+    expect(navigationBlock).toContain('href={appPath(getUsageTabPath(option.value)) + cpamcEmbedSearch()}')
+    expect(navigationBlock).toContain('onClick={(event) => handleUsageTabNavigation(event, option.value)}')
+    expect(navigationBlock).toContain('onKeyDown={(event) => handleUsageTabKeyActivation(event, option.value, activateUsageTab)}')
+    expect(navigationBlock).toContain('aria-selected={activeTab === option.value}')
+    expect(navigationBlock).not.toContain('<button')
+    expect(usagePageSource).toContain('const activateUsageTab = useCallback((tab: UsageTab) => {')
+    expect(usagePageSource).toContain('setActiveTab(tab);')
+    expect(usagePageSource).toContain("window.history.replaceState(null, '', appPath(getUsageTabPath(tab)) + cpamcEmbedSearch());")
   })
 
   it('widens simplified and traditional Chinese tabs without separating the connected segments', () => {
