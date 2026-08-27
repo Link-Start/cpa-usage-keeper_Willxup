@@ -15,8 +15,8 @@ import (
 )
 
 const (
-	// codexQuotaHistoryFlushInterval 是首条数据入队后、固定本批队列边界前的默认等待时长。
-	codexQuotaHistoryFlushInterval = 10 * time.Second
+	// codexQuotaHistoryFlushInterval 是首条数据入队后、固定本批队列边界前的一分钟默认等待时长。
+	codexQuotaHistoryFlushInterval = time.Minute
 	// codexQuotaHistoryQueueSize 限制 usage 热路径最多持有的不可变快照指针数量。
 	codexQuotaHistoryQueueSize = 1024
 	// codexQuotaHistoryDatabaseTimeout 同时限制身份确认、状态恢复、正常 flush 与 shutdown flush。
@@ -90,7 +90,7 @@ func newCodexQuotaHistoryTimer(delay time.Duration) (<-chan time.Time, func()) {
 	return timer.C, func() { timer.Stop() }
 }
 
-// runCodexQuotaHistoryRunner 串行拥有状态：Header 等待十秒聚合，低频可信查询到达时立即执行。
+// runCodexQuotaHistoryRunner 串行拥有状态：Header 等待一分钟聚合，低频可信查询到达时立即执行。
 func (s *Service) runCodexQuotaHistoryRunner() {
 	// done channel 必须只由 runner 关闭，StopRefreshTasks 才能确保数据库关闭前不再有 history 写入。
 	defer close(s.codexQuotaHistoryDoneCh)
@@ -122,7 +122,7 @@ func (s *Service) runCodexQuotaHistoryRunner() {
 				return
 			}
 		case <-s.codexQuotaHistoryTrustedWake:
-			// 空闲 runner 收到可信来源后同样立即分流两类事实，不创建十秒 timer。
+			// 空闲 runner 收到可信来源后同样立即分流两类事实，不创建一分钟 timer。
 			s.processPreferredCodexQuotaHistoryInputs(current)
 		case <-s.codexQuotaHistoryStopCh:
 			// 空闲时收到 shutdown，同样处理 stop 之前已成功入队的全部元素。
@@ -132,7 +132,7 @@ func (s *Service) runCodexQuotaHistoryRunner() {
 	}
 }
 
-// takeQueuedCodexQuotaHistoryInputs 在生产者短锁下固定两条来源队列边界，并清除只属于本批的通知。
+// takeQueuedCodexQuotaHistoryInputs 在生产者短锁下取出两条来源队列，并清除只属于本批的通知。
 func (s *Service) takeQueuedCodexQuotaHistoryInputs(includeHeader bool, includeTrusted bool) []codexQuotaHistoryInput {
 	s.codexQuotaHistoryMu.Lock()
 	headerCount := 0
@@ -151,9 +151,7 @@ func (s *Service) takeQueuedCodexQuotaHistoryInputs(includeHeader bool, includeT
 		default:
 		}
 	}
-	s.codexQuotaHistoryMu.Unlock()
-
-	// runner 是两条 channel 的唯一消费者；这里仅按固定边界复制，来源优先级由调用方决定。
+	// Header 满载替换也会短暂读取 channel；所有数据消费都在同一锁内完成，批次边界不会混入后续生产者。
 	inputs := make([]codexQuotaHistoryInput, 0, headerCount+trustedCount)
 	for range headerCount {
 		inputs = append(inputs, <-s.codexQuotaHistoryHeaderQueue)
@@ -161,6 +159,7 @@ func (s *Service) takeQueuedCodexQuotaHistoryInputs(includeHeader bool, includeT
 	for range trustedCount {
 		inputs = append(inputs, <-s.codexQuotaHistoryTrustedQueue)
 	}
+	s.codexQuotaHistoryMu.Unlock()
 	return inputs
 }
 
@@ -652,17 +651,59 @@ func (s *Service) tryAppendCodexQuotaHistoryInput(input codexQuotaHistoryInput) 
 		queue = s.codexQuotaHistoryTrustedQueue
 		wake = s.codexQuotaHistoryTrustedWake
 	}
-	select {
-	case queue <- input:
-		// 两条通知都只表达“对应队列非空”；可信通知无等待，Header 通知开启十秒窗口。
+	accepted := false
+	if authoritative {
+		// 可信主动查询保持原有低频独立队列语义；本次只调整 Header 溢出策略。
 		select {
-		case wake <- struct{}{}:
+		case queue <- input:
+			accepted = true
 		default:
 		}
-		return true
-	default:
+	} else {
+		// Header 队列满时按 ObservedAt 淘汰最旧快照，迟到旧数据不能覆盖已保留的新事实。
+		accepted = tryAppendLatestCodexQuotaHistoryHeaderInput(queue, input)
+	}
+	if !accepted {
 		return false
 	}
+	// 两条通知都只表达“对应队列非空”；可信通知无等待，Header 通知开启一分钟窗口。
+	select {
+	case wake <- struct{}{}:
+	default:
+	}
+	return true
+}
+
+// tryAppendLatestCodexQuotaHistoryHeaderInput 在调用方锁内保留固定容量中 ObservedAt 最新的 Header。
+func tryAppendLatestCodexQuotaHistoryHeaderInput(queue chan codexQuotaHistoryInput, input codexQuotaHistoryInput) bool {
+	if cap(queue) == 0 {
+		return false
+	}
+	if len(queue) < cap(queue) {
+		queue <- input
+		return true
+	}
+	// 仅在极端满载时扫描固定上限；正常热路径仍是一次 O(1) channel send。
+	queued := make([]codexQuotaHistoryInput, 0, len(queue))
+	for len(queue) > 0 {
+		queued = append(queued, <-queue)
+	}
+	oldestIndex := 0
+	for index := 1; index < len(queued); index++ {
+		candidateObservedAt := usageHeaderSnapshotObservedAt(queued[index].Snapshot)
+		oldestObservedAt := usageHeaderSnapshotObservedAt(queued[oldestIndex].Snapshot)
+		if usageHeaderObservedAtBefore(candidateObservedAt, oldestObservedAt) {
+			oldestIndex = index
+		}
+	}
+	accepted := usageHeaderSnapshotIsNewer(input.Snapshot, queued[oldestIndex].Snapshot)
+	if accepted {
+		queued[oldestIndex] = input
+	}
+	for _, queuedInput := range queued {
+		queue <- queuedInput
+	}
+	return accepted
 }
 
 // stopCodexQuotaHistoryRunner 封住新投递并等待 runner 的两秒 best-effort flush 完成。

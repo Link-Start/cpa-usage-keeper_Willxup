@@ -20,7 +20,7 @@ import (
 type ServiceOptions struct {
 	RefreshWorkerLimit               int
 	UsageHeaderSnapshotFlushInterval time.Duration
-	// CodexQuotaHistoryFlushInterval 覆盖独立历史 runner 固定批次边界前的十秒等待，主要供定向测试缩短等待。
+	// CodexQuotaHistoryFlushInterval 覆盖独立历史 runner 固定批次边界前的一分钟等待，主要供定向测试缩短等待。
 	CodexQuotaHistoryFlushInterval time.Duration
 	// CodexQuotaHistoryQueueSize 分别覆盖 Header 与可信主动查询两条有界队列容量，非正值使用生产默认值。
 	CodexQuotaHistoryQueueSize int
@@ -77,13 +77,13 @@ type Service struct {
 	usageHeaderClosing       bool
 	usageHeaderCloseOnce     sync.Once
 
-	// codexQuotaHistoryHeaderQueue 有界保存 Header 快照指针，生产者永不等待。
+	// codexQuotaHistoryHeaderQueue 有界保存 Header 快照指针；满载按 ObservedAt 淘汰最旧项。
 	codexQuotaHistoryHeaderQueue chan codexQuotaHistoryInput
 	// codexQuotaHistoryHeaderWake 只通知 runner“Header 队列已有数据”；容量为一即可合并重复唤醒。
 	codexQuotaHistoryHeaderWake chan struct{}
 	// codexQuotaHistoryTrustedQueue 独立保存低频可信主动查询 observation，不与 Header 共用 writer 批次。
 	codexQuotaHistoryTrustedQueue chan codexQuotaHistoryInput
-	// codexQuotaHistoryTrustedWake 让可信来源跳过 Header 十秒窗口并立即触发 runner。
+	// codexQuotaHistoryTrustedWake 让可信来源跳过 Header 一分钟窗口并立即触发 runner。
 	codexQuotaHistoryTrustedWake chan struct{}
 	// codexQuotaHistoryStopCh 只表达 runner 停止；队列不关闭以避免并发发送 panic。
 	codexQuotaHistoryStopCh chan struct{}
@@ -144,7 +144,7 @@ func NewServiceWithRegistryAndOptions(db *gorm.DB, registry ProviderRegistry, op
 	if usageHeaderFlushInterval <= 0 {
 		usageHeaderFlushInterval = usageHeaderSnapshotFlushInterval
 	}
-	// 独立 history runner 默认每 10 秒合并一次；非正测试覆盖不改变生产语义。
+	// 独立 history runner 默认每一分钟合并一次；非正测试覆盖不改变生产语义。
 	codexHistoryFlushInterval := options.CodexQuotaHistoryFlushInterval
 	if codexHistoryFlushInterval <= 0 {
 		codexHistoryFlushInterval = codexQuotaHistoryFlushInterval

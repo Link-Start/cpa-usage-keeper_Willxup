@@ -77,7 +77,7 @@ func TestCodexQuotaHistoryRunnerSortsSameBatchByObservationTime(t *testing.T) {
 	resetAt := base.Add(5 * time.Hour)
 	older := codexHistoryPrimarySnapshot("out-of-order-auth", base.Add(time.Minute), 90, resetAt)
 	newer := codexHistoryPrimarySnapshot("out-of-order-auth", base.Add(2*time.Minute), 89, resetAt)
-	// 故意按较新 observation 在前的队列顺序投递；shutdown drain 与正常十秒批次共享同一处理入口。
+	// 故意按较新 observation 在前的队列顺序投递；shutdown drain 与正常一分钟批次共享同一处理入口。
 	if !service.TryAppendUsageHeaderSnapshots(usageHeaderSnapshotPointers(newer, older)) {
 		service.StopRefreshTasks()
 		t.Fatal("expected out-of-order history observations to enter one batch")
@@ -824,7 +824,7 @@ func TestCodexQuotaHistoryRunnerRejectsNonCodexHeaderIdentity(t *testing.T) {
 }
 
 func TestCodexQuotaHistoryQueueFullDoesNotBlockOrDiscardCacheSnapshot(t *testing.T) {
-	// 第一批到点后的 identity 查询被挂起、第二份占满容量一队列，第三份 history 必须被丢弃但 cache 仍接收。
+	// 第一批到点后的 identity 查询被挂起、第二份占满容量一队列，第三份必须淘汰旧 history 且 cache 仍接收。
 	db := openQuotaTestDatabase(t)
 	seedUsageIdentity(t, db, codexHistoryUsageIdentity("queue-auth"))
 	timers := make(chan usageHeaderManualTimer, 1)
@@ -900,15 +900,53 @@ func TestCodexQuotaHistoryQueueFullDoesNotBlockOrDiscardCacheSnapshot(t *testing
 	if task.Quota == nil || len(task.Quota.Quota) != 1 || task.Quota.Quota[0].UsedPercent == nil || *task.Quota.Quota[0].UsedPercent != 13 {
 		t.Fatalf("expected latest third snapshot to reach cache despite full history queue, got %+v", task)
 	}
+	cycles := loadCodexQuotaCycles(t, db, "queue-auth")
+	if len(cycles) != 1 {
+		t.Fatalf("expected one queue-auth history cycle, got %+v", cycles)
+	}
+	segments := loadCodexQuotaSegments(t, db, cycles[0].ID)
+	if len(segments) != 2 || segments[0].RemainingPercent != 90 || segments[1].RemainingPercent != 87 {
+		t.Fatalf("expected full history queue to retain 90 then newest 87 and evict 89, got %+v", segments)
+	}
+}
+
+func TestCodexQuotaHistoryQueueFullDoesNotReplaceNewerSnapshotWithStaleArrival(t *testing.T) {
+	// Header 可能因 inbox 重试乱序到达；容量满时必须比较 ObservedAt，不能仅凭到达顺序覆盖较新事实。
+	db := openQuotaTestDatabase(t)
+	seedUsageIdentity(t, db, codexHistoryUsageIdentity("queue-stale-auth"))
+	service := NewServiceWithRegistryAndOptions(db, NewProviderRegistry(nil), ServiceOptions{
+		UsageHeaderSnapshotFlushInterval: time.Hour,
+		CodexQuotaHistoryFlushInterval:   time.Hour,
+		CodexQuotaHistoryQueueSize:       1,
+		PricingCatalog:                   emptyPricingCatalogForTest(),
+	})
+	base := time.Date(2026, 8, 20, 8, 0, 0, 0, time.UTC)
+	resetAt := base.Add(5 * time.Hour)
+	newer := codexHistoryPrimarySnapshot("queue-stale-auth", base.Add(2*time.Second), 89, resetAt)
+	stale := codexHistoryPrimarySnapshot("queue-stale-auth", base.Add(time.Second), 90, resetAt)
+	if !service.TryAppendUsageHeaderSnapshots(usageHeaderSnapshotPointers(newer, stale)) {
+		service.StopRefreshTasks()
+		t.Fatal("expected cache fan-out to accept the full test batch")
+	}
+	service.StopRefreshTasks()
+
+	cycles := loadCodexQuotaCycles(t, db, "queue-stale-auth")
+	if len(cycles) != 1 {
+		t.Fatalf("expected one stale-order history cycle, got %+v", cycles)
+	}
+	segments := loadCodexQuotaSegments(t, db, cycles[0].ID)
+	if len(segments) != 1 || segments[0].RemainingPercent != 89 {
+		t.Fatalf("expected stale arrival to leave the newer 89 snapshot queued, got %+v", segments)
+	}
 }
 
 func TestCodexQuotaHistoryRunnerSnapshotsQueueOnlyWhenTimerExpires(t *testing.T) {
-	// 第一条只启动十秒窗口；timer 到期时固定当时两条，落库期间到达的第三条必须留给下一轮。
+	// 第一条只启动一分钟窗口；timer 到期时固定当时两条，落库期间到达的第三条必须留给下一轮。
 	db := openQuotaTestDatabase(t)
 	for _, authIndex := range []string{"batch-auth-1", "batch-auth-2", "batch-auth-3"} {
 		seedUsageIdentity(t, db, codexHistoryUsageIdentity(authIndex))
 	}
-	// 手动 timer 让测试精确控制两个十秒窗口，而不依赖 CI 的真实调度时间。
+	// 手动 timer 让测试精确控制两个一分钟窗口，而不依赖 CI 的真实调度时间。
 	timers := make(chan usageHeaderManualTimer, 3)
 	// 第一批在批量 identity 查询处暂停，提供一个确定的“落库期间”并发入队窗口。
 	queryEntered := make(chan struct{}, 1)
@@ -952,8 +990,8 @@ func TestCodexQuotaHistoryRunnerSnapshotsQueueOnlyWhenTimerExpires(t *testing.T)
 		t.Fatal("expected first batch snapshot to enter history queue")
 	}
 	firstTimer := waitForCodexQuotaHistoryManualTimer(t, timers)
-	if firstTimer.delay != 10*time.Second {
-		t.Fatalf("expected first observation to start a ten-second window, got %s", firstTimer.delay)
+	if firstTimer.delay != time.Minute {
+		t.Fatalf("expected first observation to start a one-minute window, got %s", firstTimer.delay)
 	}
 	if queueLength := codexQuotaHistoryHeaderQueueLength(service); queueLength != 1 {
 		t.Fatalf("expected first observation to remain queued before timer expiry, got queue length %d", queueLength)
@@ -961,7 +999,7 @@ func TestCodexQuotaHistoryRunnerSnapshotsQueueOnlyWhenTimerExpires(t *testing.T)
 
 	second := codexHistoryPrimarySnapshot("batch-auth-2", base.Add(time.Second), 89, base.Add(5*time.Hour))
 	if !service.TryAppendUsageHeaderSnapshots(usageHeaderSnapshotPointers(second)) {
-		t.Fatal("expected second observation to join the active ten-second queue window")
+		t.Fatal("expected second observation to join the active one-minute queue window")
 	}
 	if queueLength := codexQuotaHistoryHeaderQueueLength(service); queueLength != 2 {
 		t.Fatalf("expected two observations queued at timer expiry boundary, got %d", queueLength)
@@ -986,7 +1024,7 @@ func TestCodexQuotaHistoryRunnerSnapshotsQueueOnlyWhenTimerExpires(t *testing.T)
 	}
 	release()
 
-	// 第一轮必须只写前两条；runner 随后从残留 wake 启动第二个完整十秒窗口。
+	// 第一轮必须只写前两条；runner 随后从残留 wake 启动第二个完整一分钟窗口。
 	secondTimer := waitForCodexQuotaHistoryManualTimer(t, timers)
 	waitForCodexQuotaCycleCount(t, db, 2)
 	if queueLength := codexQuotaHistoryHeaderQueueLength(service); queueLength != 1 {
@@ -997,7 +1035,7 @@ func TestCodexQuotaHistoryRunnerSnapshotsQueueOnlyWhenTimerExpires(t *testing.T)
 }
 
 func TestCodexQuotaHistoryRunnerUsesDefaultWindowWithoutCountBasedEarlyFlush(t *testing.T) {
-	// 默认生产配置必须等待完整十秒；即使队列超过旧的 256 条阈值也不能提前查询或落库。
+	// 默认生产配置必须等待完整一分钟；即使队列超过旧的 256 条阈值也不能提前查询或落库。
 	db := openQuotaTestDatabase(t)
 	seedUsageIdentity(t, db, codexHistoryUsageIdentity("volume-auth"))
 	timers := make(chan usageHeaderManualTimer, 2)
@@ -1034,8 +1072,8 @@ func TestCodexQuotaHistoryRunnerUsesDefaultWindowWithoutCountBasedEarlyFlush(t *
 		t.Fatal("expected all high-volume snapshots to enter cache/history fan-out")
 	}
 	timer := waitForCodexQuotaHistoryManualTimer(t, timers)
-	if timer.delay != 10*time.Second {
-		t.Fatalf("expected production default history window of ten seconds, got %s", timer.delay)
+	if timer.delay != time.Minute {
+		t.Fatalf("expected production default history window of one minute, got %s", timer.delay)
 	}
 	if queueLength := codexQuotaHistoryHeaderQueueLength(service); queueLength != 257 {
 		t.Fatalf("expected all 257 observations to remain queued before timer expiry, got %d", queueLength)

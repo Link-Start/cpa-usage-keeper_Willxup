@@ -825,7 +825,7 @@ func TestUsageHeaderWorkerStaysSilentWithoutSnapshotsAndDoesNotResetActiveWindow
 		t.Fatalf("expected second Header not to reset timer, got delay=%s", timer.delay)
 	case <-time.After(30 * time.Millisecond):
 	}
-	// 独立 history runner 会等待自己的十秒批次窗口；一分钟 cache 仍不得在自己的 timer 前应用结果。
+	// 独立 history runner 会等待自己的一分钟批次窗口；一分钟 cache 仍不得在自己的 timer 前应用结果。
 	if refreshTaskCount(service) != 0 {
 		t.Fatalf("expected pending cache window to remain unapplied, got %+v", refreshTasks(service))
 	}
@@ -1076,19 +1076,19 @@ func TestTryAppendUsageHeaderSnapshotsKeepsLatestPendingSnapshotPerAuthIndex(t *
 	}
 }
 
-func TestUsageHeaderPendingKeepsOneThousandIdentitiesAndStillUpdatesExistingOnes(t *testing.T) {
-	// 一分钟内身份种类异常增长时内存必须有硬上限；已接收身份仍允许更新到最新 Header。
+func TestUsageHeaderPendingKeepsNewestOneThousandIdentities(t *testing.T) {
+	// 一分钟内身份种类异常增长时内存必须有硬上限，并按真实观察时间保留最新身份。
 	pending := make(map[string]UsageHeaderSnapshot)
 	firstBatch := make([]UsageHeaderSnapshot, 0, 1000)
 	baseTime := time.Date(2026, 6, 22, 11, 0, 0, 0, time.Local)
 	for index := 0; index < 1000; index++ {
 		firstBatch = append(firstBatch, UsageHeaderSnapshot{
-			AuthType: "oauth", AuthIndex: fmt.Sprintf("bounded-auth-%04d", index), Provider: "codex", ObservedAt: baseTime,
+			AuthType: "oauth", AuthIndex: fmt.Sprintf("bounded-auth-%04d", index), Provider: "codex", ObservedAt: baseTime.Add(time.Duration(index) * time.Second),
 		})
 	}
 	mergePendingUsageHeaderSnapshots(pending, firstBatch)
-	newerExisting := UsageHeaderSnapshot{AuthType: "oauth", AuthIndex: "bounded-auth-0000", Provider: "codex", ObservedAt: baseTime.Add(time.Minute)}
-	overflow := UsageHeaderSnapshot{AuthType: "oauth", AuthIndex: "bounded-auth-overflow", Provider: "codex", ObservedAt: baseTime.Add(2 * time.Minute)}
+	newerExisting := UsageHeaderSnapshot{AuthType: "oauth", AuthIndex: "bounded-auth-0000", Provider: "codex", ObservedAt: baseTime.Add(1000 * time.Second)}
+	overflow := UsageHeaderSnapshot{AuthType: "oauth", AuthIndex: "bounded-auth-overflow", Provider: "codex", ObservedAt: baseTime.Add(1001 * time.Second)}
 	mergePendingUsageHeaderSnapshots(pending, []UsageHeaderSnapshot{newerExisting, overflow})
 
 	if len(pending) != 1000 {
@@ -1097,8 +1097,18 @@ func TestUsageHeaderPendingKeepsOneThousandIdentitiesAndStillUpdatesExistingOnes
 	if got := pending["bounded-auth-0000"].ObservedAt; !got.Equal(newerExisting.ObservedAt) {
 		t.Fatalf("expected existing identity to update at cap, got %s", got)
 	}
-	if _, ok := pending["bounded-auth-overflow"]; ok {
-		t.Fatal("expected a new identity beyond the cap to be rejected")
+	if _, ok := pending["bounded-auth-0001"]; ok {
+		t.Fatal("expected the oldest identity to be evicted at the cap")
+	}
+	if got, ok := pending["bounded-auth-overflow"]; !ok || !got.ObservedAt.Equal(overflow.ObservedAt) {
+		t.Fatalf("expected the newest identity to be retained at the cap, got %+v", got)
+	}
+
+	// 迟到但观察时间更旧的新身份不能反向挤掉已经保留的更新数据。
+	stale := UsageHeaderSnapshot{AuthType: "oauth", AuthIndex: "bounded-auth-stale", Provider: "codex", ObservedAt: baseTime.Add(-time.Second)}
+	mergePendingUsageHeaderSnapshots(pending, []UsageHeaderSnapshot{stale})
+	if _, ok := pending["bounded-auth-stale"]; ok {
+		t.Fatal("expected an out-of-order stale identity not to evict newer pending data")
 	}
 }
 

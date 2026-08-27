@@ -34,7 +34,7 @@ type UsageHeaderSnapshot struct {
 	ObservedAt time.Time
 	// CacheOutput 是现有 quota cache 合同的完整只读解析结果，worker 不再解析 Header。
 	CacheOutput ProviderOutput
-	// MainQuotaObservations 只包含无 group Primary/Secondary，供 history runner 在十秒批次到期后消费。
+	// MainQuotaObservations 只包含无 group Primary/Secondary，供 history runner 在一分钟批次到期后消费。
 	MainQuotaObservations []repositorydto.CodexMainQuotaObservation
 }
 
