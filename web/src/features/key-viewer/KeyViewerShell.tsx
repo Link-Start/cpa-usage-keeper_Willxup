@@ -11,6 +11,12 @@ import { useThemeStore } from '@/stores';
 import { KEY_VIEWER_PAGE_PATHS, type KeyViewerPage, type KeyViewerPath } from './navigation';
 import styles from './KeyViewerShell.module.scss';
 
+const KEY_VIEWER_PAGE_LABEL_KEYS: Record<KeyViewerPage, string> = {
+  overview: 'usage_stats.tab_overview',
+  analysis: 'usage_stats.tab_analysis',
+  ranking: 'usage_stats.tab_ranking',
+};
+
 const THEME_OPTIONS: ReadonlyArray<{ value: Theme; labelKey: string }> = [
   { value: 'white', labelKey: 'usage_stats.theme_light' },
   { value: 'dark', labelKey: 'usage_stats.theme_dark' },
@@ -122,7 +128,7 @@ export function KeyViewerShell({
                       className={`${styles.tabPill} ${active ? styles.tabPillActive : ''}`.trim()}
                       onClick={() => onNavigate(KEY_VIEWER_PAGE_PATHS[page])}
                     >
-                      {t(page === 'overview' ? 'usage_stats.tab_overview' : 'usage_stats.tab_analysis')}
+                      {t(KEY_VIEWER_PAGE_LABEL_KEYS[page])}
                     </button>
                   );
                 })}
