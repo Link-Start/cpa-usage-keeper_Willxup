@@ -6,7 +6,6 @@ import (
 	"strings"
 	"time"
 
-	"cpa-usage-keeper/internal/auth"
 	"cpa-usage-keeper/internal/service"
 	servicedto "cpa-usage-keeper/internal/service/dto"
 	"cpa-usage-keeper/internal/timeutil"
@@ -128,24 +127,10 @@ func registerUsageActivityRoute(router gin.IRoutes, usageProvider service.UsageP
 	})
 }
 
-func registerKeyActivityRoute(router gin.IRoutes, usageProvider service.UsageProvider, cpaAPIKeyProvider service.CPAAPIKeyProvider, authHandler *authHandler) {
+func registerKeyActivityRoute(router gin.IRoutes, usageProvider service.UsageProvider) {
 	router.GET("/key-activity", func(c *gin.Context) {
-		token, _ := c.Get("auth_token")
-		sessionValue, _ := c.Get("auth_session")
-		session, ok := sessionValue.(auth.Session)
-		if !ok || session.Role != auth.RoleAPIKeyViewer || session.CPAAPIKeyID <= 0 {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
-			return
-		}
-		if cpaAPIKeyProvider == nil {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
-			return
-		}
-		if _, err := cpaAPIKeyProvider.FindActiveCPAAPIKeyByID(c.Request.Context(), session.CPAAPIKeyID); err != nil {
-			if authHandler != nil {
-				authHandler.deleteSession(fmt.Sprint(token))
-				clearSessionCookie(c, authHandler.config.BasePath, resolveSessionToken(c).CookieKind)
-			}
+		session, _, ok := activeAPIKeyViewerContext(c)
+		if !ok {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
 			return
 		}
