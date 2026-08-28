@@ -74,9 +74,12 @@ func (codexUsageHeaderSnapshotProcessor) TryBuildUsageHeaderSnapshot(input Usage
 		return nil, false
 	}
 	cacheOutput, cacheOK := decoded.cacheOutput()
-	// history 复用同一 decoded 主窗口，不读取 cache 已过滤掉的未知窗口结果。
-	historyOutput := decoded.mainQuotaOutput()
-	observations := BuildCodexMainQuotaObservations(authIndex, historyOutput, input.ObservedAt)
+	// history 只在来源可信时复用同一 decoded 主窗口；cache 始终保持原有投影。
+	var observations []repositorydto.CodexMainQuotaObservation
+	if decoded.mainQuotaHistoryAllowed() {
+		historyOutput := decoded.mainQuotaOutput()
+		observations = BuildCodexMainQuotaObservations(authIndex, historyOutput, input.ObservedAt)
+	}
 	// 只有 cache 或 history 至少一个消费者可处理时才创建异步快照。
 	if !cacheOK && len(observations) == 0 {
 		return nil, false
@@ -113,7 +116,7 @@ func codexQuotaSnapshotHeaders(headers http.Header) http.Header {
 }
 
 func isCodexQuotaHeaderKey(key string) bool {
-	if key == "X-Codex-Plan-Type" {
+	if key == "X-Codex-Plan-Type" || key == "X-Codex-Active-Limit" {
 		return true
 	}
 	if !strings.HasPrefix(key, codexHeaderPrefix) {

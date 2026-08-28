@@ -190,6 +190,41 @@ func TestBuildCodexQuotaEfficiencyHistoryUsesLatestWindowPerRoleAndCutsOverlappi
 	assertCodexQuotaEfficiencyUsage(t, result.Cycles[0].Usage, 300, 0.0003, true)
 }
 
+func TestBuildCodexQuotaEfficiencyHistoryMarksReusedWeeklyCurrentAfterFiveHourDetour(t *testing.T) {
+	// 复用父行会保留 Weekly 较早的 FirstObservedAt；current 必须由最新 LastObservedAt 决定。
+	now := time.Date(2026, 8, 27, 12, 0, 0, 0, time.UTC)
+	db := openTestDatabase(t)
+	weeklyStart := now.Add(-24 * time.Hour)
+	weeklyReset := weeklyStart.Add(7 * 24 * time.Hour)
+	weekly := seedCodexQuotaEfficiencyCycle(t, db, "codex-auth", weeklyStart, weeklyReset, []codexQuotaEfficiencySegmentSeed{
+		{remaining: 90, first: now.Add(-3 * time.Hour), last: now.Add(-3 * time.Hour)},
+	})
+	fiveHour := seedCodexQuotaEfficiencyCycle(t, db, "codex-auth", now.Add(-4*time.Hour), now.Add(time.Hour), []codexQuotaEfficiencySegmentSeed{
+		{remaining: 50, first: now.Add(-2 * time.Hour), last: now.Add(-2 * time.Hour)},
+	})
+	restored := repositorydto.CodexMainQuotaObservation{
+		AuthIndex: "codex-auth", WindowRole: "primary", WindowSeconds: int64((7 * 24 * time.Hour) / time.Second),
+		ResetAtSource: "absolute", ResetAt: weeklyReset, RemainingPercent: 89,
+		FirstObservedAt: now.Add(-time.Hour), LastObservedAt: now.Add(-time.Hour), ObservationCount: 1,
+	}
+	if err := repository.WriteCodexMainQuotaObservations(context.Background(), db, []repositorydto.CodexMainQuotaObservation{restored}); err != nil {
+		t.Fatalf("reuse Weekly cycle: %v", err)
+	}
+
+	result, err := repository.BuildCodexQuotaEfficiencyHistory(context.Background(), db, repositorydto.CodexQuotaEfficiencyQuery{
+		AuthIndex: "codex-auth", Now: now, RangeStart: now.Add(-30 * 24 * time.Hour),
+	}, codexQuotaEfficiencyPricingResolver(t))
+	if err != nil {
+		t.Fatalf("BuildCodexQuotaEfficiencyHistory returned error: %v", err)
+	}
+	if result.SelectedWindow == nil || result.SelectedWindow.WindowSeconds != int64((7*24*time.Hour)/time.Second) || !result.SelectedWindow.HasCurrentCycle {
+		t.Fatalf("expected restored Weekly window selection, got %+v", result.SelectedWindow)
+	}
+	if len(result.Cycles) != 1 || result.Cycles[0].ID != weekly.ID || result.Cycles[0].Status != "current" {
+		t.Fatalf("expected reused Weekly current and intermediate 5h %d hidden, got %+v", fiveHour.ID, result.Cycles)
+	}
+}
+
 func TestBuildCodexQuotaEfficiencyHistoryClassifiesSingleWindowKindsByDuration(t *testing.T) {
 	tests := []struct {
 		name       string

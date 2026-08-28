@@ -910,8 +910,8 @@ func TestCodexQuotaHistoryQueueFullDoesNotBlockOrDiscardCacheSnapshot(t *testing
 	}
 }
 
-func TestCodexQuotaHistoryQueueFullDoesNotReplaceNewerSnapshotWithStaleArrival(t *testing.T) {
-	// Header 可能因 inbox 重试乱序到达；容量满时必须比较 ObservedAt，不能仅凭到达顺序覆盖较新事实。
+func TestCodexQuotaHistoryQueueFullKeepsLatestArrival(t *testing.T) {
+	// history 队列满时只丢队头并保留后到数据；真实观察时间排序留给 runner 批次处理。
 	db := openQuotaTestDatabase(t)
 	seedUsageIdentity(t, db, codexHistoryUsageIdentity("queue-stale-auth"))
 	service := NewServiceWithRegistryAndOptions(db, NewProviderRegistry(nil), ServiceOptions{
@@ -935,8 +935,8 @@ func TestCodexQuotaHistoryQueueFullDoesNotReplaceNewerSnapshotWithStaleArrival(t
 		t.Fatalf("expected one stale-order history cycle, got %+v", cycles)
 	}
 	segments := loadCodexQuotaSegments(t, db, cycles[0].ID)
-	if len(segments) != 1 || segments[0].RemainingPercent != 89 {
-		t.Fatalf("expected stale arrival to leave the newer 89 snapshot queued, got %+v", segments)
+	if len(segments) != 1 || segments[0].RemainingPercent != 90 {
+		t.Fatalf("expected later arrival to replace the full queue head, got %+v", segments)
 	}
 }
 
@@ -1094,6 +1094,164 @@ func TestCodexQuotaHistoryRunnerUsesDefaultWindowWithoutCountBasedEarlyFlush(t *
 	segments := loadCodexQuotaSegments(t, db, cycles[0].ID)
 	if len(segments) != 1 || segments[0].RemainingPercent != 90 || segments[0].ObservationCount != 257 {
 		t.Fatalf("expected one post-window segment containing all 257 observations, got %+v", segments)
+	}
+}
+
+func TestCodexQuotaHistoryRunnerMaterializesBothHeaderWindowsWhenOneChanges(t *testing.T) {
+	db := openQuotaTestDatabase(t)
+	seedUsageIdentity(t, db, codexHistoryUsageIdentity("paired-window-auth"))
+	timers := make(chan usageHeaderManualTimer, 4)
+	service := NewServiceWithRegistryAndOptions(db, NewProviderRegistry(nil), ServiceOptions{
+		UsageHeaderSnapshotFlushInterval:   time.Hour,
+		CodexQuotaHistoryFlushInterval:     time.Hour,
+		CodexQuotaHistoryHeartbeatInterval: time.Hour,
+		PricingCatalog:                     emptyPricingCatalogForTest(),
+	})
+	defer service.StopRefreshTasks()
+	setCodexQuotaHistoryTimerFactory(service, func(delay time.Duration) (<-chan time.Time, func()) {
+		timer := usageHeaderManualTimer{delay: delay, fire: make(chan time.Time, 1)}
+		timers <- timer
+		return timer.fire, func() {}
+	})
+	writes := make(chan []repositorydto.CodexMainQuotaObservation, 2)
+	setCodexQuotaHistoryWriter(service, func(ctx context.Context, writerDB *gorm.DB, observations []repositorydto.CodexMainQuotaObservation) error {
+		err := repository.WriteCodexMainQuotaObservations(ctx, writerDB, observations)
+		writes <- append([]repositorydto.CodexMainQuotaObservation(nil), observations...)
+		return err
+	})
+
+	base := time.Date(2026, 8, 27, 8, 0, 0, 0, time.UTC)
+	primaryResetAt := base.Add(5 * time.Hour)
+	secondaryResetAt := base.Add(7 * 24 * time.Hour)
+	first := codexHistoryMainWindowsSnapshot("paired-window-auth", base, 90, primaryResetAt, 80, secondaryResetAt)
+	if !service.TryAppendUsageHeaderSnapshots(usageHeaderSnapshotPointers(first)) {
+		t.Fatal("expected first paired-window Header to enter history")
+	}
+	waitForCodexQuotaHistoryManualTimer(t, timers).fire <- time.Now()
+	select {
+	case observations := <-writes:
+		if len(observations) != 2 {
+			t.Fatalf("expected both initial Header windows to materialize, got %+v", observations)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("expected initial paired-window history write")
+	}
+
+	// Primary 下降而 Secondary 同值时，二者仍代表同一份 Header，必须使用同一观察时刻一起物化。
+	secondObservedAt := base.Add(time.Minute)
+	second := codexHistoryMainWindowsSnapshot("paired-window-auth", secondObservedAt, 89, primaryResetAt, 80, secondaryResetAt)
+	if !service.TryAppendUsageHeaderSnapshots(usageHeaderSnapshotPointers(second)) {
+		t.Fatal("expected changed paired-window Header to enter history")
+	}
+	waitForCodexQuotaHistoryManualTimer(t, timers).fire <- time.Now()
+	select {
+	case observations := <-writes:
+		if len(observations) != 2 {
+			t.Fatalf("expected changed Primary and stable Secondary in one write, got %+v", observations)
+		}
+		byRole := make(map[string]repositorydto.CodexMainQuotaObservation, len(observations))
+		for _, observation := range observations {
+			byRole[observation.WindowRole] = observation
+		}
+		for role, remainingPercent := range map[string]int{"primary": 89, "secondary": 80} {
+			observation, ok := byRole[role]
+			if !ok || observation.RemainingPercent != remainingPercent || !observation.LastObservedAt.Equal(secondObservedAt) {
+				t.Fatalf("unexpected synchronized %s observation: %+v", role, observation)
+			}
+		}
+	case <-time.After(time.Second):
+		t.Fatal("expected synchronized paired-window history write")
+	}
+}
+
+func TestCodexQuotaHistoryRunnerMaterializesStablePercentOnNextHeaderAfterHeartbeat(t *testing.T) {
+	db := openQuotaTestDatabase(t)
+	seedUsageIdentity(t, db, codexHistoryUsageIdentity("heartbeat-auth"))
+	timers := make(chan usageHeaderManualTimer, 6)
+	service := NewServiceWithRegistryAndOptions(db, NewProviderRegistry(nil), ServiceOptions{
+		UsageHeaderSnapshotFlushInterval:   time.Hour,
+		CodexQuotaHistoryFlushInterval:     time.Hour,
+		CodexQuotaHistoryHeartbeatInterval: 40 * time.Millisecond,
+		PricingCatalog:                     emptyPricingCatalogForTest(),
+	})
+	defer service.StopRefreshTasks()
+	setCodexQuotaHistoryTimerFactory(service, func(delay time.Duration) (<-chan time.Time, func()) {
+		timer := usageHeaderManualTimer{delay: delay, fire: make(chan time.Time, 1)}
+		timers <- timer
+		return timer.fire, func() {}
+	})
+	writes := make(chan []repositorydto.CodexMainQuotaObservation, 3)
+	setCodexQuotaHistoryWriter(service, func(ctx context.Context, writerDB *gorm.DB, observations []repositorydto.CodexMainQuotaObservation) error {
+		err := repository.WriteCodexMainQuotaObservations(ctx, writerDB, observations)
+		writes <- append([]repositorydto.CodexMainQuotaObservation(nil), observations...)
+		return err
+	})
+
+	base := time.Date(2026, 8, 27, 8, 0, 0, 0, time.UTC)
+	resetAt := base.Add(7 * 24 * time.Hour)
+	first := codexHistoryPrimarySnapshot("heartbeat-auth", base, 90, resetAt)
+	if !service.TryAppendUsageHeaderSnapshots(usageHeaderSnapshotPointers(first)) {
+		t.Fatal("expected first heartbeat observation to enter history")
+	}
+	firstWindow := waitForCodexQuotaHistoryManualTimer(t, timers)
+	firstWindow.fire <- time.Now()
+	select {
+	case observations := <-writes:
+		if len(observations) != 1 || observations[0].ObservationCount != 1 {
+			t.Fatalf("unexpected first materialization: %+v", observations)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("expected first semantic state to materialize")
+	}
+
+	// 同百分比的高频 Header 先只在内存合并，当前一分钟批次不能产生数据库写入。
+	repeated := make([]UsageHeaderSnapshot, 0, 2)
+	for index := range 2 {
+		repeated = append(repeated, codexHistoryPrimarySnapshot("heartbeat-auth", base.Add(time.Duration(index+1)*time.Second), 90, resetAt))
+	}
+	if !service.TryAppendUsageHeaderSnapshots(usageHeaderSnapshotPointers(repeated...)) {
+		t.Fatal("expected stable heartbeat observations to enter history")
+	}
+	stableWindow := waitForCodexQuotaHistoryManualTimer(t, timers)
+	stableWindow.fire <- time.Now()
+	deadline := time.Now().Add(time.Second)
+	for codexQuotaHistoryHeaderQueueLength(service) != 0 && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	if queueLength := codexQuotaHistoryHeaderQueueLength(service); queueLength != 0 {
+		t.Fatalf("expected stable batch to leave the Header queue, got %d", queueLength)
+	}
+	select {
+	case observations := <-writes:
+		t.Fatalf("expected no stable write before heartbeat, got %+v", observations)
+	case <-time.After(20 * time.Millisecond):
+	}
+	select {
+	case timer := <-timers:
+		t.Fatalf("expected no dedicated heartbeat timer, got %s", timer.delay)
+	case <-time.After(20 * time.Millisecond):
+	}
+
+	// 到达五分钟心跳后不创建独立轮询；下一份 Header 唤醒时把累计尾段一次物化。
+	time.Sleep(50 * time.Millisecond)
+	final := codexHistoryPrimarySnapshot("heartbeat-auth", base.Add(3*time.Second), 90, resetAt)
+	if !service.TryAppendUsageHeaderSnapshots(usageHeaderSnapshotPointers(final)) {
+		t.Fatal("expected post-heartbeat observation to enter history")
+	}
+	nextWindow := waitForCodexQuotaHistoryManualTimer(t, timers)
+	nextWindow.fire <- time.Now()
+	select {
+	case observations := <-writes:
+		if len(observations) != 1 || observations[0].ObservationCount != 3 {
+			t.Fatalf("expected one accumulated stable heartbeat, got %+v", observations)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("expected accumulated heartbeat write")
+	}
+	cycles := loadCodexQuotaCycles(t, db, "heartbeat-auth")
+	segments := loadCodexQuotaSegments(t, db, cycles[0].ID)
+	if len(segments) != 1 || segments[0].ObservationCount != 4 {
+		t.Fatalf("expected persisted heartbeat count 4, got %+v", segments)
 	}
 }
 
@@ -1341,6 +1499,17 @@ func codexHistoryPrimarySnapshot(authIndex string, observedAt time.Time, remaini
 	})
 }
 
+func codexHistoryMainWindowsSnapshot(authIndex string, observedAt time.Time, primaryRemainingPercent int, primaryResetAt time.Time, secondaryRemainingPercent int, secondaryResetAt time.Time) UsageHeaderSnapshot {
+	return codexUsageHeaderSnapshotWithHeaders(authIndex, observedAt, http.Header{
+		"X-Codex-Primary-Used-Percent":     []string{strconv.Itoa(100 - primaryRemainingPercent)},
+		"X-Codex-Primary-Window-Minutes":   []string{"300"},
+		"X-Codex-Primary-Reset-At":         []string{strconv.FormatInt(primaryResetAt.Unix(), 10)},
+		"X-Codex-Secondary-Used-Percent":   []string{strconv.Itoa(100 - secondaryRemainingPercent)},
+		"X-Codex-Secondary-Window-Minutes": []string{"10080"},
+		"X-Codex-Secondary-Reset-At":       []string{strconv.FormatInt(secondaryResetAt.Unix(), 10)},
+	})
+}
+
 func codexHistoryUsageWindow(usedPercent float64, windowSeconds int64, resetAt time.Time) *CodexUsageWindow {
 	// 主动查询必须通过 presence 标记区分明确零值和字段缺失。
 	return &CodexUsageWindow{
@@ -1396,6 +1565,22 @@ func waitForCodexQuotaCycleCount(t *testing.T, db *gorm.DB, expected int64) {
 		time.Sleep(10 * time.Millisecond)
 	}
 	t.Fatalf("expected %d Codex quota cycles before deadline", expected)
+}
+
+func waitForCodexQuotaSegmentCount(t *testing.T, db *gorm.DB, cycleID int64, expected int64) {
+	t.Helper()
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		var count int64
+		if err := db.Model(&entities.QuotaPercentSegment{}).Where("cycle_id = ?", cycleID).Count(&count).Error; err != nil {
+			t.Fatalf("count Codex quota percent segments: %v", err)
+		}
+		if count == expected {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("expected %d Codex quota percent segments before deadline", expected)
 }
 
 type blockingCodexHistoryProviderHandler struct {

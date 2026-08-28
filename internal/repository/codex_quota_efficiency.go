@@ -141,7 +141,11 @@ func BuildCodexQuotaEfficiencyHistory(ctx context.Context, db *gorm.DB, query re
 	if len(selectedCycles) == 0 {
 		return result, nil
 	}
-	periods := buildCodexQuotaEfficiencyCyclePeriods(selectedCycles, selected.HasCurrentCycle, query.Now)
+	currentCycleID := int64(0)
+	if selected.HasCurrentCycle {
+		currentCycleID = latestCodexQuotaEfficiencyCycleID(selectedCycles)
+	}
+	periods := buildCodexQuotaEfficiencyCyclePeriods(selectedCycles, currentCycleID, query.Now)
 
 	// 所有子段用一次 IN 查询读出；每周期最多 101 个整数桶，不允许对父周期逐条 Preload。
 	var segments []entities.QuotaPercentSegment
@@ -334,12 +338,23 @@ func selectCodexQuotaEfficiencyWindow(windows []repositorydto.CodexQuotaEfficien
 	return selected
 }
 
-func buildCodexQuotaEfficiencyCyclePeriods(cycles []entities.QuotaCycle, roleHasCurrentCycle bool, now time.Time) map[int64]codexQuotaEfficiencyCyclePeriod {
-	// 观察顺序表达角色真实演进；复制后排序，避免扰动调用方用于历史倒序展示的父周期切片。
+// latestCodexQuotaEfficiencyCycleID 与窗口标题共享 LastObservedAt 口径，返回该角色最近被确认的父周期。
+func latestCodexQuotaEfficiencyCycleID(cycles []entities.QuotaCycle) int64 {
+	var latest entities.QuotaCycle
+	for _, cycle := range cycles {
+		if latest.ID == 0 || cycle.LastObservedAt.After(latest.LastObservedAt) || (cycle.LastObservedAt.Equal(latest.LastObservedAt) && cycle.ID > latest.ID) {
+			latest = cycle
+		}
+	}
+	return latest.ID
+}
+
+func buildCodexQuotaEfficiencyCyclePeriods(cycles []entities.QuotaCycle, currentCycleID int64, now time.Time) map[int64]codexQuotaEfficiencyCyclePeriod {
+	// 最近观察顺序表达角色当前演进；复用旧父行后它必须排到中间错误周期之后。
 	ordered := append([]entities.QuotaCycle(nil), cycles...)
 	sort.SliceStable(ordered, func(left, right int) bool {
-		if !ordered[left].FirstObservedAt.Equal(ordered[right].FirstObservedAt) {
-			return ordered[left].FirstObservedAt.Before(ordered[right].FirstObservedAt)
+		if !ordered[left].LastObservedAt.Equal(ordered[right].LastObservedAt) {
+			return ordered[left].LastObservedAt.Before(ordered[right].LastObservedAt)
 		}
 		return ordered[left].ID < ordered[right].ID
 	})
@@ -360,10 +375,15 @@ func buildCodexQuotaEfficiencyCyclePeriods(cycles []entities.QuotaCycle, roleHas
 	if len(ordered) == 0 {
 		return periods
 	}
-	latestCycle := ordered[len(ordered)-1]
-	latestPeriod := periods[latestCycle.ID]
-	latestPeriod.current = roleHasCurrentCycle && !now.Before(latestPeriod.start) && now.Before(latestPeriod.end)
-	periods[latestCycle.ID] = latestPeriod
+	if currentCycleID == 0 {
+		return periods
+	}
+	currentPeriod, found := periods[currentCycleID]
+	if !found {
+		return periods
+	}
+	currentPeriod.current = !now.Before(currentPeriod.start) && now.Before(currentPeriod.end)
+	periods[currentCycleID] = currentPeriod
 	return periods
 }
 
