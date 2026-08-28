@@ -68,7 +68,7 @@ type Service struct {
 	// refreshWG 跟踪 service 派生的 dispatcher/worker/scheduler goroutine，App 关闭 DB 前会等待它们退出。
 	refreshWG sync.WaitGroup
 
-	// usageHeaderPending 按 auth_index 只保存一分钟窗口内最新的不可变快照指针。
+	// usageHeaderPending 按 auth_index 保存一分钟内合并后的不可变 cache 快照；history 使用独立队列。
 	usageHeaderPending       map[string]*UsageHeaderSnapshot
 	usageHeaderWake          chan struct{}
 	usageHeaderStopCh        chan struct{}

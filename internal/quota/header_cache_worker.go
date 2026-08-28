@@ -34,7 +34,7 @@ func (s *Service) TryAppendUsageHeaderSnapshots(snapshots []*UsageHeaderSnapshot
 	if s == nil || len(snapshots) == 0 {
 		return true
 	}
-	// 快照在 BuildUsageHeaderSnapshot 发布后完全不可变；这里只复制指针，不再深拷贝 Header/map/slice。
+	// 输入快照在 BuildUsageHeaderSnapshot 发布后不可修改；同身份合并可以创建新的派生快照，但不会改写输入对象。
 	// usageHeaderMu 同时保护关闭标记和有界 latest map，避免 Stop 与 Append 并发竞态。
 	s.usageHeaderMu.Lock()
 	if s.usageHeaderClosing {
@@ -44,7 +44,7 @@ func (s *Service) TryAppendUsageHeaderSnapshots(snapshots []*UsageHeaderSnapshot
 	if s.usageHeaderPending == nil {
 		s.usageHeaderPending = make(map[string]*UsageHeaderSnapshot, usageHeaderPendingIdentityLimit)
 	}
-	// 同身份直接覆盖最新值；不同身份总量由同一个 map 的 1000 上限统一约束。
+	// 同身份合并一分钟内最新的 cache 事实；不同身份总量由同一个 map 的 1000 上限统一约束。
 	mergePendingUsageHeaderSnapshotPointers(s.usageHeaderPending, snapshots)
 	hasPending := len(s.usageHeaderPending) > 0
 	s.usageHeaderMu.Unlock()
@@ -145,10 +145,11 @@ func mergePendingUsageHeaderSnapshotPointers(pending map[string]*UsageHeaderSnap
 		if authIndex == "" {
 			authIndex = snapshot.Provider + "\x00" + snapshot.AuthType
 		}
-		// 已有身份只允许观察时间相同或更新的快照覆盖，迟到数据不能回滚 cache。
+		// 已有身份只允许观察时间相同或更新的快照更新，迟到数据不能回滚 cache。
 		if existing, exists := pending[authIndex]; exists {
 			if usageHeaderSnapshotIsNewer(snapshot, existing) {
-				pending[authIndex] = snapshot
+				// 一分钟内主额度和 Additional 可能来自不同 Header；只合并 cache 投影，不合并 history observation。
+				pending[authIndex] = mergePendingUsageHeaderCacheSnapshot(existing, snapshot)
 			}
 			continue
 		}
@@ -174,6 +175,64 @@ func mergePendingUsageHeaderSnapshotPointers(pending map[string]*UsageHeaderSnap
 			"pending_identity_limit":  usageHeaderPendingIdentityLimit,
 		}).Warn("usage header quota pending identity limit reached")
 	}
+}
+
+// mergePendingUsageHeaderCacheSnapshot 把同一账号一分钟内观察到的主额度和 Additional 收敛成一份 cache 快照。
+func mergePendingUsageHeaderCacheSnapshot(existing *UsageHeaderSnapshot, latest *UsageHeaderSnapshot) *UsageHeaderSnapshot {
+	if existing == nil || latest == nil {
+		return latest
+	}
+	existingUsage := codexUsagePayloadFromProviderOutput(existing.CacheOutput)
+	latestUsage := codexUsagePayloadFromProviderOutput(latest.CacheOutput)
+	if existingUsage == nil || latestUsage == nil {
+		// Header snapshot 当前只有 Codex；未来其它 provider 没有明确合并合同时仍保持 latest 语义。
+		return latest
+	}
+
+	// 以新快照为基底，ObservedAt、身份和 history observation 都保持最新 Header 的原值。
+	mergedSnapshot := *latest
+	mergedUsage := *latestUsage
+	if strings.TrimSpace(mergedUsage.PlanType) == "" {
+		// 新 Header 未返回套餐时，保留本分钟已观察到的套餐。
+		mergedUsage.PlanType = existingUsage.PlanType
+	}
+	if mergedUsage.RateLimit == nil {
+		// Active-Limit 命中 Additional 时新快照不含主额度，不能删掉本分钟更早的主 Primary/Secondary。
+		mergedUsage.RateLimit = existingUsage.RateLimit
+	}
+	// Additional 按 quota key 所使用的 LimitName 合并：同名 group 用新值，未出现的 group 保留旧值。
+	mergedUsage.AdditionalRateLimits = mergePendingCodexAdditionalRateLimits(existingUsage.AdditionalRateLimits, latestUsage.AdditionalRateLimits)
+	mergedSnapshot.CacheOutput = ProviderOutput{
+		Provider: latest.CacheOutput.Provider,
+		Result:   CodexResult{Usage: &mergedUsage},
+	}
+	return &mergedSnapshot
+}
+
+func mergePendingCodexAdditionalRateLimits(existing []CodexAdditionalRateLimit, latest []CodexAdditionalRateLimit) []CodexAdditionalRateLimit {
+	if len(existing) == 0 {
+		return latest
+	}
+	if len(latest) == 0 {
+		return existing
+	}
+
+	// 沿用旧 cache 的稳定顺序；同名 group 原位替换，本分钟新出现的 group 追加到末尾。
+	merged := append([]CodexAdditionalRateLimit(nil), existing...)
+	for _, candidate := range latest {
+		replaced := false
+		for index := range merged {
+			if merged[index].LimitName == candidate.LimitName {
+				merged[index] = candidate
+				replaced = true
+				break
+			}
+		}
+		if !replaced {
+			merged = append(merged, candidate)
+		}
+	}
+	return merged
 }
 
 // oldestPendingUsageHeaderSnapshot 返回当前 map 中观察时间最旧的一项；相同时间按 key 稳定选择。

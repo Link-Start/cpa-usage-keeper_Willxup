@@ -39,7 +39,7 @@ type UsageHeaderSnapshot struct {
 }
 
 type UsageHeaderSnapshotAppender interface {
-	// TryAppendUsageHeaderSnapshots 接收不可变快照指针；实现只能复制指针，不能修改嵌套对象。
+	// TryAppendUsageHeaderSnapshots 接收不可变快照；实现可以保留指针或创建派生快照，但不能修改输入及其嵌套对象。
 	TryAppendUsageHeaderSnapshots([]*UsageHeaderSnapshot) bool
 }
 

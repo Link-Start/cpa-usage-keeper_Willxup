@@ -28,9 +28,9 @@ type codexDecodedHeaderQuota struct {
 	PlanType string
 	// ActiveLimit 是 X-Codex-Active-Limit，用于判断无 group 窗口是否只是 Additional 的兼容投影。
 	ActiveLimit string
-	// PrimaryWindow 是无 group 主额度 Primary，允许 cache 未知的正窗口秒数。
+	// PrimaryWindow 是无 group Primary；Active-Limit 命中 Additional 时，它可能是兼容投影。
 	PrimaryWindow *CodexUsageWindow
-	// SecondaryWindow 是无 group 主额度 Secondary，允许 cache 未知的正窗口秒数。
+	// SecondaryWindow 是无 group Secondary；归属规则与 PrimaryWindow 相同。
 	SecondaryWindow *CodexUsageWindow
 	// Additional 同时服务 cache 投影和 Active-Limit 归属判断，但它的窗口不会进入主额度历史。
 	Additional []codexDecodedHeaderAdditional
@@ -77,14 +77,25 @@ func (decoded codexDecodedHeaderQuota) mainQuotaHistoryAllowed() bool {
 		// 非空却无法形成有效别名时，宁可留下采样缺口，也不能污染主额度历史。
 		return false
 	}
-	for _, additional := range decoded.Additional {
-		// Active-Limit 命中任一 Additional group，说明无 group 窗口只是当前附加额度的兼容投影。
-		if activeAlias == normalizeCodexLimitAlias(additional.Group) {
-			return false
-		}
+	if decoded.activeLimitMatchesAdditionalGroup(activeAlias) {
+		// Active-Limit 命中 Additional group，无 group 窗口不属于主额度。
+		return false
 	}
 	// 生产普通主额度明确返回 premium；其它未知非空值宁可留下采样缺口，也不能污染主周期。
 	return activeAlias == "premium"
+}
+
+// activeLimitMatchesAdditionalGroup 只匹配本次 Header 已解码的 group，用于识别 Additional 兼容投影。
+func (decoded codexDecodedHeaderQuota) activeLimitMatchesAdditionalGroup(activeAlias string) bool {
+	if activeAlias == "" {
+		return false
+	}
+	for _, additional := range decoded.Additional {
+		if activeAlias == normalizeCodexLimitAlias(additional.Group) {
+			return true
+		}
+	}
+	return false
 }
 
 // normalizeCodexLimitAlias 把 Bengalfox 与 codex_bengalfox 收敛成同一别名，仅用于本次解码匹配。
@@ -108,9 +119,13 @@ func normalizeCodexLimitAlias(value string) string {
 }
 
 func (decoded codexDecodedHeaderQuota) cacheOutput() (ProviderOutput, bool) {
-	// cache 主额度继续只接受既有已知窗口和非负 used percent，不因 history 放宽协议范围。
 	usage := &CodexUsagePayload{PlanType: decoded.PlanType}
-	usage.RateLimit = codexDecodedCacheRateLimit(decoded.PrimaryWindow, decoded.SecondaryWindow)
+	activeAlias := normalizeCodexLimitAlias(decoded.ActiveLimit)
+	// Active-Limit 命中 Additional 时，无 group 窗口是同一额度的兼容投影，由下方 Additional 行唯一输出。
+	if !decoded.activeLimitMatchesAdditionalGroup(activeAlias) {
+		// 普通、缺失或未知 Active-Limit 仍沿用原 cache 合同，只过滤未支持窗口和负 used percent。
+		usage.RateLimit = codexDecodedCacheRateLimit(decoded.PrimaryWindow, decoded.SecondaryWindow)
+	}
 	// Additional group 按已排序解码顺序投影，保持既有 quota row 稳定顺序。
 	for _, additional := range decoded.Additional {
 		rateLimit := codexDecodedCacheRateLimit(additional.PrimaryWindow, additional.SecondaryWindow)

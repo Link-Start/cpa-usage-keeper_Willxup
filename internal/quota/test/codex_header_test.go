@@ -128,17 +128,24 @@ func TestBuildCodexUsageHeaderSnapshotCreatesImmutableCacheAndHistoryProjections
 }
 
 func TestBuildCodexUsageHeaderSnapshotSkipsAdditionalActiveLimitHistory(t *testing.T) {
-	// 生产 Spark 响应会把当前 Additional 额度投影到无 group Primary；cache 仍需保留，但主历史必须拒绝。
+	// 生产 Spark 响应会把当前 Additional 额度重复投影到无 group Primary。
+	// cache 只保留带 group 的 Spark 行，主历史也不接受这份投影。
 	observedAt := time.Date(2026, 8, 27, 14, 5, 0, 0, time.Local)
 	headers := http.Header{
-		"x-codex-active-limit":                          []string{"codex_bengalfox"},
-		"X-Codex-Primary-Used-Percent":                  []string{"4"},
-		"X-Codex-Primary-Window-Minutes":                []string{"300"},
-		"X-Codex-Primary-Reset-After-Seconds":           []string{"7200"},
-		"X-Codex-Bengalfox-Limit-Name":                  []string{"GPT-5.3-Codex-Spark"},
-		"X-Codex-Bengalfox-Primary-Used-Percent":        []string{"4"},
-		"X-Codex-Bengalfox-Primary-Window-Minutes":      []string{"300"},
-		"X-Codex-Bengalfox-Primary-Reset-After-Seconds": []string{"7200"},
+		"x-codex-active-limit":                            []string{"codex_bengalfox"},
+		"X-Codex-Primary-Used-Percent":                    []string{"4"},
+		"X-Codex-Primary-Window-Minutes":                  []string{"300"},
+		"X-Codex-Primary-Reset-After-Seconds":             []string{"7200"},
+		"X-Codex-Secondary-Used-Percent":                  []string{"6"},
+		"X-Codex-Secondary-Window-Minutes":                []string{"10080"},
+		"X-Codex-Secondary-Reset-After-Seconds":           []string{"3600"},
+		"X-Codex-Bengalfox-Limit-Name":                    []string{"GPT-5.3-Codex-Spark"},
+		"X-Codex-Bengalfox-Primary-Used-Percent":          []string{"4"},
+		"X-Codex-Bengalfox-Primary-Window-Minutes":        []string{"300"},
+		"X-Codex-Bengalfox-Primary-Reset-After-Seconds":   []string{"7200"},
+		"X-Codex-Bengalfox-Secondary-Used-Percent":        []string{"6"},
+		"X-Codex-Bengalfox-Secondary-Window-Minutes":      []string{"10080"},
+		"X-Codex-Bengalfox-Secondary-Reset-After-Seconds": []string{"3600"},
 	}
 	snapshot, ok := BuildUsageHeaderSnapshot(UsageHeaderSnapshotInput{
 		AuthType: "oauth", AuthIndex: "spark-auth", Provider: "codex",
@@ -148,7 +155,7 @@ func TestBuildCodexUsageHeaderSnapshotSkipsAdditionalActiveLimitHistory(t *testi
 		t.Fatal("expected Spark header to keep its cache snapshot")
 	}
 	rows := NormalizeQuotaRows(snapshot.CacheOutput)
-	if len(rows) != 2 || rows[0].Key != "rate_limit.primary_window" || rows[1].Key != "additional_rate_limits.GPT-5.3-Codex-Spark.primary_window" {
+	if len(rows) != 2 || rows[0].Key != "additional_rate_limits.GPT-5.3-Codex-Spark.primary_window" || rows[1].Key != "additional_rate_limits.GPT-5.3-Codex-Spark.secondary_window" {
 		t.Fatalf("unexpected Spark cache rows: %#v", rows)
 	}
 	if len(snapshot.MainQuotaObservations) != 0 {

@@ -579,6 +579,76 @@ func TestApplyUsageHeaderSnapshotMergesRowsAndPreservesResetCredits(t *testing.T
 	}
 }
 
+func TestUsageHeaderPendingKeepsMainWeeklySeparateFromActiveSpark(t *testing.T) {
+	db := openQuotaTestDatabase(t)
+	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "codex-auth", Provider: "codex", Type: "codex", AuthType: entities.UsageIdentityAuthTypeAuthFile})
+	service := NewServiceWithRegistryAndOptions(db, NewProviderRegistry(nil), ServiceOptions{
+		UsageHeaderSnapshotFlushInterval: time.Hour,
+		CodexQuotaHistoryFlushInterval:   time.Hour,
+		PricingCatalog:                   emptyPricingCatalogForTest(),
+	})
+	defer service.StopRefreshTasks()
+
+	base := time.Date(2026, 8, 27, 14, 0, 0, 0, time.Local)
+	mainResetAt := strconv.FormatInt(time.Date(2026, 9, 1, 22, 28, 0, 0, time.Local).Unix(), 10)
+	sparkPrimaryResetAt := strconv.FormatInt(time.Date(2026, 8, 27, 19, 7, 0, 0, time.Local).Unix(), 10)
+	sparkSecondaryResetAt := strconv.FormatInt(time.Date(2026, 9, 1, 15, 1, 0, 0, time.Local).Unix(), 10)
+	mainHeaders := http.Header{
+		"X-Codex-Primary-Used-Percent":   []string{"8"},
+		"X-Codex-Primary-Window-Minutes": []string{"10080"},
+		"X-Codex-Primary-Reset-At":       []string{mainResetAt},
+	}
+	sparkHeaders := http.Header{
+		"X-Codex-Active-Limit":                       []string{"codex_bengalfox"},
+		"X-Codex-Primary-Used-Percent":               []string{"1"},
+		"X-Codex-Primary-Window-Minutes":             []string{"300"},
+		"X-Codex-Primary-Reset-At":                   []string{sparkPrimaryResetAt},
+		"X-Codex-Secondary-Used-Percent":             []string{"1"},
+		"X-Codex-Secondary-Window-Minutes":           []string{"10080"},
+		"X-Codex-Secondary-Reset-At":                 []string{sparkSecondaryResetAt},
+		"X-Codex-Bengalfox-Limit-Name":               []string{"GPT-5.3-Codex-Spark"},
+		"X-Codex-Bengalfox-Primary-Used-Percent":     []string{"1"},
+		"X-Codex-Bengalfox-Primary-Window-Minutes":   []string{"300"},
+		"X-Codex-Bengalfox-Primary-Reset-At":         []string{sparkPrimaryResetAt},
+		"X-Codex-Bengalfox-Secondary-Used-Percent":   []string{"1"},
+		"X-Codex-Bengalfox-Secondary-Window-Minutes": []string{"10080"},
+		"X-Codex-Bengalfox-Secondary-Reset-At":       []string{sparkSecondaryResetAt},
+	}
+	// 复现生产一分钟窗口：先收到主 Weekly，最后一份是只输出 Additional 的 Spark Header。
+	mainSnapshot := codexUsageHeaderSnapshotWithHeaders("codex-auth", base, mainHeaders)
+	sparkSnapshot := codexUsageHeaderSnapshotWithHeaders("codex-auth", base.Add(59*time.Second), sparkHeaders)
+	if !service.TryAppendUsageHeaderSnapshots(usageHeaderSnapshotPointers(mainSnapshot, sparkSnapshot)) {
+		t.Fatal("expected production Header pending path to accept snapshots")
+	}
+	// Stop 会立即 flush 已接收的 pending，测试无需真实等待一分钟。
+	service.StopRefreshTasks()
+
+	task := refreshTaskRecord(service, "codex-auth")
+	if task == nil || task.Quota == nil {
+		t.Fatalf("expected completed quota cache, got %+v", task)
+	}
+	wantKeys := []string{
+		"rate_limit.primary_window",
+		"additional_rate_limits.GPT-5.3-Codex-Spark.primary_window",
+		"additional_rate_limits.GPT-5.3-Codex-Spark.secondary_window",
+	}
+	if len(task.Quota.Quota) != len(wantKeys) {
+		t.Fatalf("expected main Weekly and two Spark rows, got %#v", task.Quota.Quota)
+	}
+	for index, key := range wantKeys {
+		if task.Quota.Quota[index].Key != key {
+			t.Fatalf("unexpected quota row order: %#v", task.Quota.Quota)
+		}
+	}
+	wantPercents := []float64{8, 1, 1}
+	for index, wantPercent := range wantPercents {
+		row := task.Quota.Quota[index]
+		if row.UsedPercent == nil || *row.UsedPercent != wantPercent {
+			t.Fatalf("expected %s used percent %.0f, got %#v", row.Key, wantPercent, row)
+		}
+	}
+}
+
 func TestApplyUsageHeaderSnapshotDoesNotBackfillAdditionalLimitUsageStats(t *testing.T) {
 	db := openQuotaTestDatabase(t)
 	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "codex-auth", Provider: "codex", Type: "codex", AuthType: entities.UsageIdentityAuthTypeAuthFile})
