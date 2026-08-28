@@ -1165,13 +1165,15 @@ func TestCodexQuotaHistoryRunnerMaterializesBothHeaderWindowsWhenOneChanges(t *t
 }
 
 func TestCodexQuotaHistoryRunnerMaterializesStablePercentOnNextHeaderAfterHeartbeat(t *testing.T) {
+	const heartbeatInterval = 500 * time.Millisecond
+
 	db := openQuotaTestDatabase(t)
 	seedUsageIdentity(t, db, codexHistoryUsageIdentity("heartbeat-auth"))
 	timers := make(chan usageHeaderManualTimer, 6)
 	service := NewServiceWithRegistryAndOptions(db, NewProviderRegistry(nil), ServiceOptions{
 		UsageHeaderSnapshotFlushInterval:   time.Hour,
 		CodexQuotaHistoryFlushInterval:     time.Hour,
-		CodexQuotaHistoryHeartbeatInterval: 40 * time.Millisecond,
+		CodexQuotaHistoryHeartbeatInterval: heartbeatInterval,
 		PricingCatalog:                     emptyPricingCatalogForTest(),
 	})
 	defer service.StopRefreshTasks()
@@ -1233,7 +1235,8 @@ func TestCodexQuotaHistoryRunnerMaterializesStablePercentOnNextHeaderAfterHeartb
 	}
 
 	// 到达五分钟心跳后不创建独立轮询；下一份 Header 唤醒时把累计尾段一次物化。
-	time.Sleep(50 * time.Millisecond)
+	// 额外 50ms 只用于跨过测试 heartbeat 边界，500ms 主间隔为 CI 的 SQLite 和调度抖动留出余量。
+	time.Sleep(heartbeatInterval + 50*time.Millisecond)
 	final := codexHistoryPrimarySnapshot("heartbeat-auth", base.Add(3*time.Second), 90, resetAt)
 	if !service.TryAppendUsageHeaderSnapshots(usageHeaderSnapshotPointers(final)) {
 		t.Fatal("expected post-heartbeat observation to enter history")
@@ -1565,22 +1568,6 @@ func waitForCodexQuotaCycleCount(t *testing.T, db *gorm.DB, expected int64) {
 		time.Sleep(10 * time.Millisecond)
 	}
 	t.Fatalf("expected %d Codex quota cycles before deadline", expected)
-}
-
-func waitForCodexQuotaSegmentCount(t *testing.T, db *gorm.DB, cycleID int64, expected int64) {
-	t.Helper()
-	deadline := time.Now().Add(time.Second)
-	for time.Now().Before(deadline) {
-		var count int64
-		if err := db.Model(&entities.QuotaPercentSegment{}).Where("cycle_id = ?", cycleID).Count(&count).Error; err != nil {
-			t.Fatalf("count Codex quota percent segments: %v", err)
-		}
-		if count == expected {
-			return
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-	t.Fatalf("expected %d Codex quota percent segments before deadline", expected)
 }
 
 type blockingCodexHistoryProviderHandler struct {
