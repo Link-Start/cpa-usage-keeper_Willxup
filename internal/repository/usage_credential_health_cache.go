@@ -2,6 +2,7 @@ package repository
 
 import (
 	"fmt"
+	"math"
 	"time"
 
 	"cpa-usage-keeper/internal/entities"
@@ -168,8 +169,8 @@ func (c *UsageRecentEventCache) appendCredentialHealthRowsLocked(rows []credenti
 			counts.success++
 		}
 		// token 在累计前先做非负截断，避免历史脏数据把窗口分母拉成负值。
-		counts.inputTokens += max(row.InputTokens, 0)
-		counts.cacheReadTokens += max(row.CacheReadTokens, 0)
+		counts.inputTokens = saturatingAddCredentialHealthTokens(counts.inputTokens, max(row.InputTokens, 0))
+		counts.cacheReadTokens = saturatingAddCredentialHealthTokens(counts.cacheReadTokens, max(row.CacheReadTokens, 0))
 		buckets[bucketUnix] = counts
 		touched[key] = struct{}{}
 	}
@@ -258,8 +259,8 @@ func buildCredentialHealthSnapshot(countsByUnix map[int64]credentialHealthBucket
 		})
 		totalSuccess += counts.success
 		totalFailure += counts.failure
-		totalInput += counts.inputTokens
-		totalCacheRead += counts.cacheReadTokens
+		totalInput = saturatingAddCredentialHealthTokens(totalInput, counts.inputTokens)
+		totalCacheRead = saturatingAddCredentialHealthTokens(totalCacheRead, counts.cacheReadTokens)
 	}
 	successRate := 0.0
 	if total := totalSuccess + totalFailure; total > 0 {
@@ -277,4 +278,16 @@ func buildCredentialHealthSnapshot(countsByUnix map[int64]credentialHealthBucket
 		CacheReadTokens: totalCacheRead,
 		Buckets:         buckets,
 	}
+}
+
+// saturatingAddCredentialHealthTokens 防止窗口内大量合法正数相加后 int64 回绕成负数。
+// token 在入口已做非负截断；溢出时饱和到上限，至少保持 API 数据非负且可安全展示。
+func saturatingAddCredentialHealthTokens(total, value int64) int64 {
+	if value <= 0 {
+		return total
+	}
+	if total > math.MaxInt64-value {
+		return math.MaxInt64
+	}
+	return total + value
 }

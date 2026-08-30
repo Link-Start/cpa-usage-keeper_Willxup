@@ -59,6 +59,8 @@ export interface AuthFileCredentialRow {
   successRate: number | null
   totalTokens: number
   cacheReadRate: number | null
+  /** 最近 5h 滚动窗口内的缓存率，与终身 cacheReadRate 同公式、不同作用域。 */
+  windowCacheReadRate: number | null
   quota: UsageQuotaRow[]
   quotaResetCreditsAvailableCount?: number | null
   quotaLoading: boolean
@@ -169,6 +171,7 @@ export function buildAuthFileCredentialRows(
       successRate: successRate(identity),
       totalTokens: safeNumber(identity.total_tokens),
       cacheReadRate: cacheReadRate(identity),
+      windowCacheReadRate: windowCacheReadRate(identity.credential_health),
       quota,
       quotaResetCreditsAvailableCount: quotaResponse?.rateLimitResetCreditsAvailableCount,
       quotaLoading: state?.quotaLoading ?? false,

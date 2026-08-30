@@ -605,6 +605,29 @@ describe('credentialViewModels', () => {
     expect(rows[0].windowCacheReadRate).toBe(62.5)
   })
 
+  it('derives the Auth File 5h cache rate from the health window totals', () => {
+    const rows = buildAuthFileCredentialRows([
+      identity({
+        auth_type: 1,
+        identity: 'auth-window',
+        credential_health: {
+          window_seconds: 18_000,
+          bucket_seconds: 600,
+          window_start: '2026-05-10T05:30:00Z',
+          window_end: '2026-05-10T10:30:00Z',
+          total_success: 8,
+          total_failure: 0,
+          success_rate: 100,
+          input_tokens: 800,
+          cache_read_tokens: 300,
+          buckets: [],
+        },
+      }),
+    ])
+
+    expect(rows[0].windowCacheReadRate).toBe(37.5)
+  })
+
   it('reports a null AI Provider 5h cache rate when the window has no input tokens', () => {
     const quietHealth = {
       window_seconds: 18_000,

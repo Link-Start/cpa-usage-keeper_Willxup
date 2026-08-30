@@ -66,6 +66,7 @@ const row = {
   successRate: 90,
   totalTokens: 135,
   cacheReadRate: 10,
+  windowCacheReadRate: 42.5,
 } as AiProviderCredentialRow
 
 const selection: CredentialDetailSelection = { kind: 'ai-provider', row }
@@ -305,6 +306,8 @@ describe('CredentialDetailDrawer', () => {
     expect(tones).toEqual(['warning', 'neutral'])
     expect(document.body.querySelector('small [class*="credentialMetricValueSuccess"]')?.textContent).toBe('usage_stats.success 9')
     expect(document.body.querySelector('small [class*="credentialMetricValueDanger"]')?.textContent).toBe('usage_stats.failure 1')
+    expect(document.body.textContent).toContain('usage_stats.credentials_health_cache_rate_5h')
+    expect(document.body.textContent).toContain('42.50%')
   })
 
   it.each([
