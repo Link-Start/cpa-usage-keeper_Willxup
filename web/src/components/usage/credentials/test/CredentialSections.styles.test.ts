@@ -84,6 +84,7 @@ describe('Credential section styles', () => {
     expect(authFileSectionSource).toContain('CredentialHealthPanel')
     expect(authFileSectionSource).toContain('lastUsedAt={row.identity.last_used_at}')
     expect(authFileSectionSource).toContain('statsUpdatedAt={row.identity.stats_updated_at}')
+    expect(authFileSectionSource).toContain('windowCacheReadRate={row.windowCacheReadRate}')
     expect(aiProviderSectionSource).toContain('CredentialHealthPanel')
     expect(aiProviderSectionSource).toContain('lastUsedAt={row.lastUsedText}')
     expect(aiProviderSectionSource).toContain('statsUpdatedAt={row.statsUpdatedText}')
