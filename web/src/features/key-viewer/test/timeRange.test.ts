@@ -39,4 +39,25 @@ describe('API Key viewer time range persistence', () => {
     expect(loadKeyViewerTimeRange(storage)).toEqual({ range: 'today' });
     expect(storage.values.has(KEY_VIEWER_TIME_RANGE_STORAGE_KEY)).toBe(false);
   });
+
+  it('falls back safely when the browser blocks localStorage access', () => {
+    const originalDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
+    Object.defineProperty(globalThis, 'localStorage', {
+      configurable: true,
+      get: () => {
+        throw new Error('storage blocked');
+      },
+    });
+
+    try {
+      expect(loadKeyViewerTimeRange()).toEqual({ range: 'today' });
+      expect(() => persistKeyViewerTimeRange({ range: '7d' })).not.toThrow();
+    } finally {
+      if (originalDescriptor) {
+        Object.defineProperty(globalThis, 'localStorage', originalDescriptor);
+      } else {
+        delete (globalThis as { localStorage?: unknown }).localStorage;
+      }
+    }
+  });
 });

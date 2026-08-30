@@ -13,8 +13,13 @@ interface StorageLike {
 
 const resolveStorage = (storage?: StorageLike): StorageLike | undefined => {
   if (storage) return storage;
-  if (typeof localStorage === 'undefined') return undefined;
-  return localStorage;
+  try {
+    if (typeof localStorage === 'undefined') return undefined;
+    return localStorage;
+  } catch {
+    // sandbox iframe 或隐私模式可能在读取 localStorage 时直接抛出异常。
+    return undefined;
+  }
 };
 
 const defaultRangeState = (): StoredUsageRangeState => ({ range: 'today' });
