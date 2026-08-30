@@ -3,6 +3,7 @@
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import type { UsageCredentialHealth } from '@/lib/types'
 import type { AiProviderCredentialRow, AuthFileCredentialRow, CredentialDetailSelection } from '../credentialViewModels'
 import { CredentialDetailDrawer } from '../CredentialDetailDrawer'
 
@@ -32,6 +33,19 @@ vi.mock('react-i18next', () => {
   }
 })
 
+const credentialHealth: UsageCredentialHealth = {
+  window_seconds: 18_000,
+  bucket_seconds: 600,
+  window_start: '2026-08-17T05:00:00Z',
+  window_end: '2026-08-17T10:00:00Z',
+  total_success: 9,
+  total_failure: 1,
+  success_rate: 90,
+  input_tokens: 400,
+  cache_read_tokens: 170,
+  buckets: [],
+}
+
 const row = {
   identity: {
     id: 'provider-1',
@@ -53,6 +67,7 @@ const row = {
     is_deleted: false,
     created_at: '2026-08-01T00:00:00Z',
     updated_at: '2026-08-17T00:00:00Z',
+    credential_health: credentialHealth,
   },
   displayName: 'Provider One',
   maskedIdentity: 'auth-provider-1',
@@ -67,6 +82,7 @@ const row = {
   totalTokens: 135,
   cacheReadRate: 10,
   windowCacheReadRate: 42.5,
+  credentialHealth,
 } as AiProviderCredentialRow
 
 const selection: CredentialDetailSelection = { kind: 'ai-provider', row }
