@@ -579,7 +579,7 @@ func TestApplyUsageHeaderSnapshotMergesRowsAndPreservesResetCredits(t *testing.T
 	}
 }
 
-func TestUsageHeaderPendingKeepsMainWeeklySeparateFromActiveSpark(t *testing.T) {
+func TestUsageHeaderPendingMergesOutOfOrderMainAndActiveSparkIndependently(t *testing.T) {
 	db := openQuotaTestDatabase(t)
 	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "codex-auth", Provider: "codex", Type: "codex", AuthType: entities.UsageIdentityAuthTypeAuthFile})
 	service := NewServiceWithRegistryAndOptions(db, NewProviderRegistry(nil), ServiceOptions{
@@ -594,9 +594,16 @@ func TestUsageHeaderPendingKeepsMainWeeklySeparateFromActiveSpark(t *testing.T) 
 	sparkPrimaryResetAt := strconv.FormatInt(time.Date(2026, 8, 27, 19, 7, 0, 0, time.Local).Unix(), 10)
 	sparkSecondaryResetAt := strconv.FormatInt(time.Date(2026, 9, 1, 15, 1, 0, 0, time.Local).Unix(), 10)
 	mainHeaders := http.Header{
-		"X-Codex-Primary-Used-Percent":   []string{"8"},
-		"X-Codex-Primary-Window-Minutes": []string{"10080"},
-		"X-Codex-Primary-Reset-At":       []string{mainResetAt},
+		"X-Codex-Primary-Used-Percent":               []string{"8"},
+		"X-Codex-Primary-Window-Minutes":             []string{"10080"},
+		"X-Codex-Primary-Reset-At":                   []string{mainResetAt},
+		"X-Codex-Bengalfox-Limit-Name":               []string{"GPT-5.3-Codex-Spark"},
+		"X-Codex-Bengalfox-Primary-Used-Percent":     []string{"9"},
+		"X-Codex-Bengalfox-Primary-Window-Minutes":   []string{"300"},
+		"X-Codex-Bengalfox-Primary-Reset-At":         []string{sparkPrimaryResetAt},
+		"X-Codex-Bengalfox-Secondary-Used-Percent":   []string{"9"},
+		"X-Codex-Bengalfox-Secondary-Window-Minutes": []string{"10080"},
+		"X-Codex-Bengalfox-Secondary-Reset-At":       []string{sparkSecondaryResetAt},
 	}
 	sparkHeaders := http.Header{
 		"X-Codex-Active-Limit":                       []string{"codex_bengalfox"},
@@ -614,10 +621,10 @@ func TestUsageHeaderPendingKeepsMainWeeklySeparateFromActiveSpark(t *testing.T) 
 		"X-Codex-Bengalfox-Secondary-Window-Minutes": []string{"10080"},
 		"X-Codex-Bengalfox-Secondary-Reset-At":       []string{sparkSecondaryResetAt},
 	}
-	// 复现生产一分钟窗口：先收到主 Weekly，最后一份是只输出 Additional 的 Spark Header。
-	mainSnapshot := codexUsageHeaderSnapshotWithHeaders("codex-auth", base, mainHeaders)
+	// 复现生产乱序：较新的 Spark 先处理；随后旧 Header 的 Weekly 应补入，但其中较旧 Spark 不能回滚。
+	mainSnapshot := codexUsageHeaderSnapshotWithHeaders("codex-auth", base.Add(30*time.Second), mainHeaders)
 	sparkSnapshot := codexUsageHeaderSnapshotWithHeaders("codex-auth", base.Add(59*time.Second), sparkHeaders)
-	if !service.TryAppendUsageHeaderSnapshots(usageHeaderSnapshotPointers(mainSnapshot, sparkSnapshot)) {
+	if !service.TryAppendUsageHeaderSnapshots(usageHeaderSnapshotPointers(sparkSnapshot, mainSnapshot)) {
 		t.Fatal("expected production Header pending path to accept snapshots")
 	}
 	// Stop 会立即 flush 已接收的 pending，测试无需真实等待一分钟。

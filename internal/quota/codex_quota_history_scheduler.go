@@ -309,7 +309,19 @@ func (s *Service) mergeCodexQuotaHistoryObservation(state *codexQuotaHistoryRunn
 			if boundaryUpdated {
 				// 先物化此前累计的稳定尾段，再应用同一时刻的边界校准，避免后续被 repository 视为重叠旧数据。
 				s.appendDeferredCodexQuotaHistoryStable(state, key, pending)
-				*pending = append(*pending, observation)
+				if current.PendingIndex >= 0 && current.PendingIndex < len(*pending) {
+					// 尚未落库的同一尾段直接原地升级；后续同值观察会继续合并到这条 absolute 事实。
+					calibrated := &(*pending)[current.PendingIndex]
+					calibrated.ResetAtSource = observation.ResetAtSource
+					calibrated.ResetAt = observation.ResetAt
+					calibrated.ObservationCount += observation.ObservationCount
+					calibrated.Authoritative = calibrated.Authoritative || observation.Authoritative
+				} else {
+					// 已落库尾段无法原地修改；追加校准后必须让 PendingIndex 指向它，不能再引用旧 relative 条目。
+					observation.RemainingPercent = current.RemainingPercent
+					*pending = append(*pending, observation)
+					current.PendingIndex = len(*pending) - 1
+				}
 				state.Current[key] = current
 				return true
 			}

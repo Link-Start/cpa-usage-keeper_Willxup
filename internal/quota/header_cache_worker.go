@@ -145,12 +145,10 @@ func mergePendingUsageHeaderSnapshotPointers(pending map[string]*UsageHeaderSnap
 		if authIndex == "" {
 			authIndex = snapshot.Provider + "\x00" + snapshot.AuthType
 		}
-		// 已有身份只允许观察时间相同或更新的快照更新，迟到数据不能回滚 cache。
+		// 已有身份按主额度和每个 Additional 分别比较时间；整体迟到不代表其中缺失组件也过期。
 		if existing, exists := pending[authIndex]; exists {
-			if usageHeaderSnapshotIsNewer(snapshot, existing) {
-				// 一分钟内主额度和 Additional 可能来自不同 Header；只合并 cache 投影，不合并 history observation。
-				pending[authIndex] = mergePendingUsageHeaderCacheSnapshot(existing, snapshot)
-			}
+			// 一分钟内主额度和 Additional 可能来自不同 Header；只合并 cache 投影，不合并 history observation。
+			pending[authIndex] = mergePendingUsageHeaderCacheSnapshot(existing, snapshot)
 			continue
 		}
 		// 未达到上限时直接接收新身份；硬上限只决定极端溢出时的替换边界。
@@ -178,61 +176,126 @@ func mergePendingUsageHeaderSnapshotPointers(pending map[string]*UsageHeaderSnap
 }
 
 // mergePendingUsageHeaderCacheSnapshot 把同一账号一分钟内观察到的主额度和 Additional 收敛成一份 cache 快照。
-func mergePendingUsageHeaderCacheSnapshot(existing *UsageHeaderSnapshot, latest *UsageHeaderSnapshot) *UsageHeaderSnapshot {
-	if existing == nil || latest == nil {
-		return latest
+func mergePendingUsageHeaderCacheSnapshot(existing *UsageHeaderSnapshot, candidate *UsageHeaderSnapshot) *UsageHeaderSnapshot {
+	if existing == nil {
+		return candidate
+	}
+	if candidate == nil {
+		return existing
 	}
 	existingUsage := codexUsagePayloadFromProviderOutput(existing.CacheOutput)
-	latestUsage := codexUsagePayloadFromProviderOutput(latest.CacheOutput)
-	if existingUsage == nil || latestUsage == nil {
-		// Header snapshot 当前只有 Codex；未来其它 provider 没有明确合并合同时仍保持 latest 语义。
-		return latest
+	candidateUsage := codexUsagePayloadFromProviderOutput(candidate.CacheOutput)
+	if existingUsage == nil || candidateUsage == nil {
+		// Header snapshot 当前只有 Codex；未来其它 provider 没有明确合并合同时仍保持整体最新语义。
+		if usageHeaderSnapshotIsNewer(candidate, existing) {
+			return candidate
+		}
+		return existing
 	}
 
-	// 以新快照为基底，ObservedAt、身份和 history observation 都保持最新 Header 的原值。
-	mergedSnapshot := *latest
-	mergedUsage := *latestUsage
+	// 整体身份、ObservedAt 和 history observation 仍取最新 Header；cache 组件在下方独立选择。
+	baseSnapshot := existing
+	baseUsage := existingUsage
+	otherUsage := candidateUsage
+	if usageHeaderSnapshotIsNewer(candidate, existing) {
+		baseSnapshot = candidate
+		baseUsage = candidateUsage
+		otherUsage = existingUsage
+	}
+	mergedSnapshot := *baseSnapshot
+	mergedUsage := *baseUsage
 	if strings.TrimSpace(mergedUsage.PlanType) == "" {
 		// 新 Header 未返回套餐时，保留本分钟已观察到的套餐。
-		mergedUsage.PlanType = existingUsage.PlanType
+		mergedUsage.PlanType = otherUsage.PlanType
 	}
-	if mergedUsage.RateLimit == nil {
-		// Active-Limit 命中 Additional 时新快照不含主额度，不能删掉本分钟更早的主 Primary/Secondary。
+
+	existingMainObservedAt := pendingUsageHeaderMainObservedAt(existing, existingUsage)
+	candidateMainObservedAt := pendingUsageHeaderMainObservedAt(candidate, candidateUsage)
+	switch {
+	case candidateUsage.RateLimit != nil && (existingUsage.RateLimit == nil || !usageHeaderObservedAtBefore(candidateMainObservedAt, existingMainObservedAt)):
+		// 主额度 Primary/Secondary 来自同一 Header，必须作为一个整体由较新的主额度观察替换。
+		mergedUsage.RateLimit = candidateUsage.RateLimit
+		mergedSnapshot.pendingMainObservedAt = candidateMainObservedAt
+	case existingUsage.RateLimit != nil:
+		// 即使整体最新 Header 只包含 Spark，也保留主额度自身最近的一次完整观察。
 		mergedUsage.RateLimit = existingUsage.RateLimit
+		mergedSnapshot.pendingMainObservedAt = existingMainObservedAt
+	default:
+		mergedUsage.RateLimit = nil
+		mergedSnapshot.pendingMainObservedAt = time.Time{}
 	}
-	// Additional 按 quota key 所使用的 LimitName 合并：同名 group 用新值，未出现的 group 保留旧值。
-	mergedUsage.AdditionalRateLimits = mergePendingCodexAdditionalRateLimits(existingUsage.AdditionalRateLimits, latestUsage.AdditionalRateLimits)
+
+	// Additional 按 LimitName 独立比较观察时间；同一 group 的 Primary/Secondary 同样保持整体更新。
+	mergedUsage.AdditionalRateLimits, mergedSnapshot.pendingAdditionalObservedAt = mergePendingCodexAdditionalRateLimits(
+		existing,
+		existingUsage.AdditionalRateLimits,
+		candidate,
+		candidateUsage.AdditionalRateLimits,
+	)
 	mergedSnapshot.CacheOutput = ProviderOutput{
-		Provider: latest.CacheOutput.Provider,
+		Provider: baseSnapshot.CacheOutput.Provider,
 		Result:   CodexResult{Usage: &mergedUsage},
 	}
 	return &mergedSnapshot
 }
 
-func mergePendingCodexAdditionalRateLimits(existing []CodexAdditionalRateLimit, latest []CodexAdditionalRateLimit) []CodexAdditionalRateLimit {
-	if len(existing) == 0 {
-		return latest
+func pendingUsageHeaderMainObservedAt(snapshot *UsageHeaderSnapshot, usage *CodexUsagePayload) time.Time {
+	if snapshot == nil || usage == nil || usage.RateLimit == nil {
+		return time.Time{}
 	}
-	if len(latest) == 0 {
-		return existing
+	if !snapshot.pendingMainObservedAt.IsZero() {
+		return snapshot.pendingMainObservedAt
+	}
+	return snapshot.ObservedAt
+}
+
+func pendingUsageHeaderAdditionalObservedAt(snapshot *UsageHeaderSnapshot, limitName string) time.Time {
+	if snapshot == nil {
+		return time.Time{}
+	}
+	if observedAt, exists := snapshot.pendingAdditionalObservedAt[limitName]; exists {
+		return observedAt
+	}
+	return snapshot.ObservedAt
+}
+
+func mergePendingCodexAdditionalRateLimits(
+	existingSnapshot *UsageHeaderSnapshot,
+	existing []CodexAdditionalRateLimit,
+	candidateSnapshot *UsageHeaderSnapshot,
+	candidates []CodexAdditionalRateLimit,
+) ([]CodexAdditionalRateLimit, map[string]time.Time) {
+	if len(existing) == 0 && len(candidates) == 0 {
+		return nil, nil
 	}
 
-	// 沿用旧 cache 的稳定顺序；同名 group 原位替换，本分钟新出现的 group 追加到末尾。
+	// 沿用旧 cache 的稳定顺序；同名 group 只在自身观察时间相同或更新时原位替换。
 	merged := append([]CodexAdditionalRateLimit(nil), existing...)
-	for _, candidate := range latest {
+	observedAtByLimit := make(map[string]time.Time, len(existing)+len(candidates))
+	for _, limit := range existing {
+		observedAtByLimit[limit.LimitName] = pendingUsageHeaderAdditionalObservedAt(existingSnapshot, limit.LimitName)
+	}
+	for _, candidate := range candidates {
+		candidateObservedAt := pendingUsageHeaderAdditionalObservedAt(candidateSnapshot, candidate.LimitName)
 		replaced := false
 		for index := range merged {
-			if merged[index].LimitName == candidate.LimitName {
-				merged[index] = candidate
-				replaced = true
-				break
+			if merged[index].LimitName != candidate.LimitName {
+				continue
 			}
+			existingObservedAt := observedAtByLimit[candidate.LimitName]
+			if !usageHeaderObservedAtBefore(candidateObservedAt, existingObservedAt) {
+				merged[index] = candidate
+				observedAtByLimit[candidate.LimitName] = candidateObservedAt
+			}
+			replaced = true
+			break
 		}
 		if !replaced {
 			merged = append(merged, candidate)
+			observedAtByLimit[candidate.LimitName] = candidateObservedAt
 		}
 	}
-	return merged
+	return merged, observedAtByLimit
 }
 
 // oldestPendingUsageHeaderSnapshot 返回当前 map 中观察时间最旧的一项；相同时间按 key 稳定选择。

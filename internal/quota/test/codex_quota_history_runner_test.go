@@ -302,8 +302,8 @@ func TestCodexQuotaHistoryRunnerRestoresDatabaseTailBeforeComparing(t *testing.T
 	}
 }
 
-func TestCodexQuotaHistoryRunnerCarriesAbsoluteUpgradeIntoMergedPendingSegment(t *testing.T) {
-	// relative 与 absolute 落在同一两分钟容差内且百分比相同，最终父周期仍必须升级到绝对边界。
+func TestCodexQuotaHistoryRunnerKeepsSameTimestampAbsoluteUpgradeDuringStableMerge(t *testing.T) {
+	// 同时刻 absolute 校准后的同值观察必须继续合并到 absolute 条目，不能回写旧 relative pending。
 	db := openQuotaTestDatabase(t)
 	seedUsageIdentity(t, db, codexHistoryUsageIdentity("upgrade-auth"))
 	service := NewServiceWithRegistryAndOptions(db, NewProviderRegistry(nil), ServiceOptions{
@@ -318,8 +318,9 @@ func TestCodexQuotaHistoryRunnerCarriesAbsoluteUpgradeIntoMergedPendingSegment(t
 		"X-Codex-Primary-Reset-After-Seconds": []string{"3600"},
 	})
 	absoluteReset := base.Add(time.Hour + 30*time.Second)
-	absolute := codexHistoryPrimarySnapshot("upgrade-auth", base.Add(time.Minute), 90, absoluteReset)
-	if !service.TryAppendUsageHeaderSnapshots(usageHeaderSnapshotPointers(relative, absolute)) {
+	absolute := codexHistoryPrimarySnapshot("upgrade-auth", base, 90, absoluteReset)
+	followUp := codexHistoryPrimarySnapshot("upgrade-auth", base.Add(time.Minute), 90, absoluteReset)
+	if !service.TryAppendUsageHeaderSnapshots(usageHeaderSnapshotPointers(relative, absolute, followUp)) {
 		t.Fatal("expected relative/absolute upgrade observations to be accepted")
 	}
 	service.StopRefreshTasks()
@@ -329,7 +330,7 @@ func TestCodexQuotaHistoryRunnerCarriesAbsoluteUpgradeIntoMergedPendingSegment(t
 		t.Fatalf("expected one cycle upgraded to the absolute reset, got %+v", cycles)
 	}
 	segments := loadCodexQuotaSegments(t, db, cycles[0].ID)
-	if len(segments) != 1 || segments[0].RemainingPercent != 90 || segments[0].ObservationCount != 2 {
+	if len(segments) != 1 || segments[0].RemainingPercent != 90 || segments[0].ObservationCount != 3 || !segments[0].LastObservedAt.Equal(base.Add(time.Minute)) {
 		t.Fatalf("expected same pending percent to merge count while upgrading boundary, got %+v", segments)
 	}
 }

@@ -36,6 +36,10 @@ type UsageHeaderSnapshot struct {
 	CacheOutput ProviderOutput
 	// MainQuotaObservations 只包含无 group Primary/Secondary，供 history runner 在一分钟批次到期后消费。
 	MainQuotaObservations []repositorydto.CodexMainQuotaObservation
+	// pendingMainObservedAt 只供一分钟 cache 合并记录主额度自身的新鲜度；零值表示回退 ObservedAt。
+	pendingMainObservedAt time.Time
+	// pendingAdditionalObservedAt 按 LimitName 记录 Additional 自身的新鲜度，不进入 history 或对外响应。
+	pendingAdditionalObservedAt map[string]time.Time
 }
 
 type UsageHeaderSnapshotAppender interface {

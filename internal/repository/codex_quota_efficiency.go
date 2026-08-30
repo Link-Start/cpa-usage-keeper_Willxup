@@ -359,18 +359,20 @@ func buildCodexQuotaEfficiencyCyclePeriods(cycles []entities.QuotaCycle, current
 		return ordered[left].ID < ordered[right].ID
 	})
 	periods := make(map[int64]codexQuotaEfficiencyCyclePeriod, len(ordered))
-	for index, cycle := range ordered {
-		period := codexQuotaEfficiencyCyclePeriod{start: cycle.WindowStartedAt, end: cycle.ResetAt}
-		if index > 0 {
-			previousCycle := ordered[index-1]
-			previousPeriod := periods[previousCycle.ID]
-			// 无论窗口长度是否变化，重叠部分都以新周期的理论起点切分。
-			if cycle.WindowStartedAt.Before(previousPeriod.end) {
-				previousPeriod.end = cycle.WindowStartedAt
-				periods[previousCycle.ID] = previousPeriod
-			}
+	// 反向维护所有后续周期中最早的理论起点；这样一次线性扫描就能覆盖多个连续 detour。
+	var earliestLaterStart time.Time
+	for index := len(ordered) - 1; index >= 0; index-- {
+		cycle := ordered[index]
+		periodEnd := cycle.ResetAt
+		// 后续观察到的周期从其理论起点接管；此前周期只能保留到该起点之前。
+		if !earliestLaterStart.IsZero() && earliestLaterStart.Before(periodEnd) {
+			periodEnd = earliestLaterStart
 		}
-		periods[cycle.ID] = period
+		periods[cycle.ID] = codexQuotaEfficiencyCyclePeriod{start: cycle.WindowStartedAt, end: periodEnd}
+		// 更早周期需要同时避开当前周期和已经处理过的所有后续周期，因此只保留最早起点。
+		if earliestLaterStart.IsZero() || cycle.WindowStartedAt.Before(earliestLaterStart) {
+			earliestLaterStart = cycle.WindowStartedAt
+		}
 	}
 	if len(ordered) == 0 {
 		return periods
