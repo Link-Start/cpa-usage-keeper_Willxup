@@ -83,6 +83,8 @@ export interface AiProviderCredentialRow {
   successRate: number | null
   totalTokens: number
   cacheReadRate: number | null
+  /** 最近 5h 滚动窗口内的缓存率，与终身 cacheReadRate 同公式、不同作用域。 */
+  windowCacheReadRate: number | null
   lastUsedText?: string
   statsUpdatedText?: string
   credentialHealth?: UsageCredentialHealth
@@ -194,6 +196,7 @@ export function buildAiProviderCredentialRows(identities: UsageIdentity[]): AiPr
     successRate: successRate(identity),
     totalTokens: safeNumber(identity.total_tokens),
     cacheReadRate: cacheReadRate(identity),
+    windowCacheReadRate: windowCacheReadRate(identity.credential_health),
     lastUsedText: identity.last_used_at,
     statsUpdatedText: identity.stats_updated_at,
     credentialHealth: identity.credential_health,
@@ -503,6 +506,17 @@ function cacheReadRate(identity: UsageIdentity): number | null {
   return calculateCacheReadRate({
     inputTokens: identity.input_tokens,
     cacheReadTokens: identity.cache_read_tokens,
+  })
+}
+
+// 5h 窗口缓存率复用同一个 calculateCacheReadRate，只把分子分母换成健康窗口的合计值。
+function windowCacheReadRate(health?: UsageCredentialHealth): number | null {
+  if (!health) {
+    return null
+  }
+  return calculateCacheReadRate({
+    inputTokens: health.input_tokens,
+    cacheReadTokens: health.cache_read_tokens,
   })
 }
 

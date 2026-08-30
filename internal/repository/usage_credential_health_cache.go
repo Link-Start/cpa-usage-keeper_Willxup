@@ -26,7 +26,11 @@ type CredentialHealthSnapshot struct {
 	TotalSuccess  int64
 	TotalFailure  int64
 	SuccessRate   float64
-	Buckets       []CredentialHealthBucket
+	// InputTokens/CacheReadTokens 累计窗口内 canonical token；缓存率由展示层用与
+	// 终身口径完全相同的算法派生，后端不再单独计算一份百分比。
+	InputTokens     int64
+	CacheReadTokens int64
+	Buckets         []CredentialHealthBucket
 }
 
 // CredentialHealthBucket 是健康图单个 10 分钟桶的成功/失败计数。
@@ -55,13 +59,18 @@ type credentialHealthKey struct {
 type credentialHealthBucketCounts struct {
 	success int64
 	failure int64
+	// token 只累计 canonical 字段，不读取 cached_tokens，与 identity 聚合口径一致。
+	inputTokens     int64
+	cacheReadTokens int64
 }
 
 type credentialHealthLoadRow struct {
-	AuthType  string
-	AuthIndex string
-	Timestamp time.Time
-	Failed    bool
+	AuthType        string
+	AuthIndex       string
+	Timestamp       time.Time
+	Failed          bool
+	InputTokens     int64
+	CacheReadTokens int64
 }
 
 func (c *UsageRecentEventCache) CredentialHealth(authType, authIndex string, now time.Time) (CredentialHealthSnapshot, bool) {
@@ -84,7 +93,7 @@ func loadCredentialHealthCacheRowsBatched(db *gorm.DB, start time.Time, batchSiz
 		batchSize = credentialHealthStartupBatchSize
 	}
 	rows, err := db.Model(&entities.UsageEvent{}).
-		Select("auth_type, auth_index, timestamp, failed").
+		Select("auth_type, auth_index, timestamp, failed, input_tokens, cache_read_tokens").
 		Where("timestamp >= ?", timeutil.FormatStorageTime(start)).
 		Order("timestamp asc, id asc").
 		Rows()
@@ -125,10 +134,12 @@ func credentialHealthRowsFromUsageEvents(events []entities.UsageEvent) []credent
 	rows := make([]credentialHealthLoadRow, 0, len(events))
 	for _, event := range events {
 		rows = append(rows, credentialHealthLoadRow{
-			AuthType:  event.AuthType,
-			AuthIndex: event.AuthIndex,
-			Timestamp: event.Timestamp,
-			Failed:    event.Failed,
+			AuthType:        event.AuthType,
+			AuthIndex:       event.AuthIndex,
+			Timestamp:       event.Timestamp,
+			Failed:          event.Failed,
+			InputTokens:     event.InputTokens,
+			CacheReadTokens: event.CacheReadTokens,
 		})
 	}
 	return rows
@@ -156,6 +167,9 @@ func (c *UsageRecentEventCache) appendCredentialHealthRowsLocked(rows []credenti
 		} else {
 			counts.success++
 		}
+		// token 在累计前先做非负截断，避免历史脏数据把窗口分母拉成负值。
+		counts.inputTokens += max(row.InputTokens, 0)
+		counts.cacheReadTokens += max(row.CacheReadTokens, 0)
 		buckets[bucketUnix] = counts
 		touched[key] = struct{}{}
 	}
@@ -226,6 +240,8 @@ func buildCredentialHealthSnapshot(countsByUnix map[int64]credentialHealthBucket
 	buckets := make([]CredentialHealthBucket, 0, credentialHealthBucketCount)
 	var totalSuccess int64
 	var totalFailure int64
+	var totalInput int64
+	var totalCacheRead int64
 	for bucketStart := windowStart; bucketStart.Before(windowEnd); bucketStart = bucketStart.Add(credentialHealthBucketSpan) {
 		counts := countsByUnix[bucketStart.Unix()]
 		total := counts.success + counts.failure
@@ -242,19 +258,23 @@ func buildCredentialHealthSnapshot(countsByUnix map[int64]credentialHealthBucket
 		})
 		totalSuccess += counts.success
 		totalFailure += counts.failure
+		totalInput += counts.inputTokens
+		totalCacheRead += counts.cacheReadTokens
 	}
 	successRate := 0.0
 	if total := totalSuccess + totalFailure; total > 0 {
 		successRate = (float64(totalSuccess) / float64(total)) * 100
 	}
 	return CredentialHealthSnapshot{
-		WindowSeconds: int64(credentialHealthWindow / time.Second),
-		BucketSeconds: int64(credentialHealthBucketSpan / time.Second),
-		WindowStart:   windowStart,
-		WindowEnd:     windowEnd,
-		TotalSuccess:  totalSuccess,
-		TotalFailure:  totalFailure,
-		SuccessRate:   successRate,
-		Buckets:       buckets,
+		WindowSeconds:   int64(credentialHealthWindow / time.Second),
+		BucketSeconds:   int64(credentialHealthBucketSpan / time.Second),
+		WindowStart:     windowStart,
+		WindowEnd:       windowEnd,
+		TotalSuccess:    totalSuccess,
+		TotalFailure:    totalFailure,
+		SuccessRate:     successRate,
+		InputTokens:     totalInput,
+		CacheReadTokens: totalCacheRead,
+		Buckets:         buckets,
 	}
 }
