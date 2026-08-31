@@ -190,7 +190,9 @@ function RequestEventsTokenMetric({
       data-token-direction={direction}
       data-token-flow={direction === 'input' ? 'upload' : 'download'}
     >
-      <Icon size={14} aria-hidden="true" />
+      <span className={styles.requestEventsMetricIconSlot} aria-hidden="true">
+        <Icon size={14} aria-hidden="true" />
+      </span>
       <span>{value}</span>
     </span>
   );
@@ -205,7 +207,9 @@ function RequestEventsReasoningMetric({ label, value }: { label: string; value: 
       title={`${label}: ${value}`}
       data-token-direction="reasoning"
     >
-      <IconBrain size={12} aria-hidden="true" />
+      <span className={styles.requestEventsMetricIconSlot} aria-hidden="true">
+        <IconBrain size={12} aria-hidden="true" />
+      </span>
       <span>{value}</span>
     </span>
   );
@@ -230,7 +234,9 @@ function RequestEventsCacheMetric({
       data-cache-operation={operation}
       data-cache-flow={operation === 'read' ? 'upload' : 'download'}
     >
-      <Icon size={14} aria-hidden="true" />
+      <span className={styles.requestEventsMetricIconSlot} aria-hidden="true">
+        <Icon className={styles.requestEventsCacheIcon} size={14} aria-hidden="true" />
+      </span>
       <span>{value}</span>
     </span>
   );

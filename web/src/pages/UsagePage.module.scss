@@ -3336,6 +3336,21 @@
   white-space: nowrap;
 }
 
+.requestEventsMetricIconSlot {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  flex: 0 0 16px;
+  overflow: visible;
+}
+
+.requestEventsCacheIcon {
+  transform: scale(0.9);
+  transform-origin: center;
+}
+
 .requestEventsTokenMetricInput {
   color: #0284c7;
 }
