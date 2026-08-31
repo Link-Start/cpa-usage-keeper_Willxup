@@ -16,7 +16,16 @@ import { MainActionButton } from '@/components/ui/MainActionButton';
 import { PortalTooltip, usePortalTooltip } from '@/components/ui/PortalTooltip';
 import { ProviderBrandIcon } from '@/components/ProviderBrandIcon';
 import { Select } from '@/components/ui/Select';
-import { IconChevronDown, IconDownload, IconSettings } from '@/components/ui/icons';
+import {
+  IconArrowDownToLine,
+  IconArrowUpFromLine,
+  IconBrain,
+  IconChevronDown,
+  IconDatabaseArrowDown,
+  IconDatabaseArrowUp,
+  IconDownload,
+  IconSettings,
+} from '@/components/ui/icons';
 import type { UsageEvent, UsageEventRequestLogResponse, UsageSourceFilterOption } from '@/lib/types';
 import { useScrollBoundaryContainment } from '@/hooks/useScrollBoundaryContainment';
 import {
@@ -162,6 +171,71 @@ type RequestEventTableRowProps = {
   measureElement?: (node: HTMLTableRowElement | null) => void;
 };
 
+function RequestEventsTokenMetric({
+  direction,
+  label,
+  value,
+}: {
+  direction: 'input' | 'output';
+  label: string;
+  value: string;
+}) {
+  const Icon = direction === 'input' ? IconArrowUpFromLine : IconArrowDownToLine;
+  return (
+    <span
+      className={`${styles.requestEventsTokenMetric} ${direction === 'input' ? styles.requestEventsTokenMetricInput : styles.requestEventsTokenMetricOutput}`}
+      role="img"
+      aria-label={`${label}: ${value}`}
+      title={`${label}: ${value}`}
+      data-token-direction={direction}
+      data-token-flow={direction === 'input' ? 'upload' : 'download'}
+    >
+      <Icon size={14} aria-hidden="true" />
+      <span>{value}</span>
+    </span>
+  );
+}
+
+function RequestEventsReasoningMetric({ label, value }: { label: string; value: string }) {
+  return (
+    <span
+      className={`${styles.requestEventsTokenMetric} ${styles.requestEventsTokenMetricReasoning}`}
+      role="img"
+      aria-label={`${label}: ${value}`}
+      title={`${label}: ${value}`}
+      data-token-direction="reasoning"
+    >
+      <IconBrain size={12} aria-hidden="true" />
+      <span>{value}</span>
+    </span>
+  );
+}
+
+function RequestEventsCacheMetric({
+  operation,
+  label,
+  value,
+}: {
+  operation: 'read' | 'write';
+  label: string;
+  value: string;
+}) {
+  const Icon = operation === 'read' ? IconDatabaseArrowUp : IconDatabaseArrowDown;
+  return (
+    <span
+      className={`${styles.requestEventsCacheMetric} ${operation === 'read' ? styles.requestEventsCacheMetricRead : styles.requestEventsCacheMetricWrite}`}
+      role="img"
+      aria-label={`${label}: ${value}`}
+      title={`${label}: ${value}`}
+      data-cache-operation={operation}
+      data-cache-flow={operation === 'read' ? 'upload' : 'download'}
+    >
+      <Icon size={14} aria-hidden="true" />
+      <span>{value}</span>
+    </span>
+  );
+}
+
 const RequestEventTableRow = React.memo(function RequestEventTableRow({
   row,
   columns,
@@ -231,8 +305,8 @@ const formatRequestEventTimestamp = (timestamp: string): { time: string; date: s
 };
 
 const formatCacheReadRate = (cacheReadTokens: number, inputTokens: number): string => {
-  const rate = calculateCacheReadRate({ inputTokens, cacheReadTokens });
-  return rate === null ? '-' : `${rate.toFixed(2)}%`;
+  const value = calculateCacheReadRate({ inputTokens, cacheReadTokens });
+  return value === null ? '-' : `${value.toFixed(2)}%`;
 };
 
 const formatTTFTMs = (ttftMs: number | null): string => {
@@ -818,12 +892,24 @@ export function RequestEventsDetailsCard({
         renderCell: (row) => (
           <td className={`${styles.requestEventsNoWrapCell} ${styles.requestEventsStackedCell}`}>
             <span className={styles.requestEventsStackedPrimary}>{row.totalTokensLabel}</span>
-            <span className={styles.requestEventsStackedSecondary}>
-              <span className={styles.requestEventsStackedLabel}>{t('usage_stats.input_tokens')}</span> {row.inputTokensLabel}
-            </span>
-            <span className={styles.requestEventsStackedSecondary}>
-              <span className={styles.requestEventsStackedLabel}>{t('usage_stats.output_tokens')}</span> {row.outputTokensLabel} ({t('usage_stats.reasoning_tokens')} {row.reasoningTokensLabel})
-            </span>
+            <div className={styles.requestEventsTokenMetricRow}>
+              <RequestEventsTokenMetric
+                direction="input"
+                label={t('usage_stats.input_tokens')}
+                value={row.inputTokensLabel}
+              />
+            </div>
+            <div className={styles.requestEventsTokenMetricRow}>
+              <RequestEventsTokenMetric
+                direction="output"
+                label={t('usage_stats.output_tokens')}
+                value={row.outputTokensLabel}
+              />
+              <RequestEventsReasoningMetric
+                label={t('usage_stats.reasoning_tokens')}
+                value={row.reasoningTokensLabel}
+              />
+            </div>
           </td>
         ),
       },
@@ -833,13 +919,24 @@ export function RequestEventsDetailsCard({
         header: <th className={styles.requestEventsNoWrapCell}>{t('usage_stats.request_events_cache')}</th>,
         renderCell: (row) => (
           <td className={`${styles.requestEventsNoWrapCell} ${styles.requestEventsStackedCell}`}>
-            <span className={styles.requestEventsStackedPrimary}>{row.cacheReadRate}</span>
-            <span className={styles.requestEventsStackedSecondary}>
-              <span className={styles.requestEventsStackedLabel}>{t('usage_stats.credentials_detail_cache_read')}</span> {row.cacheReadTokensLabel}
+            <span
+              className={styles.requestEventsCacheRate}
+              title={`${t('usage_stats.cache_rate')}: ${row.cacheReadRate}`}
+            >
+              {row.cacheReadRate}
             </span>
-            <span className={styles.requestEventsStackedSecondary}>
-              <span className={styles.requestEventsStackedLabel}>{t('usage_stats.credentials_detail_cache_write')}</span> {row.cacheCreationTokensLabel}
-            </span>
+            <div className={styles.requestEventsCacheMetrics}>
+              <RequestEventsCacheMetric
+                operation="read"
+                label={t('usage_stats.credentials_detail_cache_read')}
+                value={row.cacheReadTokensLabel}
+              />
+              <RequestEventsCacheMetric
+                operation="write"
+                label={t('usage_stats.credentials_detail_cache_write')}
+                value={row.cacheCreationTokensLabel}
+              />
+            </div>
           </td>
         ),
       },
