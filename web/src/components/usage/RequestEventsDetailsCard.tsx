@@ -186,7 +186,6 @@ function RequestEventsTokenMetric({
       className={`${styles.requestEventsTokenMetric} ${direction === 'input' ? styles.requestEventsTokenMetricInput : styles.requestEventsTokenMetricOutput}`}
       role="img"
       aria-label={`${label}: ${value}`}
-      title={`${label}: ${value}`}
       data-token-direction={direction}
       data-token-flow={direction === 'input' ? 'upload' : 'download'}
     >
@@ -204,7 +203,6 @@ function RequestEventsReasoningMetric({ label, value }: { label: string; value: 
       className={`${styles.requestEventsTokenMetric} ${styles.requestEventsTokenMetricReasoning}`}
       role="img"
       aria-label={`${label}: ${value}`}
-      title={`${label}: ${value}`}
       data-token-direction="reasoning"
     >
       <span className={styles.requestEventsMetricIconSlot} aria-hidden="true">
@@ -230,7 +228,6 @@ function RequestEventsCacheMetric({
       className={`${styles.requestEventsCacheMetric} ${operation === 'read' ? styles.requestEventsCacheMetricRead : styles.requestEventsCacheMetricWrite}`}
       role="img"
       aria-label={`${label}: ${value}`}
-      title={`${label}: ${value}`}
       data-cache-operation={operation}
       data-cache-flow={operation === 'read' ? 'upload' : 'download'}
     >
@@ -374,6 +371,31 @@ const buildSpeedModeTooltipLines = (
     row.responseSpeedModeRaw,
     t,
   ),
+];
+
+const formatRequestEventMetricTooltipLine = (
+  label: string,
+  value: string,
+  t: (key: string, options?: Record<string, string>) => string,
+): string => t('usage_stats.request_events_metric_tooltip_line', { label, value });
+
+const buildTokenTooltipLines = (
+  row: RequestEventRow,
+  t: (key: string, options?: Record<string, string>) => string,
+): string[] => [
+  formatRequestEventMetricTooltipLine(t('usage_stats.total_tokens'), row.totalTokensLabel, t),
+  formatRequestEventMetricTooltipLine(t('usage_stats.input_tokens'), row.inputTokensLabel, t),
+  formatRequestEventMetricTooltipLine(t('usage_stats.output_tokens'), row.outputTokensLabel, t),
+  formatRequestEventMetricTooltipLine(t('usage_stats.reasoning_tokens'), row.reasoningTokensLabel, t),
+];
+
+const buildCacheTooltipLines = (
+  row: RequestEventRow,
+  t: (key: string, options?: Record<string, string>) => string,
+): string[] => [
+  formatRequestEventMetricTooltipLine(t('usage_stats.cache_rate'), row.cacheReadRate, t),
+  formatRequestEventMetricTooltipLine(t('usage_stats.cache_read_tokens'), row.cacheReadTokensLabel, t),
+  formatRequestEventMetricTooltipLine(t('usage_stats.cache_creation_tokens'), row.cacheCreationTokensLabel, t),
 ];
 
 const parseRequestEndpoint = (rawEndpoint: unknown): { requestType: string; endpoint: string } => {
@@ -895,56 +917,75 @@ export function RequestEventsDetailsCard({
         id: 'total_tokens',
         label: t('usage_stats.request_events_tokens'),
         header: <th className={styles.requestEventsNoWrapCell}>{t('usage_stats.request_events_tokens')}</th>,
-        renderCell: (row) => (
-          <td className={`${styles.requestEventsNoWrapCell} ${styles.requestEventsStackedCell}`}>
-            <span className={styles.requestEventsStackedPrimary}>{row.totalTokensLabel}</span>
-            <div className={styles.requestEventsTokenMetricRow}>
-              <RequestEventsTokenMetric
-                direction="input"
-                label={t('usage_stats.input_tokens')}
-                value={row.inputTokensLabel}
-              />
-            </div>
-            <div className={styles.requestEventsTokenMetricRow}>
-              <RequestEventsTokenMetric
-                direction="output"
-                label={t('usage_stats.output_tokens')}
-                value={row.outputTokensLabel}
-              />
-              <RequestEventsReasoningMetric
-                label={t('usage_stats.reasoning_tokens')}
-                value={row.reasoningTokensLabel}
-              />
-            </div>
-          </td>
-        ),
+        renderCell: (row) => {
+          const tooltipLines = buildTokenTooltipLines(row, t);
+          return (
+            <td
+              className={`${styles.requestEventsNoWrapCell} ${styles.requestEventsStackedCell} ${styles.requestEventsSpeedModeCell}`}
+              tabIndex={0}
+              aria-label={tooltipLines.join('; ')}
+              onMouseEnter={(event) => handleRequestEventsTooltipMouseEnter(tooltipLines, event.currentTarget)}
+              onMouseLeave={(event) => handleRequestEventsTooltipMouseLeave(event.currentTarget)}
+              onFocus={(event) => handleRequestEventsTooltipFocus(tooltipLines, event.currentTarget)}
+              onBlur={(event) => handleRequestEventsTooltipBlur(event.currentTarget)}
+            >
+              <span className={styles.requestEventsStackedPrimary}>{row.totalTokensLabel}</span>
+              <div className={styles.requestEventsTokenMetricRow}>
+                <RequestEventsTokenMetric
+                  direction="input"
+                  label={t('usage_stats.input_tokens')}
+                  value={row.inputTokensLabel}
+                />
+              </div>
+              <div className={styles.requestEventsTokenMetricRow}>
+                <RequestEventsTokenMetric
+                  direction="output"
+                  label={t('usage_stats.output_tokens')}
+                  value={row.outputTokensLabel}
+                />
+                <RequestEventsReasoningMetric
+                  label={t('usage_stats.reasoning_tokens')}
+                  value={row.reasoningTokensLabel}
+                />
+              </div>
+            </td>
+          );
+        },
       },
       {
         id: 'cache_read_rate',
         label: t('usage_stats.request_events_cache'),
         header: <th className={styles.requestEventsNoWrapCell}>{t('usage_stats.request_events_cache')}</th>,
-        renderCell: (row) => (
-          <td className={`${styles.requestEventsNoWrapCell} ${styles.requestEventsStackedCell}`}>
-            <span
-              className={styles.requestEventsCacheRate}
-              title={`${t('usage_stats.cache_rate')}: ${row.cacheReadRate}`}
+        renderCell: (row) => {
+          const tooltipLines = buildCacheTooltipLines(row, t);
+          return (
+            <td
+              className={`${styles.requestEventsNoWrapCell} ${styles.requestEventsStackedCell} ${styles.requestEventsSpeedModeCell}`}
+              tabIndex={0}
+              aria-label={tooltipLines.join('; ')}
+              onMouseEnter={(event) => handleRequestEventsTooltipMouseEnter(tooltipLines, event.currentTarget)}
+              onMouseLeave={(event) => handleRequestEventsTooltipMouseLeave(event.currentTarget)}
+              onFocus={(event) => handleRequestEventsTooltipFocus(tooltipLines, event.currentTarget)}
+              onBlur={(event) => handleRequestEventsTooltipBlur(event.currentTarget)}
             >
-              {row.cacheReadRate}
-            </span>
-            <div className={styles.requestEventsCacheMetrics}>
-              <RequestEventsCacheMetric
-                operation="read"
-                label={t('usage_stats.credentials_detail_cache_read')}
-                value={row.cacheReadTokensLabel}
-              />
-              <RequestEventsCacheMetric
-                operation="write"
-                label={t('usage_stats.credentials_detail_cache_write')}
-                value={row.cacheCreationTokensLabel}
-              />
-            </div>
-          </td>
-        ),
+              <span className={styles.requestEventsCacheRate}>
+                {row.cacheReadRate}
+              </span>
+              <div className={styles.requestEventsCacheMetrics}>
+                <RequestEventsCacheMetric
+                  operation="read"
+                  label={t('usage_stats.cache_read_tokens')}
+                  value={row.cacheReadTokensLabel}
+                />
+                <RequestEventsCacheMetric
+                  operation="write"
+                  label={t('usage_stats.cache_creation_tokens')}
+                  value={row.cacheCreationTokensLabel}
+                />
+              </div>
+            </td>
+          );
+        },
       },
       {
         id: 'total_cost',
