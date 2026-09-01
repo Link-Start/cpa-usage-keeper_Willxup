@@ -30,6 +30,7 @@ import type { UsageEvent, UsageEventRequestLogResponse, UsageSourceFilterOption 
 import { useScrollBoundaryContainment } from '@/hooks/useScrollBoundaryContainment';
 import {
   calculateCacheReadRate,
+  formatCompactTokenValue,
   formatDurationMs,
   formatUsd,
   LATENCY_SOURCE_FIELD,
@@ -149,6 +150,12 @@ type RequestEventRow = {
   cacheReadTokensLabel: string;
   cacheCreationTokensLabel: string;
   totalTokensLabel: string;
+  inputTokensDisplayLabel: string;
+  outputTokensDisplayLabel: string;
+  reasoningTokensDisplayLabel: string;
+  cacheReadTokensDisplayLabel: string;
+  cacheCreationTokensDisplayLabel: string;
+  totalTokensDisplayLabel: string;
   cacheReadRate: string;
   cost: number | null;
   costAvailable: boolean;
@@ -175,17 +182,19 @@ function RequestEventsTokenMetric({
   direction,
   label,
   value,
+  accessibleValue = value,
 }: {
   direction: 'input' | 'output';
   label: string;
   value: string;
+  accessibleValue?: string;
 }) {
   const Icon = direction === 'input' ? IconArrowUpFromLine : IconArrowDownToLine;
   return (
     <span
       className={`${styles.requestEventsTokenMetric} ${direction === 'input' ? styles.requestEventsTokenMetricInput : styles.requestEventsTokenMetricOutput}`}
       role="img"
-      aria-label={`${label}: ${value}`}
+      aria-label={`${label}: ${accessibleValue}`}
       data-token-direction={direction}
       data-token-flow={direction === 'input' ? 'upload' : 'download'}
     >
@@ -197,12 +206,12 @@ function RequestEventsTokenMetric({
   );
 }
 
-function RequestEventsReasoningMetric({ label, value }: { label: string; value: string }) {
+function RequestEventsReasoningMetric({ label, value, accessibleValue = value }: { label: string; value: string; accessibleValue?: string }) {
   return (
     <span
       className={`${styles.requestEventsTokenMetric} ${styles.requestEventsTokenMetricReasoning}`}
       role="img"
-      aria-label={`${label}: ${value}`}
+      aria-label={`${label}: ${accessibleValue}`}
       data-token-direction="reasoning"
     >
       <span className={styles.requestEventsMetricIconSlot} aria-hidden="true">
@@ -217,17 +226,19 @@ function RequestEventsCacheMetric({
   operation,
   label,
   value,
+  accessibleValue = value,
 }: {
   operation: 'read' | 'write';
   label: string;
   value: string;
+  accessibleValue?: string;
 }) {
   const Icon = operation === 'read' ? IconDatabaseArrowUp : IconDatabaseArrowDown;
   return (
     <span
       className={`${styles.requestEventsCacheMetric} ${operation === 'read' ? styles.requestEventsCacheMetricRead : styles.requestEventsCacheMetricWrite}`}
       role="img"
-      aria-label={`${label}: ${value}`}
+      aria-label={`${label}: ${accessibleValue}`}
       data-cache-operation={operation}
       data-cache-flow={operation === 'read' ? 'upload' : 'download'}
     >
@@ -626,6 +637,12 @@ export function RequestEventsDetailsCard({
         cacheReadTokensLabel: REQUEST_EVENT_INTEGER_FORMATTER.format(cacheReadTokens),
         cacheCreationTokensLabel: REQUEST_EVENT_INTEGER_FORMATTER.format(cacheCreationTokens),
         totalTokensLabel: REQUEST_EVENT_INTEGER_FORMATTER.format(totalTokens),
+        inputTokensDisplayLabel: formatCompactTokenValue(inputTokens),
+        outputTokensDisplayLabel: formatCompactTokenValue(outputTokens),
+        reasoningTokensDisplayLabel: formatCompactTokenValue(reasoningTokens),
+        cacheReadTokensDisplayLabel: formatCompactTokenValue(cacheReadTokens),
+        cacheCreationTokensDisplayLabel: formatCompactTokenValue(cacheCreationTokens),
+        totalTokensDisplayLabel: formatCompactTokenValue(totalTokens),
         cacheReadRate: formatCacheReadRate(cacheReadTokens, inputTokens),
         cost,
         costAvailable,
@@ -929,23 +946,26 @@ export function RequestEventsDetailsCard({
               onFocus={(event) => handleRequestEventsTooltipFocus(tooltipLines, event.currentTarget)}
               onBlur={(event) => handleRequestEventsTooltipBlur(event.currentTarget)}
             >
-              <span className={styles.requestEventsStackedPrimary}>{row.totalTokensLabel}</span>
+              <span className={styles.requestEventsStackedPrimary}>{row.totalTokensDisplayLabel}</span>
               <div className={styles.requestEventsTokenMetricRow}>
                 <RequestEventsTokenMetric
                   direction="input"
                   label={t('usage_stats.input_tokens')}
-                  value={row.inputTokensLabel}
+                  value={row.inputTokensDisplayLabel}
+                  accessibleValue={row.inputTokensLabel}
                 />
               </div>
               <div className={styles.requestEventsTokenMetricRow}>
                 <RequestEventsTokenMetric
                   direction="output"
                   label={t('usage_stats.output_tokens')}
-                  value={row.outputTokensLabel}
+                  value={row.outputTokensDisplayLabel}
+                  accessibleValue={row.outputTokensLabel}
                 />
                 <RequestEventsReasoningMetric
                   label={t('usage_stats.reasoning_tokens')}
-                  value={row.reasoningTokensLabel}
+                  value={row.reasoningTokensDisplayLabel}
+                  accessibleValue={row.reasoningTokensLabel}
                 />
               </div>
             </td>
@@ -975,12 +995,14 @@ export function RequestEventsDetailsCard({
                 <RequestEventsCacheMetric
                   operation="read"
                   label={t('usage_stats.cache_read_tokens')}
-                  value={row.cacheReadTokensLabel}
+                  value={row.cacheReadTokensDisplayLabel}
+                  accessibleValue={row.cacheReadTokensLabel}
                 />
                 <RequestEventsCacheMetric
                   operation="write"
                   label={t('usage_stats.cache_creation_tokens')}
-                  value={row.cacheCreationTokensLabel}
+                  value={row.cacheCreationTokensDisplayLabel}
+                  accessibleValue={row.cacheCreationTokensLabel}
                 />
               </div>
             </td>

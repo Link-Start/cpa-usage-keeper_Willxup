@@ -139,4 +139,40 @@ describe('RequestEventsDetailsCard token and cache tooltips', () => {
       await i18n.changeLanguage('en');
     }
   });
+
+  it('keeps full token values in the tooltip when cells use compact units', async () => {
+    const mounted = await mountCard([{
+      ...baseEvent,
+      tokens: {
+        input_tokens: 1_234_567,
+        output_tokens: 2_345_678,
+        reasoning_tokens: 12_345,
+        cache_read_tokens: 3_456_789,
+        cache_creation_tokens: 4_567_890,
+        total_tokens: 5_678_901,
+      },
+    }]);
+
+    try {
+      const cells = mounted.container.querySelectorAll<HTMLTableCellElement>('tbody td');
+      const tokensCell = cells[0];
+      const cacheCell = cells[1];
+      expect(tokensCell.textContent).toContain('5.68M');
+      expect(tokensCell.textContent).toContain('1.23M');
+      expect(cacheCell.textContent).toContain('3.46M');
+      expect(cacheCell.textContent).toContain('4.57M');
+
+      await act(async () => {
+        tokensCell.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+      });
+      expect(tooltipLines()).toEqual([
+        'Total Tokens: 5,678,901',
+        'Input: 1,234,567',
+        'Output: 2,345,678',
+        'Reasoning: 12,345',
+      ]);
+    } finally {
+      await mounted.unmount();
+    }
+  });
 });
