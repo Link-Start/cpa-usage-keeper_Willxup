@@ -268,8 +268,8 @@ describe('UsagePage toolbar styles', () => {
     expect(usagePageSource).toContain('customRange={activeCustomRange}')
     expect(usagePageSource).toContain("maxCustomDayRangeDays={activeTab === 'events' ? REQUEST_EVENTS_CUSTOM_DAY_RANGE_MAX_DAYS : undefined}")
     expect(usagePageSource).toContain('onChange={handleTimeRangeChange}')
-    expect(usagePageSource).toContain('fetchAnalysis(usageRangeQuery, controller.signal, selectedApiKeyId)')
-    expect(usagePageSource).toContain('fetchAnalysisLatency(usageRangeQuery, controller.signal, selectedApiKeyId)')
+    expect(usagePageSource).toContain('fetchAnalysis(usageRangeQuery, controller.signal, requestApiKeyId)')
+    expect(usagePageSource).toContain('fetchAnalysisLatency(usageRangeQuery, controller.signal, requestApiKeyId)')
     expect(usagePageSource).toContain('fetchUsageEvents(usageRangeQuery, controller.signal, {')
     expect(usagePageSource).toContain('exportUsageEvents(usageRangeQuery, format, {')
 
