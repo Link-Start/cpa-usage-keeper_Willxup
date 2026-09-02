@@ -1657,7 +1657,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   }, [onAuthRequired, requestLogAccessEnabled, showTopNotice, t]);
 
   const refreshActiveTab = useCallback(async () => {
-    if (!apiKeyFilterReady && shouldShowApiKeyFilter(activeTab)) return;
+    if (!apiKeyFilterReady && shouldShowRangeControls(activeTab)) return;
     if (activeTab === 'events') {
       await Promise.all([loadEventFilterOptions(), loadEvents()]);
       return;
@@ -1682,7 +1682,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   }, [activeTab, apiKeyFilterReady, credentialSectionVisibility.enabled, loadActivity, loadAnalysis, loadApiKeySettings, loadAuthSessions, loadEventFilterOptions, loadEvents, loadPricing, loadRealtime, loadUsage, refreshCredentials, refreshRanking]);
 
   const refreshAutoRefreshTab = useCallback(async () => {
-    if (!apiKeyFilterReady && shouldShowApiKeyFilter(activeTab)) return;
+    if (!apiKeyFilterReady && shouldShowRangeControls(activeTab)) return;
     if (activeTab === 'events') {
       await loadEvents();
       return;
