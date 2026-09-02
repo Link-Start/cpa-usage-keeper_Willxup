@@ -3,6 +3,7 @@ export type AuthRole = 'admin' | 'api_key_viewer'
 export interface AuthSessionAPIKeySummary {
   display_key: string
   alias?: string
+  local_ranking_enabled?: boolean
 }
 
 export interface AuthSessionResponse {

@@ -9,6 +9,7 @@ const usagePageStyles = readSource(new URL('../UsagePage.module.scss', import.me
 const usagePageSource = readSource(new URL('../UsagePage.tsx', import.meta.url))
 const keyOverviewPageStyles = readSource(new URL('../../features/key-viewer/KeyViewerShell.module.scss', import.meta.url))
 const keyOverviewPageSource = readSource(new URL('../KeyOverviewPage.tsx', import.meta.url))
+const keyAnalysisPageSource = readSource(new URL('../KeyAnalysisPage.tsx', import.meta.url))
 const keyViewerShellSource = readSource(new URL('../../features/key-viewer/KeyViewerShell.tsx', import.meta.url))
 const requestEventsSource = readSource(new URL('../../components/usage/RequestEventsDetailsCard.tsx', import.meta.url))
 const requestEventLogSource = readSource(new URL('../../components/usage/RequestEventLogModal.tsx', import.meta.url))
@@ -254,7 +255,8 @@ describe('UsagePage toolbar styles', () => {
     expect(usagePageSource).not.toContain('TimeRangeControlPrototype')
     expect(keyOverviewPageSource).not.toContain('TimeRangeControlPrototype')
     expect(usagePageSource).toContain('parseStoredUsageRangeState')
-    expect(keyOverviewPageSource).toContain('parseStoredUsageRangeState')
+    expect(keyOverviewPageSource).toContain('loadKeyViewerTimeRange')
+    expect(keyAnalysisPageSource).toContain('loadKeyViewerTimeRange')
     expect(timeRangeControlSource).toContain('data-time-range-trigger="desktop"')
     expect(timeRangeControlSource).toContain('data-time-range-trigger="mobile"')
   })
@@ -276,6 +278,13 @@ describe('UsagePage toolbar styles', () => {
     expect(keyOverviewPageSource).toContain('customRange={customRange}')
     expect(keyOverviewPageSource).toContain('onChange={handleTimeRangeChange}')
     expect(keyOverviewPageSource).toContain('fetchKeyOverview(usageRangeQuery, controller.signal)')
+  })
+
+  it('persists one time range across API Key viewer pages', () => {
+    expect(keyOverviewPageSource).toContain('persistKeyViewerTimeRange(timeRangeState)')
+    expect(keyAnalysisPageSource).toContain('persistKeyViewerTimeRange(timeRangeState)')
+    expect(keyOverviewPageSource).not.toContain('cli-proxy-key-overview-range-v1')
+    expect(keyAnalysisPageSource).not.toContain('cli-proxy-key-analysis-range-v1')
   })
 
   it('shows a dedicated notice when Usage Events export capacity is full', () => {
@@ -921,10 +930,11 @@ describe('UsagePage toolbar styles', () => {
     expect(connectedActiveTab).not.toContain('border-color:')
   })
 
-  it('keeps the connected shell out of CPAMC embed and Key Overview', () => {
+  it('keeps the connected shell out of CPAMC embed while sharing it with Key Overview', () => {
     expect(usagePageSource).toContain("${!isEmbeddedInCPAMC ? styles.tabBarConnected : ''}")
-    expect(keyOverviewPageSource).not.toContain('tabBarConnected')
-    expect(keyOverviewPageStyles).not.toContain('.tabBarConnected')
+    expect(keyViewerShellSource).toContain('styles.tabBarConnected')
+    expect(keyOverviewPageSource).toContain('KeyViewerShell')
+    expect(keyOverviewPageStyles).toContain('.tabBarConnected')
   })
 
   it('lets API Key Settings content scroll inside the card instead of being clipped', () => {
@@ -1527,6 +1537,18 @@ describe('UsagePage toolbar styles', () => {
     ;['api_key', 'source', 'model'].forEach((columnId) => {
       expect(requestEventColumnDefinitionBlock(columnId)).not.toContain('styles.requestEventsNoWrapCell')
     })
+  })
+
+  it('normalizes Request Event Log metric icons on a shared slot', () => {
+    const iconSlotBlock = styleRuleBlock(usagePageStyles, '.requestEventsMetricIconSlot')
+    const cacheIconBlock = styleRuleBlock(usagePageStyles, '.requestEventsCacheIcon')
+
+    expect(iconSlotBlock).toMatch(/width:\s*16px;/)
+    expect(iconSlotBlock).toMatch(/height:\s*16px;/)
+    expect(iconSlotBlock).toContain('justify-content: center;')
+    expect(cacheIconBlock).toContain('transform: scale(0.9);')
+    expect(requestEventsSource).toContain('styles.requestEventsMetricIconSlot')
+    expect(requestEventsSource).toContain('styles.requestEventsCacheIcon')
   })
 
   it('provides reusable pill controls and global command actions for usage subpages', () => {
