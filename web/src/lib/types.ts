@@ -471,6 +471,14 @@ export interface UsageQuotaCheckResponse {
   rateLimitResetCreditsAvailableCount?: number | null
 }
 
+export interface UsageQuotaUpstreamResponse {
+  method: string
+  url: string
+  status_code: number
+  header?: Record<string, string[]>
+  body: string
+}
+
 export interface UsageQuotaResetResponse {
   authIndex: string
   code?: string
@@ -499,6 +507,7 @@ export interface UsageQuotaCacheItem {
   http_status_code?: number
   expires_at?: string
   refreshed_at?: string
+  upstream_responses?: UsageQuotaUpstreamResponse[]
 }
 
 export interface UsageQuotaCacheResponse {
@@ -580,6 +589,7 @@ export interface UsageQuotaRefreshTaskResponse {
   file_name?: string
   status: 'queued' | 'running' | 'completed' | 'failed'
   quota?: UsageQuotaCheckResponse
+  upstream_responses?: UsageQuotaUpstreamResponse[]
   error?: string
   http_status_code?: number
   refreshed_at?: string
