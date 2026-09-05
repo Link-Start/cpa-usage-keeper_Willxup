@@ -768,9 +768,11 @@ function RealtimePairedMetrics({
           key={metric.label}
           className={styles.overviewRealtimePairedMetric}
           title={metricsTooltip}
-          aria-label={`${metric.label} ${tokenLabel} ${metric.tokenValue} ${requestLabel} ${metric.requestValue}${metricsTooltip ? ` ${metricsTooltip}` : ''}`}
         >
-          <span className={styles.overviewRealtimePairedMetricLabel}>{metric.label}</span>
+          <span className={styles.overviewRealtimeScreenReaderOnly}>
+            {`${metric.label} ${tokenLabel} ${metric.tokenValue} ${requestLabel} ${metric.requestValue}${metricsTooltip ? ` ${metricsTooltip}` : ''}`}
+          </span>
+          <span className={styles.overviewRealtimePairedMetricLabel} aria-hidden="true">{metric.label}</span>
           <span className={styles.overviewRealtimePairedMetricSeries} aria-hidden="true">
             <span className={styles.overviewRealtimePairedMetricTokenLabel}>{tokenShortLabel}</span>
             <span className={`${styles.overviewRealtimePairedMetricValue} ${toneClass(metric.tokenTone)}`.trim()}>{metric.tokenValue}</span>

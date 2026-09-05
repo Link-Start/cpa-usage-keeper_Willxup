@@ -195,7 +195,10 @@ describe('OverviewRealtimePanel', () => {
     expect(html.match(/>usage_stats\.overview_realtime_trend<\/span>/g) ?? []).toHaveLength(4);
     expect(html).toContain('usage_stats.tpm');
     expect(html).toContain('usage_stats.rpm');
-    expect(html).toContain('aria-label="usage_stats.overview_realtime_latest usage_stats.overview_realtime_tpm 240 usage_stats.overview_realtime_rpm 4 usage_stats.overview_realtime_throughput_hint"');
+    expect(html).not.toContain('aria-label="usage_stats.overview_realtime_latest usage_stats.overview_realtime_tpm');
+    expect(html).toContain('overviewRealtimeScreenReaderOnly_');
+    expect(html).toContain('>usage_stats.overview_realtime_latest usage_stats.overview_realtime_tpm 240 usage_stats.overview_realtime_rpm 4 usage_stats.overview_realtime_throughput_hint</span>');
+    expect(html).toContain('aria-hidden="true">usage_stats.overview_realtime_latest</span>');
     expect(chartCapture.chartCalls[0].data.datasets.map((dataset) => dataset.label)).toEqual([
       'usage_stats.overview_realtime_ttft_average',
       'usage_stats.overview_realtime_ttft_distribution',
