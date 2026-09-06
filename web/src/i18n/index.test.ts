@@ -262,10 +262,10 @@ describe('i18n resources', () => {
     expect(i18n.getResource('zh-TW', 'translation', 'usage_stats.duration_unit_s')).toBe('s');
   });
 
-  it('describes request event speed using full output tokens', () => {
-    expect(i18n.getResource('en', 'translation', 'usage_stats.speed_hint')).toBe('Average output tokens per second after TTFT');
-    expect(i18n.getResource('zh', 'translation', 'usage_stats.speed_hint')).toBe('首字后输出 token 的平均速度');
-    expect(i18n.getResource('zh-TW', 'translation', 'usage_stats.speed_hint')).toBe('首字後輸出 token 的平均速度');
+  it('describes request event speed using full output tokens and total latency', () => {
+    expect(i18n.getResource('en', 'translation', 'usage_stats.speed_hint')).toBe('Average output tokens per second over total latency');
+    expect(i18n.getResource('zh', 'translation', 'usage_stats.speed_hint')).toBe('按总延迟计算的输出 token 平均速度');
+    expect(i18n.getResource('zh-TW', 'translation', 'usage_stats.speed_hint')).toBe('按總延遲計算的輸出 token 平均速度');
   });
 
   it('labels request event client metadata across languages', () => {
