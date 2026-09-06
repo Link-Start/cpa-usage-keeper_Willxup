@@ -125,11 +125,6 @@ func OpenDatabase(cfg config.Config) (*gorm.DB, error) {
 	if !sqliteDatabaseRequiresSinglePool(cfg.SQLitePath) && !strings.EqualFold(strings.TrimSpace(journalMode), "wal") {
 		return nil, fmt.Errorf("enable sqlite WAL: journal mode is %q", journalMode)
 	}
-	if strings.EqualFold(strings.TrimSpace(journalMode), "wal") {
-		if err := db.Exec("PRAGMA synchronous=NORMAL").Error; err != nil {
-			return nil, fmt.Errorf("set sqlite synchronous normal: %w", err)
-		}
-	}
 	if err := db.Exec("PRAGMA busy_timeout=15000").Error; err != nil {
 		return nil, fmt.Errorf("set sqlite busy timeout: %w", err)
 	}
