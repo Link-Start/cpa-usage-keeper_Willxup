@@ -254,7 +254,7 @@ describe('RequestEventsDetailsCard pagination', () => {
   it('uses backend model and source options instead of current page grouping', () => {
     const html = renderCard({ modelFilter: 'claude-opus', sourceFilter: 'source-b' });
 
-    expect(html).toContain('aria-label="Model"><span class="_triggerText_c80422 ">claude-opus</span>');
+    expect(html).toMatch(/<input[^>]*role="combobox"[^>]*aria-label="Model"[^>]*value="claude-opus"/);
     expect(html).toContain('aria-label="Source"><span class="_triggerText_c80422 ">Provider B</span>');
   });
 

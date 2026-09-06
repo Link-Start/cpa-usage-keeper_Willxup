@@ -48,7 +48,6 @@ const DROPDOWN_MAX_HEIGHT = 240;
 const DROPDOWN_Z_INDEX = 2010;
 
 const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max);
-const focusSearchInput = (element: HTMLInputElement | null) => element?.focus({ preventScroll: true });
 
 const findNextEnabledOptionIndex = (
   options: ReadonlyArray<SelectOption>,
@@ -126,7 +125,7 @@ export function Select({
   const [open, setOpen] = useState(false);
   const [highlightedIndex, setHighlightedIndex] = useState(-1);
   const [searchQuery, setSearchQuery] = useState('');
-  const triggerRef = useRef<HTMLButtonElement | null>(null);
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const dropdownRef = useRef<HTMLDivElement | null>(null);
   const rafRef = useRef<number | null>(null);
@@ -228,10 +227,11 @@ export function Select({
     (nextIndex: number) => {
       const nextOption = visibleOptions[nextIndex];
       if (!nextOption || nextOption.disabled) return;
+      // 先保留输入焦点再关闭，避免 onFocus 在选中后重新展开列表。
+      if (searchable) searchInputRef.current?.focus();
       onChange(nextOption.value);
       setOpen(false);
       setHighlightedIndex(nextIndex);
-      if (searchable) triggerRef.current?.focus();
     },
     [onChange, searchable, visibleOptions]
   );
@@ -299,12 +299,10 @@ export function Select({
         case 'Escape':
           if (!isOpen) return;
           event.preventDefault();
+          if (searchable) searchInputRef.current?.focus();
           setOpen(false);
-          if (searchable) triggerRef.current?.focus();
           return;
         case 'Tab':
-          // Portal 中的输入框退出时回到触发器，再沿原页面的 Tab 顺序继续。
-          if (isOpen && searchable) triggerRef.current?.focus();
           if (isOpen) setOpen(false);
           return;
         default:
@@ -362,24 +360,6 @@ export function Select({
           >
             {search ? (
               <>
-                <input
-                  ref={focusSearchInput}
-                  className={styles.searchInput}
-                  type="text"
-                  role="combobox"
-                  aria-label={search.placeholder}
-                  aria-autocomplete="list"
-                  aria-expanded={isOpen}
-                  aria-controls={listboxId}
-                  aria-activedescendant={resolvedHighlightedIndex >= 0 ? `${selectId}-option-${resolvedHighlightedIndex}` : undefined}
-                  placeholder={search.placeholder}
-                  value={searchQuery}
-                  onChange={(event) => {
-                    setSearchQuery(event.target.value);
-                    setHighlightedIndex(-1);
-                  }}
-                  onKeyDown={handleKeyDown}
-                />
                 <div id={listboxId} role="listbox" aria-label={ariaLabel} className={styles.searchOptions}>
                   {optionButtons}
                 </div>
@@ -396,8 +376,46 @@ export function Select({
         className={`${styles.wrap} ${fullWidth ? styles.wrapFullWidth : ''} ${className ?? ''}`}
         ref={wrapRef}
       >
-        <button
-          ref={triggerRef}
+        {search ? (
+          <>
+            <input
+              ref={searchInputRef}
+              id={selectId}
+              className={`${styles.trigger} ${styles.searchInput}`}
+              type="text"
+              role="combobox"
+              aria-label={ariaLabel ?? search.placeholder}
+              aria-labelledby={ariaLabelledBy}
+              aria-describedby={ariaDescribedBy}
+              aria-autocomplete="list"
+              aria-expanded={isOpen}
+              aria-controls={isOpen ? listboxId : undefined}
+              aria-activedescendant={isOpen && resolvedHighlightedIndex >= 0 ? `${selectId}-option-${resolvedHighlightedIndex}` : undefined}
+              placeholder={search.placeholder}
+              value={isOpen ? searchQuery : selected?.triggerLabel ?? selected?.label ?? ''}
+              autoComplete="off"
+              autoCapitalize="none"
+              spellCheck={false}
+              disabled={disabled}
+              onFocus={openDropdown}
+              onClick={() => {
+                if (!isOpen) openDropdown();
+              }}
+              onChange={(event) => {
+                setSearchQuery(event.target.value);
+                setHighlightedIndex(-1);
+                setOpen(true);
+              }}
+              onBlur={(event) => {
+                if (!dropdownRef.current?.contains(event.relatedTarget)) setOpen(false);
+              }}
+              onKeyDown={handleKeyDown}
+            />
+            <span className={`${styles.triggerIcon} ${styles.searchIcon}`} aria-hidden="true">
+              <IconChevronDown size={14} />
+            </span>
+          </>
+        ) : <button
           id={selectId}
           type="button"
           className={styles.trigger}
@@ -422,7 +440,7 @@ export function Select({
           <span className={styles.triggerIcon} aria-hidden="true">
             <IconChevronDown size={14} />
           </span>
-        </button>
+        </button>}
       </div>
       {dropdown && (typeof document === 'undefined' ? dropdown : createPortal(dropdown, document.body))}
     </>

@@ -111,24 +111,23 @@
 }
 
 .searchInput {
-  flex-shrink: 0;
   min-width: 0;
-  width: 100%;
-  box-sizing: border-box;
-  padding: 8px 10px;
-  border: 1px solid var(--border-color);
-  border-radius: $radius-md;
-  background: var(--bg-primary);
-  color: var(--text-primary);
-  font-size: 13px;
+  padding-right: 36px;
+  cursor: text;
+  text-overflow: ellipsis;
 
   &::placeholder {
     color: var(--text-tertiary);
   }
+}
 
-  &:focus {
-    outline: none;
-    border-color: var(--primary-color);
+.searchIcon {
+  position: absolute;
+  right: 12px;
+  pointer-events: none;
+
+  .searchInput[aria-expanded='true'] + & {
+    transform: rotate(180deg);
   }
 }
 

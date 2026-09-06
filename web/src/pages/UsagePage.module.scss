@@ -207,7 +207,8 @@
     outline: none;
   }
 
-  > button {
+  > button,
+  > input[role='combobox'] {
     min-height: 40px;
     border-radius: 999px;
     background: color-mix(in srgb, var(--bg-primary) 86%, transparent);
