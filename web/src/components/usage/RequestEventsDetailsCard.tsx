@@ -1142,6 +1142,10 @@ export function RequestEventsDetailsCard({
                 value={effectiveModelFilter}
                 options={modelOptions}
                 onChange={onModelFilterChange}
+                search={{
+                  placeholder: t('usage_stats.request_events_search_model'),
+                  noResultsText: t('usage_stats.request_events_no_matching_models'),
+                }}
                 className={`${styles.requestEventsSelect} ${styles.usagePillControl}`}
                 ariaLabel={t('usage_stats.request_events_filter_model')}
                 fullWidth={false}

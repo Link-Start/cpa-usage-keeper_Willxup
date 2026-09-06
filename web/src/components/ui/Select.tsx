@@ -36,6 +36,10 @@ interface SelectProps {
   fullWidth?: boolean;
   dropdownMinWidth?: number;
   id?: string;
+  search?: {
+    placeholder: string;
+    noResultsText: string;
+  };
 }
 
 const VIEWPORT_MARGIN = 8;
@@ -44,6 +48,7 @@ const DROPDOWN_MAX_HEIGHT = 240;
 const DROPDOWN_Z_INDEX = 2010;
 
 const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max);
+const focusSearchInput = (element: HTMLInputElement | null) => element?.focus({ preventScroll: true });
 
 const findNextEnabledOptionIndex = (
   options: ReadonlyArray<SelectOption>,
@@ -113,17 +118,31 @@ export function Select({
   fullWidth = true,
   dropdownMinWidth,
   id,
+  search,
 }: SelectProps) {
   const generatedId = useId();
   const selectId = id ?? generatedId;
   const listboxId = `${selectId}-listbox`;
   const [open, setOpen] = useState(false);
   const [highlightedIndex, setHighlightedIndex] = useState(-1);
+  const [searchQuery, setSearchQuery] = useState('');
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const dropdownRef = useRef<HTMLDivElement | null>(null);
   const rafRef = useRef<number | null>(null);
   const [dropdownStyle, setDropdownStyle] = useState<CSSProperties | null>(null);
   const isOpen = open && !disabled;
+  const searchable = Boolean(search);
+  // 搜索只缩小候选项，提交选择后才更新调用方的筛选值。
+  const visibleOptions = useMemo(() => {
+    const query = searchable ? searchQuery.trim().toLowerCase() : '';
+    return query ? options.filter((option) => option.label.toLowerCase().includes(query)) : options;
+  }, [options, searchable, searchQuery]);
+  const openDropdown = useCallback(() => {
+    setSearchQuery('');
+    setHighlightedIndex(-1);
+    setOpen(true);
+  }, []);
 
   useEffect(() => {
     if (!open || disabled) return;
@@ -193,12 +212,13 @@ export function Select({
   }, [isOpen, scheduleDropdownStyleUpdate, updateDropdownStyle]);
 
   const selectedIndex = useMemo(() => options.findIndex((option) => option.value === value), [options, value]);
-  const firstEnabledIndex = useMemo(() => options.findIndex((option) => !option.disabled), [options]);
+  const visibleSelectedIndex = visibleOptions.findIndex((option) => option.value === value);
+  const firstEnabledIndex = visibleOptions.findIndex((option) => !option.disabled);
   const resolvedHighlightedIndex =
-    highlightedIndex >= 0
+    highlightedIndex >= 0 && visibleOptions[highlightedIndex] && !visibleOptions[highlightedIndex].disabled
       ? highlightedIndex
-      : selectedIndex >= 0 && !options[selectedIndex]?.disabled
-        ? selectedIndex
+      : visibleSelectedIndex >= 0 && !visibleOptions[visibleSelectedIndex]?.disabled
+        ? visibleSelectedIndex
         : firstEnabledIndex;
   const selected = selectedIndex >= 0 ? options[selectedIndex] : undefined;
   const displayText = selected?.triggerLabel ?? selected?.label ?? placeholder ?? '';
@@ -206,39 +226,41 @@ export function Select({
 
   const commitSelection = useCallback(
     (nextIndex: number) => {
-      const nextOption = options[nextIndex];
+      const nextOption = visibleOptions[nextIndex];
       if (!nextOption || nextOption.disabled) return;
       onChange(nextOption.value);
       setOpen(false);
       setHighlightedIndex(nextIndex);
+      if (searchable) triggerRef.current?.focus();
     },
-    [onChange, options]
+    [onChange, searchable, visibleOptions]
   );
 
   const moveHighlight = useCallback(
     (direction: 1 | -1) => {
-      if (options.length === 0) return;
+      if (visibleOptions.length === 0) return;
       const startIndex = resolvedHighlightedIndex >= 0
         ? resolvedHighlightedIndex
         : direction === 1
           ? -1
-          : options.length;
-      const nextIndex = findNextEnabledOptionIndex(options, startIndex, direction);
+          : visibleOptions.length;
+      const nextIndex = findNextEnabledOptionIndex(visibleOptions, startIndex, direction);
       if (nextIndex < 0) return;
       setHighlightedIndex(nextIndex);
     },
-    [options, resolvedHighlightedIndex]
+    [visibleOptions, resolvedHighlightedIndex]
   );
 
   const handleKeyDown = useCallback(
-    (event: React.KeyboardEvent<HTMLButtonElement>) => {
-      if (disabled) return;
+    (event: React.KeyboardEvent<HTMLButtonElement | HTMLInputElement>) => {
+      if (disabled || event.nativeEvent.isComposing) return;
+      const editingSearch = event.currentTarget instanceof HTMLInputElement;
 
       switch (event.key) {
         case 'ArrowDown':
           event.preventDefault();
           if (!isOpen) {
-            setOpen(true);
+            openDropdown();
             return;
           }
           moveHighlight(1);
@@ -246,26 +268,27 @@ export function Select({
         case 'ArrowUp':
           event.preventDefault();
           if (!isOpen) {
-            setOpen(true);
+            openDropdown();
             return;
           }
           moveHighlight(-1);
           return;
         case 'Home':
-          if (!isOpen || options.length === 0) return;
+          if (editingSearch || !isOpen || visibleOptions.length === 0) return;
           event.preventDefault();
           setHighlightedIndex(0);
           return;
         case 'End':
-          if (!isOpen || options.length === 0) return;
+          if (editingSearch || !isOpen || visibleOptions.length === 0) return;
           event.preventDefault();
-          setHighlightedIndex(options.length - 1);
+          setHighlightedIndex(visibleOptions.length - 1);
           return;
         case 'Enter':
         case ' ': {
+          if (editingSearch && event.key === ' ') return;
           event.preventDefault();
           if (!isOpen) {
-            setOpen(true);
+            openDropdown();
             return;
           }
           if (resolvedHighlightedIndex >= 0) {
@@ -277,60 +300,92 @@ export function Select({
           if (!isOpen) return;
           event.preventDefault();
           setOpen(false);
+          if (searchable) triggerRef.current?.focus();
           return;
         case 'Tab':
+          // Portal 中的输入框退出时回到触发器，再沿原页面的 Tab 顺序继续。
+          if (isOpen && searchable) triggerRef.current?.focus();
           if (isOpen) setOpen(false);
           return;
         default:
           return;
       }
     },
-    [commitSelection, disabled, isOpen, moveHighlight, options.length, resolvedHighlightedIndex]
+    [commitSelection, disabled, isOpen, moveHighlight, openDropdown, searchable, visibleOptions.length, resolvedHighlightedIndex]
   );
 
   useEffect(() => {
     if (!isOpen || resolvedHighlightedIndex < 0) return;
     const highlightedOption = document.getElementById(`${selectId}-option-${resolvedHighlightedIndex}`);
     highlightedOption?.scrollIntoView({ block: 'nearest' });
-  }, [isOpen, resolvedHighlightedIndex, selectId]);
+  }, [isOpen, resolvedHighlightedIndex, selectId, visibleOptions]);
+
+  const optionButtons = isOpen && visibleOptions.map((opt, index) => {
+    const active = opt.value === value;
+    const highlighted = index === resolvedHighlightedIndex;
+    return (
+      <button
+        key={opt.value}
+        id={`${selectId}-option-${index}`}
+        type="button"
+        role="option"
+        aria-selected={active}
+        aria-disabled={opt.disabled || undefined}
+        className={`${styles.option} ${active ? styles.optionActive : ''} ${highlighted ? styles.optionHighlighted : ''} ${opt.disabled ? styles.optionDisabled : ''}`.trim()}
+        disabled={opt.disabled}
+        tabIndex={searchable ? -1 : undefined}
+        onMouseDown={searchable ? (event) => event.preventDefault() : undefined}
+        onMouseEnter={opt.disabled ? undefined : () => setHighlightedIndex(index)}
+        onKeyDown={handleKeyDown}
+        onClick={opt.disabled ? undefined : () => commitSelection(index)}
+      >
+        <span className={styles.optionLabel}>{opt.label}</span>
+        {opt.suffix ? (
+          <span className={styles.optionSuffix} aria-label={opt.suffixAriaLabel}>
+            {opt.suffix}
+          </span>
+        ) : null}
+      </button>
+    );
+  });
 
   const dropdown =
     isOpen && dropdownStyle
       ? (
           <div
             ref={dropdownRef}
-            className={`${styles.dropdown} ${dropdownClassName ?? ''}`.trim()}
-            id={listboxId}
-            role="listbox"
-            aria-label={ariaLabel}
+            className={`${styles.dropdown} ${searchable ? styles.searchableDropdown : ''} ${dropdownClassName ?? ''}`.trim()}
+            id={searchable ? undefined : listboxId}
+            role={searchable ? undefined : 'listbox'}
+            aria-label={searchable ? undefined : ariaLabel}
             style={dropdownStyle}
           >
-            {options.map((opt, index) => {
-              const active = opt.value === value;
-              const highlighted = index === resolvedHighlightedIndex;
-              return (
-                <button
-                  key={opt.value}
-                  id={`${selectId}-option-${index}`}
-                  type="button"
-                  role="option"
-                  aria-selected={active}
-                  aria-disabled={opt.disabled || undefined}
-                  className={`${styles.option} ${active ? styles.optionActive : ''} ${highlighted ? styles.optionHighlighted : ''} ${opt.disabled ? styles.optionDisabled : ''}`.trim()}
-                  disabled={opt.disabled}
-                  onMouseEnter={opt.disabled ? undefined : () => setHighlightedIndex(index)}
+            {search ? (
+              <>
+                <input
+                  ref={focusSearchInput}
+                  className={styles.searchInput}
+                  type="text"
+                  role="combobox"
+                  aria-label={search.placeholder}
+                  aria-autocomplete="list"
+                  aria-expanded={isOpen}
+                  aria-controls={listboxId}
+                  aria-activedescendant={resolvedHighlightedIndex >= 0 ? `${selectId}-option-${resolvedHighlightedIndex}` : undefined}
+                  placeholder={search.placeholder}
+                  value={searchQuery}
+                  onChange={(event) => {
+                    setSearchQuery(event.target.value);
+                    setHighlightedIndex(-1);
+                  }}
                   onKeyDown={handleKeyDown}
-                  onClick={opt.disabled ? undefined : () => commitSelection(index)}
-                >
-                  <span className={styles.optionLabel}>{opt.label}</span>
-                  {opt.suffix ? (
-                    <span className={styles.optionSuffix} aria-label={opt.suffixAriaLabel}>
-                      {opt.suffix}
-                    </span>
-                  ) : null}
-                </button>
-              );
-            })}
+                />
+                <div id={listboxId} role="listbox" aria-label={ariaLabel} className={styles.searchOptions}>
+                  {optionButtons}
+                </div>
+                {visibleOptions.length === 0 ? <div role="status" className={styles.noResults}>{search.noResultsText}</div> : null}
+              </>
+            ) : optionButtons}
           </div>
         )
       : null;
@@ -342,10 +397,11 @@ export function Select({
         ref={wrapRef}
       >
         <button
+          ref={triggerRef}
           id={selectId}
           type="button"
           className={styles.trigger}
-          onClick={disabled ? undefined : () => setOpen((prev) => !prev)}
+          onClick={disabled ? undefined : () => isOpen ? setOpen(false) : openDropdown()}
           onKeyDown={handleKeyDown}
           aria-haspopup="listbox"
           aria-expanded={isOpen}
