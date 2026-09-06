@@ -114,6 +114,27 @@ describe('RequestEventsDetailsCard model search', () => {
     }
   });
 
+  it.each(['Model', 'Source', 'Result'])('does not open %s from its caption or surrounding space', async (label) => {
+    const control = container.querySelector<HTMLInputElement | HTMLButtonElement>(`[aria-label="${label}"][aria-expanded]`)!;
+    const caption = Array.from(container.querySelectorAll('span')).find((node) => node.textContent === label)!;
+
+    for (const target of [caption, caption.parentElement!]) {
+      await act(async () => target.click());
+      expect(control.getAttribute('aria-expanded')).toBe('false');
+      expect(document.querySelector('[role="listbox"]')).toBeNull();
+    }
+
+    await act(async () => control.click());
+    expect(control.getAttribute('aria-expanded')).toBe('true');
+    await act(async () => control.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })));
+    await act(async () => {
+      control.focus();
+      control.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
+    });
+    expect(control.getAttribute('aria-expanded')).toBe('true');
+    expect(onModelFilterChange).not.toHaveBeenCalled();
+  });
+
   it('supports keyboard selection without intercepting text editing or IME confirmation', async () => {
     await openInput();
     await typeQuery('gpt');
