@@ -256,7 +256,8 @@ func pricingProviderRankForModel(model string, providerID string) int {
 }
 
 func pricingModelFamily(model string) string {
-	normalized := normalizePricingModelKey(stripPricingModelPrefix(model))
+	identity := strings.ToLower(stripPricingModelPrefix(model))
+	normalized := normalizePricingModelKey(strings.TrimPrefix(identity, "ft:"))
 	switch {
 	case strings.HasPrefix(normalized, "gpt") || strings.HasPrefix(normalized, "chatgpt") || strings.HasPrefix(normalized, "o1") || strings.HasPrefix(normalized, "o3") || strings.HasPrefix(normalized, "o4"):
 		return "openai"
@@ -357,6 +358,19 @@ func stripPricingModelPrefix(model string) string {
 	trimmed := strings.TrimSpace(model)
 	if trimmed == "" {
 		return ""
+	}
+	// ft: 是计费身份而非 CPA 前缀；包括完整微调 ID，避免再截成普通模型或组织后缀。
+	lower := strings.ToLower(trimmed)
+	for offset := 0; offset < len(lower); {
+		index := strings.Index(lower[offset:], "ft:")
+		if index < 0 {
+			break
+		}
+		index += offset
+		if index == 0 || trimmed[index-1] == '/' || trimmed[index-1] == ':' {
+			return trimmed[index:]
+		}
+		offset = index + len("ft:")
 	}
 	// Bedrock 等模型以 :0 标记版本；跳过数字版本后缀，再寻找 CPA 自定义前缀。
 	for end := len(trimmed); end > 0; {
