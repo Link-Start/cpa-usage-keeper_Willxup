@@ -284,8 +284,17 @@ func pricingModelFamily(model string) string {
 		return "moonshot"
 	case strings.HasPrefix(normalized, "doubao"):
 		return "doubao"
-	case strings.HasPrefix(normalized, "mistral"):
+	// Mistral 的子系列不都以厂商品牌开头，open/labs 仍属于模型身份。
+	case strings.HasPrefix(normalized, "mistral"), strings.HasPrefix(normalized, "devstral"),
+		strings.HasPrefix(normalized, "codestral"), strings.HasPrefix(normalized, "magistral"),
+		strings.HasPrefix(normalized, "ministral"), strings.HasPrefix(normalized, "mixtral"),
+		strings.HasPrefix(normalized, "pixtral"), strings.HasPrefix(normalized, "voxtral"),
+		strings.HasPrefix(normalized, "openmistral"), strings.HasPrefix(normalized, "openmixtral"),
+		strings.HasPrefix(normalized, "opencodestral"), strings.HasPrefix(normalized, "labsdevstral"),
+		strings.HasPrefix(normalized, "labsleanstral"):
 		return "mistral"
+	case strings.HasPrefix(normalized, "command"):
+		return "cohere"
 	case strings.HasPrefix(normalized, "llama"):
 		return "llama"
 	case strings.HasPrefix(normalized, "xiaomi"):
@@ -319,6 +328,8 @@ func officialPricingProvidersByFamily(family string) []string {
 		return []string{"doubao"}
 	case "mistral":
 		return []string{"mistral"}
+	case "cohere":
+		return []string{"cohere"}
 	case "llama":
 		return []string{"llama"}
 	case "xiaomi":

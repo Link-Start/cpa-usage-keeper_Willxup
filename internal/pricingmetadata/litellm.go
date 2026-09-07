@@ -69,6 +69,8 @@ func liteLLMProviderID(provider string) string {
 		return "alibaba-cn"
 	case "qwencloud":
 		return "alibaba"
+	case "cohere_chat":
+		return "cohere"
 	default:
 		return provider
 	}
