@@ -33,7 +33,7 @@ func TestPricingSyncPreservesModelVersionSuffixes(t *testing.T) {
 	}
 	provider := service.NewPricingService(openPricingServiceTestDatabase(t), emptyPricingCatalogForTest(),
 		stubModelsFetcher{result: &response.ModelsResult{Payload: models.ModelsResponse{Data: modelList}}})
-	preview, err := provider.PreviewPricingSync(context.Background())
+	preview, err := provider.PreviewPricingSync(context.Background(), "")
 	if err != nil {
 		t.Fatal(err)
 	}

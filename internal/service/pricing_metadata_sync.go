@@ -2,111 +2,51 @@ package service
 
 import (
 	"context"
-	"encoding/json"
-	"fmt"
-	"io"
-	"net/http"
+	"math"
 	"sort"
 	"strings"
-	"time"
 	"unicode"
 
 	"cpa-usage-keeper/internal/entities"
+	"cpa-usage-keeper/internal/pricingmetadata"
 	servicedto "cpa-usage-keeper/internal/service/dto"
 )
 
-const (
-	pricingSyncMetadataSource = "Models.dev"
-	pricingSyncAPIURL         = "https://models.dev/api.json"
-)
-
-var pricingSyncHTTPClient = &http.Client{Timeout: 12 * time.Second}
-
-type modelsDevProvider struct {
-	ID     string                    `json:"id"`
-	Name   string                    `json:"name"`
-	Models map[string]modelsDevModel `json:"models"`
-}
-
-type modelsDevModel struct {
-	ID          string        `json:"id"`
-	Name        string        `json:"name"`
-	Family      string        `json:"family"`
-	LastUpdated string        `json:"last_updated"`
-	Status      string        `json:"status"`
-	Cost        modelsDevCost `json:"cost"`
-}
-
-type modelsDevCost struct {
-	Input      *float64 `json:"input"`
-	Output     *float64 `json:"output"`
-	CacheRead  *float64 `json:"cache_read"`
-	CacheWrite *float64 `json:"cache_write"`
-}
-
-type pricingCatalogEntry struct {
-	providerID   string
-	providerName string
-	model        modelsDevModel
-}
-
-type pricingCatalogIndex struct {
-	exact      map[string][]pricingCatalogEntry
-	normalized map[string][]pricingCatalogEntry
-}
-
-type pricingSyncCandidate struct {
-	entry     pricingCatalogEntry
-	matchType string
-	score     int
-}
-
-func (s *pricingService) PreviewPricingSync(ctx context.Context) (servicedto.PricingSyncPreview, error) {
+func (s *pricingService) PreviewPricingSync(ctx context.Context, sourceID string) (servicedto.PricingSyncPreview, error) {
+	if _, err := pricingmetadata.SourceByID(sourceID); err != nil {
+		return servicedto.PricingSyncPreview{}, err
+	}
 	models, err := s.effectiveModels(ctx)
 	if err != nil {
 		return servicedto.PricingSyncPreview{}, err
 	}
-	catalog, err := fetchModelsDevCatalog(ctx, pricingSyncAPIURL)
+	catalog, err := s.metadataClient.Fetch(ctx, sourceID)
 	if err != nil {
 		return servicedto.PricingSyncPreview{}, err
 	}
-	return buildPricingSyncPreviewFromCatalog(models, catalog, pricingSyncAPIURL)
+	return buildPricingSyncPreviewFromCatalog(models, catalog)
 }
 
-func fetchModelsDevCatalog(ctx context.Context, catalogURL string) (map[string]modelsDevProvider, error) {
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, catalogURL, nil)
-	if err != nil {
-		return nil, fmt.Errorf("build pricing catalog request: %w", err)
-	}
-	request.Header.Set("Accept", "application/json")
+func validMetadataPrice(value float64) bool {
+	return value >= 0 && !math.IsNaN(value) && !math.IsInf(value, 0)
+}
 
-	response, err := pricingSyncHTTPClient.Do(request)
-	if err != nil {
-		return nil, fmt.Errorf("fetch pricing catalog: %w", err)
-	}
-	defer response.Body.Close()
+type pricingCatalogIndex struct {
+	exact      map[string][]pricingmetadata.Entry
+	normalized map[string][]pricingmetadata.Entry
+}
 
-	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
-		return nil, fmt.Errorf("fetch pricing catalog: unexpected status %d", response.StatusCode)
-	}
-
-	var catalog map[string]modelsDevProvider
-	decoder := json.NewDecoder(io.LimitReader(response.Body, 64<<20))
-	if err := decoder.Decode(&catalog); err != nil {
-		return nil, fmt.Errorf("decode pricing catalog: %w", err)
-	}
-	if catalog == nil {
-		catalog = map[string]modelsDevProvider{}
-	}
-	return catalog, nil
+type pricingSyncCandidate struct {
+	entry     pricingmetadata.Entry
+	matchType string
+	score     int
 }
 
 func buildPricingSyncPreviewFromCatalog(
 	models []string,
-	catalog map[string]modelsDevProvider,
-	sourceURL string,
+	catalog pricingmetadata.Catalog,
 ) (servicedto.PricingSyncPreview, error) {
-	entries := flattenModelsDevCatalog(catalog)
+	entries := catalog.Entries
 	index := buildPricingCatalogIndex(entries)
 	matches := make([]servicedto.PricingSyncMatch, 0, len(models))
 	unmatched := make([]string, 0)
@@ -142,69 +82,23 @@ func buildPricingSyncPreviewFromCatalog(
 	sort.Strings(unmatched)
 
 	return servicedto.PricingSyncPreview{
-		Source:          pricingSyncMetadataSource,
-		SourceURL:       sourceURL,
+		SourceID:        catalog.Source.ID,
+		Source:          catalog.Source.Name,
+		SourceURL:       catalog.Source.URL,
 		MetadataModels:  len(entries),
 		Matches:         matches,
 		UnmatchedModels: unmatched,
 	}, nil
 }
 
-func flattenModelsDevCatalog(catalog map[string]modelsDevProvider) []pricingCatalogEntry {
-	providerIDs := make([]string, 0, len(catalog))
-	for providerID := range catalog {
-		providerIDs = append(providerIDs, providerID)
-	}
-	sort.Strings(providerIDs)
-
-	entries := make([]pricingCatalogEntry, 0)
-	for _, providerKey := range providerIDs {
-		provider := catalog[providerKey]
-		providerID := strings.TrimSpace(provider.ID)
-		if providerID == "" {
-			providerID = strings.TrimSpace(providerKey)
-		}
-		if providerID == "" {
-			continue
-		}
-		providerName := strings.TrimSpace(provider.Name)
-		if providerName == "" {
-			providerName = providerID
-		}
-
-		modelIDs := make([]string, 0, len(provider.Models))
-		for modelID := range provider.Models {
-			modelIDs = append(modelIDs, modelID)
-		}
-		sort.Strings(modelIDs)
-
-		for _, modelKey := range modelIDs {
-			model := provider.Models[modelKey]
-			if strings.TrimSpace(model.ID) == "" {
-				model.ID = strings.TrimSpace(modelKey)
-			}
-			if strings.TrimSpace(model.ID) == "" && strings.TrimSpace(model.Name) == "" {
-				continue
-			}
-			entries = append(entries, pricingCatalogEntry{
-				providerID:   providerID,
-				providerName: providerName,
-				model:        model,
-			})
-		}
-	}
-
-	return entries
-}
-
 func buildPricingSyncMatchFromCandidates(model string, candidates []pricingSyncCandidate) (servicedto.PricingSyncMatch, bool) {
 	for _, candidate := range candidates {
 		match, ok := buildPricingSyncMatch(
 			model,
-			candidate.entry.model,
+			candidate.entry.Model,
 			candidate.matchType,
-			candidate.entry.providerID,
-			candidate.entry.providerName,
+			candidate.entry.ProviderID,
+			candidate.entry.ProviderName,
 		)
 		if ok {
 			return match, true
@@ -213,34 +107,39 @@ func buildPricingSyncMatchFromCandidates(model string, candidates []pricingSyncC
 	return servicedto.PricingSyncMatch{}, false
 }
 
-func buildPricingCatalogIndex(entries []pricingCatalogEntry) pricingCatalogIndex {
+func buildPricingCatalogIndex(entries []pricingmetadata.Entry) pricingCatalogIndex {
 	index := pricingCatalogIndex{
-		exact:      make(map[string][]pricingCatalogEntry, len(entries)*3),
-		normalized: make(map[string][]pricingCatalogEntry, len(entries)*3),
+		exact:      make(map[string][]pricingmetadata.Entry, len(entries)*3),
+		normalized: make(map[string][]pricingmetadata.Entry, len(entries)*3),
 	}
 	for _, entry := range entries {
-		model := entry.model
+		model := entry.Model
 		if strings.TrimSpace(model.ID) == "" && strings.TrimSpace(model.Name) == "" {
 			continue
 		}
-		registerPricingCatalogIndexValue(index.exact, model.ID, entry)
-		registerPricingCatalogIndexValue(index.exact, model.Name, entry)
-		registerPricingCatalogIndexValue(index.exact, stripPricingModelPrefix(model.ID), entry)
-		registerPricingCatalogIndexValue(index.exact, stripPricingModelPrefix(model.Name), entry)
-		registerPricingCatalogIndexValue(index.normalized, normalizePricingModelKey(model.ID), entry)
-		registerPricingCatalogIndexValue(index.normalized, normalizePricingModelKey(model.Name), entry)
-		registerPricingCatalogIndexValue(index.normalized, normalizePricingModelKey(stripPricingModelPrefix(model.ID)), entry)
-		registerPricingCatalogIndexValue(index.normalized, normalizePricingModelKey(stripPricingModelPrefix(model.Name)), entry)
+		registerPricingCatalogIndexValues(index.exact, entry,
+			model.ID, model.Name, stripPricingModelPrefix(model.ID), stripPricingModelPrefix(model.Name))
+		registerPricingCatalogIndexValues(index.normalized, entry,
+			normalizePricingModelKey(model.ID), normalizePricingModelKey(model.Name),
+			normalizePricingModelKey(stripPricingModelPrefix(model.ID)), normalizePricingModelKey(stripPricingModelPrefix(model.Name)))
 	}
 	return index
 }
 
-func registerPricingCatalogIndexValue(target map[string][]pricingCatalogEntry, value string, entry pricingCatalogEntry) {
-	key := strings.ToLower(strings.TrimSpace(value))
-	if key == "" {
-		return
+func registerPricingCatalogIndexValues(target map[string][]pricingmetadata.Entry, entry pricingmetadata.Entry, values ...string) {
+	// 同一模型的 ID、名称与去前缀形式常常相同，只注册一次，避免重复候选。
+	seen := make(map[string]struct{}, len(values))
+	for _, value := range values {
+		key := strings.ToLower(strings.TrimSpace(value))
+		if key == "" {
+			continue
+		}
+		if _, exists := seen[key]; exists {
+			continue
+		}
+		seen[key] = struct{}{}
+		target[key] = append(target[key], entry)
 	}
-	target[key] = append(target[key], entry)
 }
 
 func matchPricingCatalogCandidates(model string, index pricingCatalogIndex) []pricingSyncCandidate {
@@ -250,7 +149,7 @@ func matchPricingCatalogCandidates(model string, index pricingCatalogIndex) []pr
 	}
 
 	var candidates []pricingSyncCandidate
-	add := func(entries []pricingCatalogEntry, matchType string, score int) {
+	add := func(entries []pricingmetadata.Entry, matchType string, score int) {
 		for _, entry := range entries {
 			candidates = append(candidates, pricingSyncCandidate{
 				entry:     entry,
@@ -280,7 +179,7 @@ func sortedUniquePricingCandidates(model string, candidates []pricingSyncCandida
 	unique := make([]pricingSyncCandidate, 0, len(candidates))
 	bestByKey := make(map[string]pricingSyncCandidate, len(candidates))
 	for _, candidate := range candidates {
-		key := strings.TrimSpace(candidate.entry.providerID) + "\x00" + strings.TrimSpace(candidate.entry.model.ID)
+		key := strings.TrimSpace(candidate.entry.ProviderID) + "\x00" + strings.TrimSpace(candidate.entry.Model.ID)
 		if key == "\x00" {
 			continue
 		}
@@ -306,35 +205,35 @@ func pricingCandidateLess(model string, left, right pricingSyncCandidate) bool {
 	if leftPlanZero != rightPlanZero {
 		return !leftPlanZero
 	}
-	leftRank := pricingProviderRankForModel(model, left.entry.providerID)
-	rightRank := pricingProviderRankForModel(model, right.entry.providerID)
+	leftRank := pricingProviderRankForModel(model, left.entry.ProviderID)
+	rightRank := pricingProviderRankForModel(model, right.entry.ProviderID)
 	if leftRank != rightRank {
 		return leftRank < rightRank
 	}
-	leftDeprecated := isDeprecatedPricingModel(left.entry.model)
-	rightDeprecated := isDeprecatedPricingModel(right.entry.model)
+	leftDeprecated := isDeprecatedPricingModel(left.entry.Model)
+	rightDeprecated := isDeprecatedPricingModel(right.entry.Model)
 	if leftDeprecated != rightDeprecated {
 		return !leftDeprecated
 	}
-	if left.entry.model.LastUpdated != right.entry.model.LastUpdated {
-		return left.entry.model.LastUpdated > right.entry.model.LastUpdated
+	if left.entry.Model.LastUpdated != right.entry.Model.LastUpdated {
+		return left.entry.Model.LastUpdated > right.entry.Model.LastUpdated
 	}
-	if left.entry.providerID != right.entry.providerID {
-		return left.entry.providerID < right.entry.providerID
+	if left.entry.ProviderID != right.entry.ProviderID {
+		return left.entry.ProviderID < right.entry.ProviderID
 	}
-	return left.entry.model.ID < right.entry.model.ID
+	return left.entry.Model.ID < right.entry.Model.ID
 }
 
-func isDeprecatedPricingModel(model modelsDevModel) bool {
+func isDeprecatedPricingModel(model pricingmetadata.Model) bool {
 	return strings.EqualFold(strings.TrimSpace(model.Status), "deprecated")
 }
 
 func isPlanZeroPricingCandidate(candidate pricingSyncCandidate) bool {
-	if !isPlanPricingProvider(candidate.entry.providerID) {
+	if !isPlanPricingProvider(candidate.entry.ProviderID) {
 		return false
 	}
-	input := candidate.entry.model.Cost.Input
-	output := candidate.entry.model.Cost.Output
+	input := candidate.entry.Model.Cost.Input
+	output := candidate.entry.Model.Cost.Output
 	return input != nil && output != nil && *input == 0 && *output == 0
 }
 
@@ -497,27 +396,27 @@ func normalizePricingModelKey(value string) string {
 	return builder.String()
 }
 
-func buildPricingSyncMatch(model string, metadataModel modelsDevModel, matchType string, providerID string, providerName string) (servicedto.PricingSyncMatch, bool) {
+func buildPricingSyncMatch(model string, metadataModel pricingmetadata.Model, matchType string, providerID string, providerName string) (servicedto.PricingSyncMatch, bool) {
 	if metadataModel.Cost.Input == nil || metadataModel.Cost.Output == nil {
 		return servicedto.PricingSyncMatch{}, false
 	}
 	input := *metadataModel.Cost.Input
 	output := *metadataModel.Cost.Output
-	if input < 0 || output < 0 {
+	if !validMetadataPrice(input) || !validMetadataPrice(output) {
 		return servicedto.PricingSyncMatch{}, false
 	}
 
-	pricingStyle := pricingStyleForModelsDevModel(metadataModel)
+	pricingStyle := pricingStyleForMetadataModel(metadataModel)
 	cacheRead := 0.0
 	if metadataModel.Cost.CacheRead != nil {
 		cacheRead = *metadataModel.Cost.CacheRead
 	}
 	cacheWrite := 0.0
-	// Keeper 当前保存单组基础价格；这里只映射 Models.dev 顶层 cache_write，长上下文 tiers 留待独立价格模型支持。
+	// Keeper 当前保存单组基础价格；这里只映射 来源提供的基础缓存写入价格，长上下文 tiers 留待独立价格模型支持。
 	if metadataModel.Cost.CacheWrite != nil {
 		cacheWrite = *metadataModel.Cost.CacheWrite
 	}
-	if cacheRead < 0 || cacheWrite < 0 {
+	if !validMetadataPrice(cacheRead) || !validMetadataPrice(cacheWrite) {
 		return servicedto.PricingSyncMatch{}, false
 	}
 
@@ -543,7 +442,7 @@ func buildPricingSyncMatch(model string, metadataModel modelsDevModel, matchType
 	}, true
 }
 
-func pricingStyleForModelsDevModel(model modelsDevModel) string {
+func pricingStyleForMetadataModel(model pricingmetadata.Model) string {
 	if strings.Contains(strings.ToLower(model.ID), "claude") ||
 		strings.Contains(strings.ToLower(model.Name), "claude") ||
 		strings.Contains(strings.ToLower(model.Family), "claude") {
