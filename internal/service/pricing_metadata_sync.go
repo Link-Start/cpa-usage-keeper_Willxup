@@ -459,11 +459,31 @@ func stripPricingModelPrefix(model string) string {
 	if trimmed == "" {
 		return ""
 	}
-	index := strings.LastIndexAny(trimmed, "/:")
-	if index < 0 || index == len(trimmed)-1 {
-		return trimmed
+	// Bedrock 等模型以 :0 标记版本；跳过数字版本后缀，再寻找 CPA 自定义前缀。
+	for end := len(trimmed); end > 0; {
+		index := strings.LastIndexAny(trimmed[:end], "/:")
+		if index < 0 || index == len(trimmed)-1 {
+			return trimmed
+		}
+		if trimmed[index] == ':' && isPricingModelVersion(trimmed[index+1:end]) {
+			end = index
+			continue
+		}
+		return strings.TrimSpace(trimmed[index+1:])
 	}
-	return strings.TrimSpace(trimmed[index+1:])
+	return trimmed
+}
+
+func isPricingModelVersion(value string) bool {
+	if value == "" {
+		return false
+	}
+	for _, char := range value {
+		if char < '0' || char > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 func normalizePricingModelKey(value string) string {
