@@ -2,16 +2,18 @@ package pricingmetadata
 
 import (
 	"encoding/json"
+	"slices"
 	"strings"
 )
 
 type liteLLMModel struct {
-	Provider   string   `json:"litellm_provider"`
-	Mode       string   `json:"mode"`
-	Input      *float64 `json:"input_cost_per_token"`
-	Output     *float64 `json:"output_cost_per_token"`
-	CacheRead  *float64 `json:"cache_read_input_token_cost"`
-	CacheWrite *float64 `json:"cache_creation_input_token_cost"`
+	Provider         string   `json:"litellm_provider"`
+	Mode             string   `json:"mode"`
+	OutputModalities []string `json:"supported_output_modalities"`
+	Input            *float64 `json:"input_cost_per_token"`
+	Output           *float64 `json:"output_cost_per_token"`
+	CacheRead        *float64 `json:"cache_read_input_token_cost"`
+	CacheWrite       *float64 `json:"cache_creation_input_token_cost"`
 }
 
 func decodeLiteLLM(decoder *json.Decoder) ([]Entry, error) {
@@ -24,6 +26,10 @@ func decodeLiteLLM(decoder *json.Decoder) ([]Entry, error) {
 		model := models[id]
 		// 只映射基础文本 token 价格；图片、音频、请求数和上下文阶梯有独立计价语义。
 		if model.Mode != "chat" && model.Mode != "completion" && model.Mode != "responses" {
+			continue
+		}
+		// chat 也包含纯音频模型；只排除明确没有文本输出的条目，缺少字段时保持兼容。
+		if model.OutputModalities != nil && !slices.Contains(model.OutputModalities, "text") {
 			continue
 		}
 		if strings.TrimSpace(id) == "" || model.Input == nil || model.Output == nil {
