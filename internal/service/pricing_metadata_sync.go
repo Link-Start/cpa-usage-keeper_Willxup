@@ -37,9 +37,10 @@ type pricingCatalogIndex struct {
 }
 
 type pricingSyncCandidate struct {
-	entry     pricingmetadata.Entry
-	matchType string
-	score     int
+	entry         pricingmetadata.Entry
+	matchType     string
+	score         int
+	idMatchLength int
 }
 
 func buildPricingSyncPreviewFromCatalog(
@@ -152,9 +153,10 @@ func matchPricingCatalogCandidates(model string, index pricingCatalogIndex) []pr
 	add := func(entries []pricingmetadata.Entry, matchType string, score int) {
 		for _, entry := range entries {
 			candidates = append(candidates, pricingSyncCandidate{
-				entry:     entry,
-				matchType: matchType,
-				score:     score,
+				entry:         entry,
+				matchType:     matchType,
+				score:         score,
+				idMatchLength: pricingModelIDMatchLength(model, entry.Model.ID),
 			})
 		}
 	}
@@ -173,6 +175,20 @@ func matchPricingCatalogCandidates(model string, index pricingCatalogIndex) []pr
 	}
 
 	return sortedUniquePricingCandidates(model, candidates)
+}
+
+func pricingModelIDMatchLength(model, id string) int {
+	model = strings.ToLower(strings.TrimSpace(model))
+	id = strings.ToLower(strings.TrimSpace(id))
+	if id == "" {
+		return 0
+	}
+	// CPA 前缀之外仍保留目录完整 ID；明确地区 ID 比裸模型别名更具体。
+	if model == id || strings.HasSuffix(model, "/"+id) || strings.HasSuffix(model, ":"+id) ||
+		normalizePricingModelKey(stripPricingModelPrefix(model)) == normalizePricingModelKey(id) {
+		return len(id)
+	}
+	return 0
 }
 
 func sortedUniquePricingCandidates(model string, candidates []pricingSyncCandidate) []pricingSyncCandidate {
@@ -214,6 +230,15 @@ func pricingCandidateLess(model string, left, right pricingSyncCandidate) bool {
 	}
 	if leftRank != rightRank {
 		return leftRank < rightRank
+	}
+	// 同等级候选先选完整 ID；只有别名可用时，较少命名空间的通用条目优先于地区变体。
+	if left.idMatchLength != right.idMatchLength {
+		return left.idMatchLength > right.idMatchLength
+	}
+	leftNamespaces := strings.Count(left.entry.Model.ID, "/")
+	rightNamespaces := strings.Count(right.entry.Model.ID, "/")
+	if leftNamespaces != rightNamespaces {
+		return leftNamespaces < rightNamespaces
 	}
 	leftDeprecated := isDeprecatedPricingModel(left.entry.Model)
 	rightDeprecated := isDeprecatedPricingModel(right.entry.Model)

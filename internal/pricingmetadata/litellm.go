@@ -59,7 +59,7 @@ func liteLLMProviderID(provider string) string {
 		return "google-vertex"
 	case "vertex_ai-anthropic_models":
 		return "google-vertex-anthropic"
-	case "bedrock":
+	case "bedrock", "bedrock_converse":
 		return "amazon-bedrock"
 	case "x_ai":
 		return "xai"
