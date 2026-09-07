@@ -59,6 +59,8 @@ func liteLLMProviderID(provider string) string {
 	provider = strings.ToLower(strings.TrimSpace(provider))
 	// 归一化供应商 ID 后复用既有优先级，不从 CPA 可自定义的模型前缀猜供应商。
 	switch provider {
+	case "text-completion-openai":
+		return "openai"
 	case "gemini":
 		return "google"
 	case "vertex_ai", "vertex_ai-language-models":

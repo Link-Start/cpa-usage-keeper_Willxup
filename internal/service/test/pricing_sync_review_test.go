@@ -118,6 +118,31 @@ func TestPricingSyncPrefersLiteLLMOfficialProviderAliases(t *testing.T) {
 	}
 }
 
+func TestPricingSyncPrefersOpenAITextCompletionPrices(t *testing.T) {
+	for _, tc := range []struct{ name, input, provider, matchedModel string }{
+		{"official", "0.0000015", "openai", "gpt-3.5-turbo-instruct"},
+		{"invalid_official_fallback", "-1", "openrouter", "openrouter/openai/gpt-3.5-turbo-instruct"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			catalog := fmt.Sprintf(`{
+				"gpt-3.5-turbo-instruct":{"litellm_provider":"text-completion-openai","mode":"completion","input_cost_per_token":%s,"output_cost_per_token":0.000002},
+				"openrouter/openai/gpt-3.5-turbo-instruct":{"litellm_provider":"openrouter","mode":"chat","input_cost_per_token":0.0000015,"output_cost_per_token":0.000002}
+			}`, tc.input)
+			preview := previewReviewCatalog(t, "litellm", catalog,
+				"gpt-3.5-turbo-instruct", "custom/gpt-3.5-turbo-instruct", "custom:gpt-3.5-turbo-instruct")
+			if len(preview.Matches) != 3 {
+				t.Fatalf("unexpected preview: %+v", preview)
+			}
+			for _, match := range preview.Matches {
+				if match.SourceProviderID != tc.provider || match.MatchedModel != tc.matchedModel ||
+					math.Abs(match.PromptPricePer1M-1.5) > 1e-10 || math.Abs(match.CompletionPricePer1M-2) > 1e-10 {
+					t.Errorf("expected %s text completion pricing: %+v", tc.provider, match)
+				}
+			}
+		})
+	}
+}
+
 func TestPricingSyncOfficialPriceBeforeMatchFormatting(t *testing.T) {
 	for _, source := range []string{"models-dev", "litellm"} {
 		for _, tc := range []struct {
