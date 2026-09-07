@@ -63,6 +63,12 @@ func liteLLMProviderID(provider string) string {
 		return "amazon-bedrock"
 	case "x_ai":
 		return "xai"
+	case "moonshot":
+		return "moonshotai"
+	case "dashscope", "qwen_ai_platform":
+		return "alibaba-cn"
+	case "qwencloud":
+		return "alibaba"
 	default:
 		return provider
 	}

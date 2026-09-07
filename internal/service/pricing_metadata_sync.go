@@ -197,9 +197,6 @@ func sortedUniquePricingCandidates(model string, candidates []pricingSyncCandida
 }
 
 func pricingCandidateLess(model string, left, right pricingSyncCandidate) bool {
-	if left.score != right.score {
-		return left.score > right.score
-	}
 	leftPlanZero := isPlanZeroPricingCandidate(left)
 	rightPlanZero := isPlanZeroPricingCandidate(right)
 	if leftPlanZero != rightPlanZero {
@@ -207,6 +204,14 @@ func pricingCandidateLess(model string, left, right pricingSyncCandidate) bool {
 	}
 	leftRank := pricingProviderRankForModel(model, left.entry.ProviderID)
 	rightRank := pricingProviderRankForModel(model, right.entry.ProviderID)
+	// 已匹配到模型时，官方及既有首选供应商优先于名称格式分数；套餐零价仍后置。
+	// 没有可用首选价格时，第三方候选继续按匹配精度和既有顺序兜底。
+	if leftRank != rightRank && (leftRank < 100 || rightRank < 100) {
+		return leftRank < rightRank
+	}
+	if left.score != right.score {
+		return left.score > right.score
+	}
 	if leftRank != rightRank {
 		return leftRank < rightRank
 	}

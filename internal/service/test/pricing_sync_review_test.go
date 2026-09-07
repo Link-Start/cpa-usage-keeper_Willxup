@@ -2,6 +2,7 @@ package test
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"math"
 	"net/http"
@@ -87,4 +88,107 @@ func TestPricingSyncDoesNotFallbackAcrossFineTuningIdentity(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestPricingSyncPrefersLiteLLMOfficialProviderAliases(t *testing.T) {
+	for _, tc := range []struct {
+		provider, model, officialID string
+		input, output               float64
+	}{
+		{"moonshot", "kimi-k2.5", "moonshotai", 0.6, 3},
+		{"dashscope", "qwen-plus", "alibaba-cn", 0.4, 1.2},
+		{"qwencloud", "qwen-plus", "alibaba", 0.4, 1.2},
+		{"qwen_ai_platform", "qwen-plus", "alibaba-cn", 0.4, 1.2},
+	} {
+		t.Run(tc.provider, func(t *testing.T) {
+			catalog := fmt.Sprintf(`{
+				%q:{"litellm_provider":%q,"mode":"chat","input_cost_per_token":%g,"output_cost_per_token":%g},
+				%q:{"litellm_provider":"openrouter","mode":"chat","input_cost_per_token":0.00000026,"output_cost_per_token":0.00000078}
+			}`, tc.provider+"/"+tc.model, tc.provider, tc.input/1e6, tc.output/1e6, "openrouter/"+tc.model)
+			preview := previewReviewCatalog(t, "litellm", catalog, tc.model, "custom/"+tc.model)
+			if len(preview.Matches) != 2 {
+				t.Fatalf("unexpected preview: %+v", preview)
+			}
+			for _, match := range preview.Matches {
+				if match.SourceProviderID != tc.officialID || math.Abs(match.PromptPricePer1M-tc.input) > 1e-10 || math.Abs(match.CompletionPricePer1M-tc.output) > 1e-10 {
+					t.Errorf("expected official %s pricing: %+v", tc.provider, match)
+				}
+			}
+		})
+	}
+}
+
+func TestPricingSyncOfficialPriceBeforeMatchFormatting(t *testing.T) {
+	for _, source := range []string{"models-dev", "litellm"} {
+		for _, tc := range []struct {
+			name, provider, officialModel, input, output, cache string
+			wantProvider                                        string
+			wantInput                                           float64
+		}{
+			{"normalized_official", "openai", "gpt-4.1", "2", "8", "null", "openai", 2},
+			{"missing_official_model", "openai", "gpt-other", "2", "8", "null", "openrouter", 9},
+			{"missing_official_input", "openai", "gpt-4.1", "null", "8", "null", "openrouter", 9},
+			{"invalid_official_output", "openai", "gpt-4.1", "2", "-1", "null", "openrouter", 9},
+			{"invalid_official_cache", "openai", "gpt-4.1", "2", "8", "-1", "openrouter", 9},
+			{"explicit_official_zero", "openai", "gpt-4.1", "0", "0", "null", "openai", 0},
+		} {
+			t.Run(source+"/"+tc.name, func(t *testing.T) {
+				catalog := reviewOfficialPriceCatalog(source, tc.provider, tc.officialModel, "openrouter", "gpt_4_1", tc.input, tc.output, tc.cache)
+				preview := previewReviewCatalog(t, source, catalog, "gpt_4_1", "custom/gpt_4_1", "missing-model")
+				if len(preview.Matches) != 2 || len(preview.UnmatchedModels) != 1 || preview.UnmatchedModels[0] != "missing-model" {
+					t.Fatalf("unexpected preview: %+v", preview)
+				}
+				for _, match := range preview.Matches {
+					if match.SourceProviderID != tc.wantProvider || math.Abs(match.PromptPricePer1M-tc.wantInput) > 1e-10 {
+						t.Errorf("expected %s pricing: %+v", tc.wantProvider, match)
+					}
+					if match.CacheReadPricePer1M != 0 || match.CacheWritePricePer1M != 0 {
+						t.Errorf("missing cache prices must remain zero: %+v", match)
+					}
+				}
+			})
+		}
+	}
+}
+
+func TestPricingSyncPreservesProviderFallbackOrder(t *testing.T) {
+	for _, source := range []string{"models-dev", "litellm"} {
+		for _, tc := range []struct {
+			name, provider, officialModel, fallback, model, input, output, requested, want string
+		}{
+			{"native_before_cloud", "openai", "gpt-4.1", "azure", "gpt_4_1", "2", "8", "gpt_4_1", "openai"},
+			{"cloud_when_native_unavailable", "openai", "gpt-4.1", "azure", "gpt_4_1", "null", "8", "gpt_4_1", "azure"},
+			{"third_party_exact_before_normalized", "openrouter", "gpt-4.1", "custom", "gpt_4_1", "2", "8", "gpt_4_1", "custom"},
+			{"plan_zero_does_not_replace_api_price", "minimax-coding-plan", "minimax-m3", "openrouter", "minimax_m3", "0", "0", "minimax_m3", "openrouter"},
+			{"exact_plan_zero_does_not_replace_api_price", "minimax-coding-plan", "minimax_m3", "openrouter", "minimax-m3", "0", "0", "minimax_m3", "openrouter"},
+		} {
+			t.Run(source+"/"+tc.name, func(t *testing.T) {
+				catalog := reviewOfficialPriceCatalog(source, tc.provider, tc.officialModel, tc.fallback, tc.model, tc.input, tc.output, "null")
+				preview := previewReviewCatalog(t, source, catalog, "custom/"+tc.requested)
+				if len(preview.Matches) != 1 || preview.Matches[0].SourceProviderID != tc.want {
+					t.Fatalf("expected %s pricing: %+v", tc.want, preview)
+				}
+			})
+		}
+	}
+}
+
+func reviewOfficialPriceCatalog(source, provider, model, fallback, fallbackModel, input, output, cache string) string {
+	if source == "models-dev" {
+		return fmt.Sprintf(`{
+			%q:{"models":{%q:{"cost":{"input":%s,"output":%s,"cache_read":%s}}}},
+			%q:{"models":{%q:{"cost":{"input":9,"output":18}}}}
+		}`, provider, model, input, output, cache, fallback, fallbackModel)
+	}
+	// 测试夹具以美元/百万 token 描述期望；LiteLLM 的原始 JSON 使用每 token 单价。
+	perToken := func(value string) string {
+		if value == "null" {
+			return value
+		}
+		return value + "e-6"
+	}
+	return fmt.Sprintf(`{
+		%q:{"litellm_provider":%q,"mode":"chat","input_cost_per_token":%s,"output_cost_per_token":%s,"cache_read_input_token_cost":%s},
+		%q:{"litellm_provider":%q,"mode":"chat","input_cost_per_token":0.000009,"output_cost_per_token":0.000018}
+	}`, provider+"/"+model, provider, perToken(input), perToken(output), perToken(cache), fallback+"/"+fallbackModel, fallback)
 }
