@@ -44,8 +44,9 @@ describe('RequestEventsDetailsCard model filter ordering', () => {
       />,
     ));
 
-    const trigger = container.querySelector<HTMLButtonElement>('button[aria-label="Model"]');
+    const trigger = container.querySelector<HTMLInputElement>('input[role="combobox"][aria-label="Model"]');
     expect(trigger).not.toBeNull();
+    await act(async () => trigger?.focus());
     await act(async () => trigger?.click());
     const options = Array.from(document.body.querySelectorAll<HTMLButtonElement>('[role="listbox"][aria-label="Model"] [role="option"]'));
     expect(options.map((option) => option.textContent)).toEqual([

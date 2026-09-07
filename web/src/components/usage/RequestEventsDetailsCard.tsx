@@ -1138,7 +1138,8 @@ export function RequestEventsDetailsCard({
       >
         <div className={styles.requestEventsToolbar}>
           <div className={styles.requestEventsFiltersGroup}>
-            <label className={styles.requestEventsFilterItem}>
+            {/* 控件已有 aria-label，外层避免使用 label 将标题和空隙的点击转交给控件。 */}
+            <div className={styles.requestEventsFilterItem}>
               <span className={styles.requestEventsFilterLabel}>
                 {t('usage_stats.request_events_filter_model')}
               </span>
@@ -1146,12 +1147,16 @@ export function RequestEventsDetailsCard({
                 value={effectiveModelFilter}
                 options={modelOptions}
                 onChange={onModelFilterChange}
+                search={{
+                  placeholder: t('usage_stats.request_events_search_model'),
+                  noResultsText: t('usage_stats.request_events_no_matching_models'),
+                }}
                 className={`${styles.requestEventsSelect} ${styles.usagePillControl}`}
                 ariaLabel={t('usage_stats.request_events_filter_model')}
                 fullWidth={false}
               />
-            </label>
-            <label className={styles.requestEventsFilterItem}>
+            </div>
+            <div className={styles.requestEventsFilterItem}>
               <span className={styles.requestEventsFilterLabel}>
                 {t('usage_stats.request_events_filter_source')}
               </span>
@@ -1163,8 +1168,8 @@ export function RequestEventsDetailsCard({
                 ariaLabel={t('usage_stats.request_events_filter_source')}
                 fullWidth={false}
               />
-            </label>
-            <label className={styles.requestEventsFilterItem}>
+            </div>
+            <div className={styles.requestEventsFilterItem}>
               <span className={styles.requestEventsFilterLabel}>
                 {t('usage_stats.request_events_filter_result')}
               </span>
@@ -1176,7 +1181,7 @@ export function RequestEventsDetailsCard({
                 ariaLabel={t('usage_stats.request_events_filter_result')}
                 fullWidth={false}
               />
-            </label>
+            </div>
             <div className={styles.requestEventsFilterActionSlot}>
               <Button
                 variant="ghost"
