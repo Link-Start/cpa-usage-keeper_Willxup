@@ -2,6 +2,7 @@ package test
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"math"
 	"net/http"
@@ -53,5 +54,46 @@ func TestPricingSyncLiteLLMUsesSharedMatchingAndZeroCacheDefaults(t *testing.T) 
 	prices, err := provider.ListPricing(context.Background())
 	if err != nil || len(prices) != 0 {
 		t.Fatalf("preview must not save prices: %+v, %v", prices, err)
+	}
+}
+
+func TestPricingSyncLiteLLMCacheHitPriceFallback(t *testing.T) {
+	for _, tc := range []struct {
+		name, fields string
+		cacheRead    float64
+		invalid      bool
+	}{
+		{"legacy_only", `,"input_cost_per_token_cache_hit":0.000000028`, 0.028, false},
+		{"standard_only", `,"cache_read_input_token_cost":0.00000002`, 0.02, false},
+		{"standard_before_legacy", `,"cache_read_input_token_cost":0.00000002,"input_cost_per_token_cache_hit":0.000000028`, 0.02, false},
+		{"explicit_standard_zero", `,"cache_read_input_token_cost":0,"input_cost_per_token_cache_hit":0.000000028`, 0, false},
+		{"null_standard", `,"cache_read_input_token_cost":null,"input_cost_per_token_cache_hit":0.000000028`, 0.028, false},
+		{"explicit_legacy_zero", `,"input_cost_per_token_cache_hit":0`, 0, false},
+		{"both_missing", ``, 0, false},
+		{"invalid_legacy", `,"input_cost_per_token_cache_hit":-1`, 0, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			catalog := fmt.Sprintf(`{
+				"deepseek/deepseek-v3.2":{"litellm_provider":"deepseek","mode":"chat","input_cost_per_token":0.00000028,"output_cost_per_token":0.0000004%s}
+			}`, tc.fields)
+			preview := previewReviewCatalog(t, "litellm", catalog, "deepseek-v3.2", "custom/deepseek-v3.2")
+			if tc.invalid {
+				if len(preview.Matches) != 0 || len(preview.UnmatchedModels) != 2 {
+					t.Fatalf("invalid cache price must not produce a match: %+v", preview)
+				}
+				return
+			}
+			if len(preview.Matches) != 2 {
+				t.Fatalf("unexpected preview: %+v", preview)
+			}
+			for _, match := range preview.Matches {
+				if match.SourceProviderID != "deepseek" || math.Abs(match.CacheReadPricePer1M-tc.cacheRead) > 1e-10 {
+					t.Errorf("expected cache read price %v: %+v", tc.cacheRead, match)
+				}
+				if math.Abs(match.PromptPricePer1M-0.28) > 1e-10 || math.Abs(match.CompletionPricePer1M-0.4) > 1e-10 || match.CacheWritePricePer1M != 0 {
+					t.Errorf("unexpected other base prices: %+v", match)
+				}
+			}
+		})
 	}
 }

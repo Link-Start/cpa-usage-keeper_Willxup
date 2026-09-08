@@ -13,6 +13,7 @@ type liteLLMModel struct {
 	Input            *float64 `json:"input_cost_per_token"`
 	Output           *float64 `json:"output_cost_per_token"`
 	CacheRead        *float64 `json:"cache_read_input_token_cost"`
+	CacheHit         *float64 `json:"input_cost_per_token_cache_hit"`
 	CacheWrite       *float64 `json:"cache_creation_input_token_cost"`
 }
 
@@ -39,9 +40,14 @@ func decodeLiteLLM(decoder *json.Decoder) ([]Entry, error) {
 		if provider == "" {
 			continue
 		}
+		// 部分目录条目仅提供 cache_hit；标准字段存在时保留其值，包括显式零价。
+		cacheRead := model.CacheRead
+		if cacheRead == nil {
+			cacheRead = model.CacheHit
+		}
 		entries = append(entries, Entry{ProviderID: provider, ProviderName: provider, Model: Model{
 			ID: id, Name: id,
-			Cost: Cost{Input: perMillion(model.Input), Output: perMillion(model.Output), CacheRead: perMillion(model.CacheRead), CacheWrite: perMillion(model.CacheWrite)},
+			Cost: Cost{Input: perMillion(model.Input), Output: perMillion(model.Output), CacheRead: perMillion(cacheRead), CacheWrite: perMillion(model.CacheWrite)},
 		}})
 	}
 	return entries, nil
