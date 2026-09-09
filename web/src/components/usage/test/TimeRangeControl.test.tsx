@@ -20,6 +20,7 @@ interface TimeRangeControlProps {
   customRange?: UsageCustomRange;
   onChange: (value: UsageTimeRange, customRange?: UsageCustomRange) => void;
   ariaLabel: string;
+  labelInsideTrigger?: boolean;
   timeZone?: string;
   maxCustomDayRangeDays?: number;
 }
@@ -73,6 +74,17 @@ describe('TimeRangeControl', () => {
     expect(desktopShell?.querySelector('[data-time-range-trigger="desktop"]')).not.toBeNull();
     expect(mobileShell?.textContent).toContain('Range');
     expect(mobileShell?.querySelector('[data-time-range-trigger="mobile"]')).not.toBeNull();
+  });
+
+  it('opens the existing range dialog when the inline toolbar title is clicked', async () => {
+    const TimeRangeControl = await loadTimeRangeControl();
+    expect(TimeRangeControl).not.toBeNull();
+    if (!TimeRangeControl) return;
+    await act(async () => root.render(<TimeRangeControl value="today" onChange={vi.fn()} ariaLabel="Range" timeZone="Asia/Shanghai" labelInsideTrigger />));
+    const title = container.querySelector<HTMLElement>('[data-time-range-trigger="desktop"] [data-dashboard-filter-caption]');
+    expect(title?.textContent).toBe('Range');
+    await act(async () => title!.click());
+    expect(document.querySelector('[role="dialog"][aria-label="Range"]')).not.toBeNull();
   });
 
   it('includes the applied range in both trigger accessible names', async () => {

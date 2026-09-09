@@ -35,6 +35,8 @@ interface SelectProps {
   ariaDescribedBy?: string;
   fullWidth?: boolean;
   dropdownMinWidth?: number;
+  renderValue?: (option: SelectOption | undefined) => ReactNode;
+  showChevron?: boolean;
   id?: string;
   search?: {
     placeholder: string;
@@ -116,6 +118,8 @@ export function Select({
   ariaDescribedBy,
   fullWidth = true,
   dropdownMinWidth,
+  renderValue,
+  showChevron = true,
   id,
   search,
 }: SelectProps) {
@@ -126,6 +130,7 @@ export function Select({
   const [highlightedIndex, setHighlightedIndex] = useState(-1);
   const [searchQuery, setSearchQuery] = useState('');
   const searchInputRef = useRef<HTMLInputElement | null>(null);
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const dropdownRef = useRef<HTMLDivElement | null>(null);
   const rafRef = useRef<number | null>(null);
@@ -229,6 +234,7 @@ export function Select({
       if (!nextOption || nextOption.disabled) return;
       // 先保留输入焦点再关闭，避免 onFocus 在选中后重新展开列表。
       if (searchable) searchInputRef.current?.focus();
+      else triggerRef.current?.focus();
       onChange(nextOption.value);
       setOpen(false);
       setHighlightedIndex(nextIndex);
@@ -300,6 +306,7 @@ export function Select({
           if (!isOpen) return;
           event.preventDefault();
           if (searchable) searchInputRef.current?.focus();
+          else triggerRef.current?.focus();
           setOpen(false);
           return;
         case 'Tab':
@@ -416,6 +423,7 @@ export function Select({
             </span>
           </>
         ) : <button
+          ref={triggerRef}
           id={selectId}
           type="button"
           className={styles.trigger}
@@ -435,11 +443,11 @@ export function Select({
           disabled={disabled}
         >
           <span className={`${styles.triggerText} ${isPlaceholder ? styles.placeholder : ''}`}>
-            {displayText}
+            {renderValue ? renderValue(selected) : displayText}
           </span>
-          <span className={styles.triggerIcon} aria-hidden="true">
+          {showChevron && <span className={styles.triggerIcon} aria-hidden="true">
             <IconChevronDown size={14} />
-          </span>
+          </span>}
         </button>}
       </div>
       {dropdown && (typeof document === 'undefined' ? dropdown : createPortal(dropdown, document.body))}

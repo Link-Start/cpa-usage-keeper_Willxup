@@ -239,6 +239,7 @@ interface TimeRangeControlProps {
   customRange?: UsageCustomRange;
   onChange: (value: UsageTimeRange, customRange?: UsageCustomRange) => void;
   ariaLabel: string;
+  labelInsideTrigger?: boolean;
   timeZone?: string;
   maxCustomDayRangeDays?: number;
 }
@@ -248,6 +249,7 @@ export function TimeRangeControl({
   customRange,
   onChange,
   ariaLabel,
+  labelInsideTrigger = false,
   timeZone: providedTimeZone,
   maxCustomDayRangeDays = DEFAULT_CUSTOM_DAY_RANGE_MAX_DAYS,
 }: TimeRangeControlProps) {
@@ -563,7 +565,7 @@ export function TimeRangeControl({
   return (
     <div className={styles.controlRoot}>
       <div className={styles.desktopShell} data-time-range-shell="desktop">
-        <span className={styles.shellLabel}>{ariaLabel}</span>
+        {!labelInsideTrigger && <span className={styles.shellLabel}>{ariaLabel}</span>}
         <button
           ref={desktopTriggerRef}
           type="button"
@@ -574,14 +576,15 @@ export function TimeRangeControl({
           aria-expanded={desktopOpen}
           onClick={toggleDesktopPopover}
         >
+          {labelInsideTrigger && <span className={styles.shellLabel} data-dashboard-filter-caption>{ariaLabel}</span>}
           <IconTimer size={16} className={styles.triggerIcon} />
-          <span className={styles.triggerLabel}>{currentLabel}</span>
+          <span className={styles.triggerLabel} data-time-range-value>{currentLabel}</span>
           <IconChevronDown size={14} className={styles.triggerChevron} />
         </button>
       </div>
 
       <div className={styles.mobileShell} data-time-range-shell="mobile">
-        <span className={styles.shellLabel}>{ariaLabel}</span>
+        {!labelInsideTrigger && <span className={styles.shellLabel}>{ariaLabel}</span>}
         <button
           type="button"
           className={styles.mobileTrigger}
@@ -591,8 +594,9 @@ export function TimeRangeControl({
           aria-expanded={mobileOpen}
           onClick={openMobileModal}
         >
+          {labelInsideTrigger && <span className={styles.shellLabel} data-dashboard-filter-caption>{ariaLabel}</span>}
           <IconTimer size={16} className={styles.triggerIcon} />
-          <span className={styles.triggerLabel}>{currentLabel}</span>
+          <span className={styles.triggerLabel} data-time-range-value>{currentLabel}</span>
           <IconChevronDown size={16} className={styles.triggerChevron} />
         </button>
       </div>
