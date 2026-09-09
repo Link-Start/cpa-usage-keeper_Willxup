@@ -45,7 +45,7 @@ interface SelectProps {
 }
 
 const VIEWPORT_MARGIN = 8;
-const DROPDOWN_OFFSET = 6;
+const DROPDOWN_OFFSET = 8;
 const DROPDOWN_MAX_HEIGHT = 240;
 const DROPDOWN_Z_INDEX = 2010;
 
@@ -73,7 +73,7 @@ const resolveDropdownStyle = (element: HTMLElement, dropdownMinWidth?: number): 
   const availableWidth = Math.max(0, viewportWidth - VIEWPORT_MARGIN * 2);
   const width = Math.min(Math.max(rect.width, dropdownMinWidth ?? 0), availableWidth);
   const left = clamp(
-    rect.left - (width - rect.width) / 2,
+    rect.left,
     VIEWPORT_MARGIN,
     Math.max(VIEWPORT_MARGIN, viewportWidth - width - VIEWPORT_MARGIN)
   );
@@ -305,6 +305,8 @@ export function Select({
         case 'Escape':
           if (!isOpen) return;
           event.preventDefault();
+          // 嵌套在设置弹窗时，Esc 先关闭列表，下一次才交给父弹窗。
+          event.stopPropagation();
           if (searchable) searchInputRef.current?.focus();
           else triggerRef.current?.focus();
           setOpen(false);

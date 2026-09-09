@@ -59,7 +59,6 @@ export function DashboardHeader({ backToCPA, identity, onLogout, loggingOut = fa
         }}
         ariaLabel={`${t('usage_stats.language_switch')}: ${languages.find((option) => option.value === language)?.label}`}
         className={styles.iconSelect}
-        dropdownClassName={styles.headerDropdown}
         dropdownMinWidth={160}
         fullWidth={false}
         showChevron={false}

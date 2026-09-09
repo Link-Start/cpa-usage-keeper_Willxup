@@ -1,5 +1,6 @@
 @use '../styles/variables' as *;
 @use '../styles/mixins' as *;
+@use '../styles/menu';
 
 .pageShell {
   min-height: 100svh;
@@ -3049,41 +3050,15 @@
 }
 
 .requestEventsExportDropdown {
+  @include menu.surface;
   position: absolute;
-  top: calc(100% + 6px);
+  top: calc(100% + 8px);
   right: 0;
   z-index: 2020;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
+  width: max-content;
   min-width: 128px;
-  padding: 6px;
-  border: 1px solid var(--border-color);
-  border-radius: $radius-lg;
-  background: var(--bg-primary);
-  box-shadow: var(--shadow-lg);
 
-  button {
-    display: flex;
-    align-items: center;
-    min-height: 32px;
-    border: 1px solid transparent;
-    border-radius: $radius-md;
-    padding: 7px 10px;
-    background: transparent;
-    color: var(--text-primary);
-    font: inherit;
-    font-size: 12px;
-    font-weight: 700;
-    text-align: left;
-    cursor: pointer;
-
-    &:hover,
-    &:focus-visible {
-      background: var(--bg-secondary);
-      outline: none;
-    }
-  }
+  button { @include menu.item; }
 }
 
 .requestEventsToolbar {

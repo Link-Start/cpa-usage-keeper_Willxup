@@ -24,7 +24,6 @@ const priceRulesStyles = readSource(new URL('../../components/usage/pricing/Pric
 const questionMarkHelpSource = readSource(new URL('../../components/ui/QuestionMarkHelp.tsx', import.meta.url))
 const credentialStyles = readSource(new URL('../../components/usage/credentials/CredentialSections.module.scss', import.meta.url))
 const quotaHistoryStyles = readSource(new URL('../../components/usage/credentials/CodexQuotaHistoryPanel.module.scss', import.meta.url))
-const selectSource = readSource(new URL('../../components/ui/Select.tsx', import.meta.url))
 const apiIndexSource = readSource(new URL('../../components/usage/index.ts', import.meta.url))
 const apiClientSource = readSource(new URL('../../lib/api.ts', import.meta.url))
 const usageNavigationSource = readSource(new URL('../../lib/usageNavigation.ts', import.meta.url))
@@ -1338,12 +1337,6 @@ describe('UsagePage toolbar styles', () => {
     expect(analysisPanelStyles).not.toContain('rgb(250, 244, 230)')
   })
 
-  it('widens only the API key dropdown menu without changing the trigger width', () => {
-    expect(selectSource).toContain('dropdownMinWidth?: number')
-    expect(selectSource).toContain('rect.left - (width - rect.width) / 2')
-    expect(usagePageSource).toContain('dropdownMinWidth={180}')
-  })
-
   it('preserves the API Key sizing while removing the legacy range select and Custom UI', () => {
     const apiKeySelectStart = usagePageSource.indexOf('<Select\n                        value={selectedApiKeyId}')
     const apiKeySelectBlock = usagePageSource.slice(apiKeySelectStart, usagePageSource.indexOf('/>', apiKeySelectStart))
@@ -1576,7 +1569,7 @@ describe('UsagePage toolbar styles', () => {
     expect(usagePageStyles).not.toContain('.requestEventsExportButton:global(.btn)')
     expect(componentsStyles).toMatch(/\.main-action-button-shell\s*\{[\s\S]*?min-height:\s*42px;/)
     expect(componentsStyles).toMatch(/\.btn\.btn-action\.main-action-button\s*\{[\s\S]*?min-height:\s*32px;/)
-    expect(exportDropdownBlock).toMatch(/top:\s*calc\(100% \+ 6px\);/)
+    expect(exportDropdownBlock).toMatch(/top:\s*calc\(100% \+ 8px\);/)
     expect(clearFilterSlotBlock).toMatch(/display:\s*flex;/)
     expect(clearFilterSlotBlock).toMatch(/align-items:\s*center;/)
     expect(clearFilterSlotBlock).toMatch(/align-self:\s*flex-end;/)
