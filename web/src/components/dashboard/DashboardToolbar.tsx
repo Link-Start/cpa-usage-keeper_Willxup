@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { shouldHandleUsageNavigation } from '@/lib/usageNavigation';
 import { IconChevronDown, IconChevronsLeft, IconChevronsRight, IconRefreshCw } from '@/components/ui/icons';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
+import { MenuScrollArea } from '@/components/ui/MenuScrollArea';
 import { GlassSurface } from './GlassSurface';
 import { BackToTop } from './BackToTop';
 import styles from './DashboardToolbar.module.scss';
@@ -230,9 +231,11 @@ export function DashboardToolbar<T extends string>({ items, activeId, onNavigate
           const next = event.key === 'ArrowDown' ? (index + 1) % choices.length : event.key === 'ArrowUp' ? (index + choices.length - 1) % choices.length : event.key === 'Home' ? 0 : event.key === 'End' ? choices.length - 1 : -1;
           if (next >= 0) { event.preventDefault(); choices[next]?.focus(); }
         }} onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget) && !triggerRef.current?.contains(event.relatedTarget)) setMenuOpen(false); }}>
+          <MenuScrollArea>
           {items.map((item) => <a key={item.id} role="menuitem" href={item.href} aria-current={item.id === activeId ? 'page' : undefined} onClick={(event) => navigate(event, item.id)} onKeyDown={(event) => {
             if (event.key === ' ') { event.preventDefault(); activatePage(item.id); }
           }}>{item.label}</a>)}
+          </MenuScrollArea>
         </div>}
       <BackToTop />
     </div>

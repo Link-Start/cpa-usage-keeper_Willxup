@@ -71,17 +71,12 @@
   @include menu.surface;
   position: fixed;
   max-height: 240px;
-  overflow-y: auto;
-  overscroll-behavior: contain;
+  overflow: hidden;
 }
 
 .option {
   @include menu.item;
   justify-content: space-between;
-}
-
-.searchableDropdown {
-  overflow: hidden;
 }
 
 .searchInput {
@@ -103,15 +98,6 @@
   .searchInput[aria-expanded='true'] + & {
     transform: rotate(180deg);
   }
-}
-
-.searchOptions {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-height: 0;
-  overflow-y: auto;
-  overscroll-behavior: contain;
 }
 
 .noResults {

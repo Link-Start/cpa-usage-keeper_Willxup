@@ -161,7 +161,7 @@
   width: max-content;
   max-width: min(320px, calc(100% - 20px));
   max-height: min(420px, 65svh);
-  overflow-y: auto;
+  overflow: hidden;
 
   a { @include menu.item; overflow-wrap: anywhere; }
   a[aria-current='page'] { @include menu.selected; }

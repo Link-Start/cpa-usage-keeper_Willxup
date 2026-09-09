@@ -8,6 +8,31 @@ import { Select } from '../Select';
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
 
+it.each([false, true])('does not interrupt pointer scrolling with automatic option alignment (searchable: %s)', async (searchable) => {
+  const container = document.createElement('div');
+  document.body.append(container);
+  const root = createRoot(container);
+  try {
+    await act(async () => root.render(<Select
+      value="0" options={Array.from({ length: 12 }, (_, index) => ({ value: String(index), label: `Model ${index}` }))}
+      onChange={vi.fn()} search={searchable ? { placeholder: 'Model', noResultsText: 'No models' } : undefined}
+    />));
+    const trigger = container.querySelector<HTMLInputElement | HTMLButtonElement>(searchable ? 'input' : 'button')!;
+    await act(async () => trigger.click());
+    const options = document.querySelectorAll<HTMLButtonElement>('[role="option"]');
+    const pointerScroll = vi.spyOn(options[1], 'scrollIntoView');
+    const keyboardScroll = vi.spyOn(options[2], 'scrollIntoView');
+    await act(async () => options[1].dispatchEvent(new MouseEvent('mouseover', { bubbles: true })));
+    expect(pointerScroll).not.toHaveBeenCalled();
+    await act(async () => trigger.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true })));
+    expect(keyboardScroll).toHaveBeenCalledWith({ block: 'nearest' });
+  } finally {
+    await act(async () => root.unmount());
+    container.remove();
+    vi.restoreAllMocks();
+  }
+});
+
 it('closes the nested list before the settings dialog on Escape', async () => {
   const container = document.createElement('div');
   document.body.append(container);

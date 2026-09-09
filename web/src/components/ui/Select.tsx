@@ -11,6 +11,7 @@ import React, {
 import { createPortal } from 'react-dom';
 import { useAnchorPosition } from '@/hooks/useAnchorPosition';
 import { IconChevronDown } from './icons';
+import { MenuScrollArea } from './MenuScrollArea';
 import styles from './Select.module.scss';
 
 export interface SelectOption {
@@ -127,6 +128,7 @@ export function Select({
   const listboxId = `${selectId}-listbox`;
   const [open, setOpen] = useState(false);
   const [highlightedIndex, setHighlightedIndex] = useState(-1);
+  const shouldScrollHighlightRef = useRef(true);
   const [searchQuery, setSearchQuery] = useState('');
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
@@ -141,6 +143,7 @@ export function Select({
     return query ? options.filter((option) => option.label.toLowerCase().includes(query)) : options;
   }, [options, searchable, searchQuery]);
   const openDropdown = useCallback(() => {
+    shouldScrollHighlightRef.current = true;
     setSearchQuery('');
     setHighlightedIndex(-1);
     setOpen(true);
@@ -208,6 +211,7 @@ export function Select({
     (event: React.KeyboardEvent<HTMLButtonElement | HTMLInputElement>) => {
       if (disabled || event.nativeEvent.isComposing) return;
       const editingSearch = event.currentTarget instanceof HTMLInputElement;
+      if (['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) shouldScrollHighlightRef.current = true;
 
       switch (event.key) {
         case 'ArrowDown':
@@ -269,7 +273,7 @@ export function Select({
   );
 
   useEffect(() => {
-    if (!isOpen || resolvedHighlightedIndex < 0) return;
+    if (!isOpen || resolvedHighlightedIndex < 0 || !shouldScrollHighlightRef.current) return;
     const highlightedOption = document.getElementById(`${selectId}-option-${resolvedHighlightedIndex}`);
     highlightedOption?.scrollIntoView({ block: 'nearest' });
   }, [isOpen, resolvedHighlightedIndex, selectId, visibleOptions]);
@@ -289,7 +293,11 @@ export function Select({
         disabled={opt.disabled}
         tabIndex={searchable ? -1 : undefined}
         onMouseDown={searchable ? (event) => event.preventDefault() : undefined}
-        onMouseEnter={opt.disabled ? undefined : () => setHighlightedIndex(index)}
+        onMouseEnter={opt.disabled ? undefined : () => {
+          // 滚动时经过鼠标的选项只高亮，不反向触发自动滚动。
+          shouldScrollHighlightRef.current = false;
+          setHighlightedIndex(index);
+        }}
         onKeyDown={handleKeyDown}
         onClick={opt.disabled ? undefined : () => commitSelection(index)}
       >
@@ -308,20 +316,16 @@ export function Select({
       ? (
           <div
             ref={dropdownRef}
-            className={`${styles.dropdown} ${searchable ? styles.searchableDropdown : ''} ${dropdownClassName ?? ''}`.trim()}
+            className={`${styles.dropdown} ${dropdownClassName ?? ''}`.trim()}
             id={searchable ? undefined : listboxId}
             role={searchable ? undefined : 'listbox'}
             aria-label={searchable ? undefined : ariaLabel}
             style={dropdownStyle}
           >
-            {search ? (
-              <>
-                <div id={listboxId} role="listbox" aria-label={ariaLabel} className={styles.searchOptions}>
-                  {optionButtons}
-                </div>
-                {visibleOptions.length === 0 ? <div role="status" className={styles.noResults}>{search.noResultsText}</div> : null}
-              </>
-            ) : optionButtons}
+            <MenuScrollArea id={searchable ? listboxId : undefined} role={searchable ? 'listbox' : undefined} ariaLabel={searchable ? ariaLabel : undefined}>
+              {optionButtons}
+            </MenuScrollArea>
+            {search && visibleOptions.length === 0 ? <div role="status" className={styles.noResults}>{search.noResultsText}</div> : null}
           </div>
         )
       : null;
@@ -358,6 +362,7 @@ export function Select({
                 if (!isOpen) openDropdown();
               }}
               onChange={(event) => {
+                shouldScrollHighlightRef.current = true;
                 setSearchQuery(event.target.value);
                 setHighlightedIndex(-1);
                 setOpen(true);
