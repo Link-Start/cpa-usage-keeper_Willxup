@@ -100,10 +100,13 @@ export function DashboardToolbar<T extends string>({ items, activeId, onNavigate
     const dock = dockRef.current;
     if (!host || !dock) return;
     let availableWidth = host.clientWidth;
+    let frame = 0;
     const observer = new ResizeObserver(() => {
       if (host.clientWidth !== availableWidth) {
         availableWidth = host.clientWidth;
-        measure();
+        // 单双行切换会改变 host 高度，延后测量避免同一轮尺寸通知反复触发布局。
+        cancelAnimationFrame(frame);
+        frame = requestAnimationFrame(measure);
       }
     });
     observer.observe(host);
@@ -111,7 +114,7 @@ export function DashboardToolbar<T extends string>({ items, activeId, onNavigate
     const controls = dock.querySelector('[data-dashboard-filters]');
     if (controls) mutation.observe(controls, { subtree: true, childList: true, characterData: true });
     void document.fonts?.ready.then(() => { if (host.isConnected) measure(); });
-    return () => { observer.disconnect(); mutation.disconnect(); };
+    return () => { observer.disconnect(); mutation.disconnect(); cancelAnimationFrame(frame); };
   }, [measure, activeId, i18n.language, filters.length]);
 
   useLayoutEffect(() => {
@@ -124,6 +127,32 @@ export function DashboardToolbar<T extends string>({ items, activeId, onNavigate
       animationRef.current?.cancel();
     };
   }, []);
+
+  useLayoutEffect(() => {
+    const host = hostRef.current;
+    const trigger = triggerRef.current;
+    const menu = menuRef.current;
+    if (!menuOpen || !host || !trigger || !menu) return;
+    const positionMenu = () => {
+      if (getComputedStyle(trigger).display === 'none') {
+        setMenuOpen(false);
+        return;
+      }
+      // 菜单留在动画裁切层外，左沿跟随 Tab 按钮；空间不足时收回页面边界内。
+      const offset = trigger.getBoundingClientRect().left - host.getBoundingClientRect().left;
+      const available = Math.max(0, host.clientWidth - menu.offsetWidth);
+      menu.style.left = `${Math.max(0, Math.min(offset, available))}px`;
+    };
+    positionMenu();
+    let frame = 0;
+    // 尺寸变化后在下一帧更新位置，避免在观察回调内再次触发布局通知。
+    const observer = new ResizeObserver(() => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(positionMenu);
+    });
+    [host, trigger, menu].forEach((element) => observer.observe(element));
+    return () => { observer.disconnect(); cancelAnimationFrame(frame); };
+  }, [menuOpen]);
 
   useEffect(() => {
     if (!menuOpen) return;
