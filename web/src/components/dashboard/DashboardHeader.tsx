@@ -86,7 +86,12 @@ export function DashboardHeader({ backToCPA, identity, onLogout, loggingOut = fa
       }}>
         {identity && <div className={styles.menuIdentity}>{identity}</div>}
         {onCheckUpdates && <button type="button" role="menuitem" onClick={onCheckUpdates} disabled={checkingUpdates} aria-busy={checkingUpdates}>{checkingUpdates ? <LoadingSpinner size={14} /> : null}{t(checkingUpdates ? 'common.loading' : 'usage_stats.check_updates')}{updateAvailable && <span className={styles.updateDot} />}</button>}
-        <button type="button" role="menuitem" disabled={loggingOut} aria-busy={loggingOut} onClick={() => { setOpen(false); onLogout(); }}>{loggingOut ? <LoadingSpinner size={14} /> : null}{t(loggingOut ? 'common.loading' : 'common.logout')}</button>
+        <button type="button" role="menuitem" disabled={loggingOut} aria-busy={loggingOut} onClick={() => {
+          // 菜单项即将卸载，让退出确认框记录仍在页面上的焦点入口。
+          buttonRef.current?.focus({ preventScroll: true });
+          setOpen(false);
+          onLogout();
+        }}>{loggingOut ? <LoadingSpinner size={14} /> : null}{t(loggingOut ? 'common.loading' : 'common.logout')}</button>
       </div>}
     </div>
   </header>;

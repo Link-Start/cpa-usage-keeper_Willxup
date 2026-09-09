@@ -1,8 +1,9 @@
 // @vitest-environment happy-dom
-import { act } from 'react';
+import { act, useState } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DashboardHeader } from '../DashboardHeader';
+import { Modal } from '@/components/ui/Modal';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 const setTheme = vi.fn();
@@ -16,7 +17,7 @@ describe('DashboardHeader actions', () => {
   let container: HTMLDivElement;
   let root: Root;
   beforeEach(() => { themeState.theme = 'white'; vi.clearAllMocks(); container = document.createElement('div'); document.body.append(container); root = createRoot(container); });
-  afterEach(async () => { await act(async () => root.unmount()); document.body.replaceChildren(); });
+  afterEach(async () => { await act(async () => root.unmount()); vi.useRealTimers(); document.body.replaceChildren(); });
 
   it('keeps CPA in the header only and preserves update and logout callbacks', async () => {
     const logout = vi.fn(); const check = vi.fn();
@@ -42,6 +43,30 @@ describe('DashboardHeader actions', () => {
     await act(async () => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })));
     expect(more.getAttribute('aria-expanded')).toBe('false'); expect(document.activeElement).toBe(more);
   });
+
+  it('returns focus to More after cancelling the logout confirmation', async () => {
+    vi.useFakeTimers();
+    function LogoutConfirmation() {
+      const [open, setOpen] = useState(false);
+      return <>
+        <DashboardHeader onLogout={() => setOpen(true)} />
+        <Modal open={open} title="Confirm sign out" onClose={() => setOpen(false)} />
+      </>;
+    }
+    await act(async () => root.render(<LogoutConfirmation />));
+    const more = container.querySelector<HTMLButtonElement>('[aria-haspopup="menu"]')!;
+    await act(async () => { more.focus(); more.click(); });
+    const logout = container.querySelector<HTMLButtonElement>('[role="menuitem"]')!;
+    expect(document.activeElement).toBe(logout);
+    await act(async () => logout.click());
+    await act(async () => vi.advanceTimersByTime(1));
+    expect(document.querySelector('[role="dialog"]')?.contains(document.activeElement)).toBe(true);
+    await act(async () => document.activeElement?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })));
+    await act(async () => vi.advanceTimersByTime(350));
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+    expect(document.activeElement).toBe(more);
+  });
+
   it.each([['white', 'dark'], ['dark', 'auto'], ['auto', 'white']])('cycles theme directly from %s to %s', async (current, next) => {
     themeState.theme = current;
     await act(async () => root.render(<DashboardHeader onLogout={vi.fn()} />));

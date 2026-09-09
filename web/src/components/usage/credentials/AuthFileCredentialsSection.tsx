@@ -1179,7 +1179,7 @@ export function QuotaInspectionModal({
                     value={String(resultPageData.pageSize)}
                     options={INSPECTION_RESULT_PAGE_SIZE_OPTIONS.map((option) => ({ value: String(option), label: String(option) }))}
                     onChange={(next) => handleResultPageSizeChange(Number(next))}
-                    ariaLabel={t('usage_stats.rows_per_page')}
+                    ariaLabel={`${t('usage_stats.rows_per_page')}: ${resultPageData.pageSize}`}
                     className={styles.credentialInspectionPageSizeSelect}
                     fullWidth={false}
                   />
@@ -1326,7 +1326,7 @@ export function QuotaAutoRefreshSettingsModal({
                   ]}
                   onChange={onValueChange}
                   disabled={scheduleControlsDisabled}
-                  ariaLabel={t('usage_stats.credentials_auto_refresh_weekday')}
+                  ariaLabel={`${t('usage_stats.credentials_auto_refresh_weekday')}: ${t(value ? `usage_stats.credentials_auto_refresh_weekday_${value}` : 'usage_stats.credentials_auto_refresh_select')}`}
                   className={styles.credentialAutoRefreshWeekdaySelect}
                 />
               </label>
