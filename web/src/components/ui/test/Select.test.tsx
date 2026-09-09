@@ -57,3 +57,25 @@ it.each([{ x: 120, expected: 120 }, { x: 980, expected: 836 }])(
     }
   }
 );
+
+it('follows its anchor when layout moves it without resizing the trigger or viewport', async () => {
+  const container = document.createElement('div');
+  document.body.append(container);
+  const root = createRoot(container);
+  try {
+    await act(async () => root.render(<Select value="a" options={[{ value: 'a', label: 'API Key' }]} onChange={vi.fn()} />));
+    const trigger = container.querySelector('button')!;
+    const bounds = vi.spyOn(trigger.parentElement!, 'getBoundingClientRect').mockReturnValue(new DOMRect(600, 80, 180, 44));
+    await act(async () => trigger.click());
+    const menu = document.querySelector<HTMLElement>('[role="listbox"]')!;
+    expect(menu.style.left).toBe('600px');
+    bounds.mockReturnValue(new DOMRect(38, 140, 180, 44));
+    await act(async () => { await new Promise(requestAnimationFrame); });
+    expect(menu.style.left).toBe('38px');
+    expect(menu.style.top).toBe('192px');
+  } finally {
+    await act(async () => root.unmount());
+    container.remove();
+    vi.restoreAllMocks();
+  }
+});

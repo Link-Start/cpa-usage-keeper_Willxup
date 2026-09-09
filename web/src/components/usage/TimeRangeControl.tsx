@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties, type KeyboardEvent } from 'react';
 import { createPortal } from 'react-dom';
+import { useAnchorPosition } from '@/hooks/useAnchorPosition';
 import { useTranslation } from 'react-i18next';
 import type { UsageCustomRange, UsageTimeRange } from '@/lib/types';
 import { Modal } from '@/components/ui/Modal';
@@ -393,14 +394,12 @@ export function TimeRangeControl({
     };
   }, [handleRollingValueCommit]);
 
-  const updatePopoverPosition = useCallback(() => {
-    const trigger = desktopTriggerRef.current;
-    if (!trigger) return;
-    const rect = trigger.getBoundingClientRect();
+  const updatePopoverPosition = useCallback((rect: DOMRect) => {
     const width = Math.min(368, window.innerWidth - 24);
     const left = Math.min(Math.max(12, rect.right - width), window.innerWidth - width - 12);
     setPopoverPosition({ top: rect.bottom + 8, left });
   }, []);
+  useAnchorPosition(desktopOpen, desktopTriggerRef, updatePopoverPosition);
 
   const discardDraft = useCallback(() => {
     activeRollingPointerRef.current = null;
@@ -442,9 +441,8 @@ export function TimeRangeControl({
       return;
     }
     if (appliedMode === 'custom') prepareCustomDraft();
-    updatePopoverPosition();
     setDesktopOpen(true);
-  }, [appliedMode, closeDesktopPopover, desktopOpen, prepareCustomDraft, updatePopoverPosition]);
+  }, [appliedMode, closeDesktopPopover, desktopOpen, prepareCustomDraft]);
 
   const openMobileModal = useCallback(() => {
     closeDesktopPopover();
@@ -512,17 +510,13 @@ export function TimeRangeControl({
         firstElement.focus();
       }
     };
-    window.addEventListener('resize', updatePopoverPosition);
-    window.addEventListener('scroll', updatePopoverPosition, true);
     document.addEventListener('pointerdown', handlePointerDown);
     document.addEventListener('keydown', handleKeyDown);
     return () => {
-      window.removeEventListener('resize', updatePopoverPosition);
-      window.removeEventListener('scroll', updatePopoverPosition, true);
       document.removeEventListener('pointerdown', handlePointerDown);
       document.removeEventListener('keydown', handleKeyDown);
     };
-  }, [closeDesktopPopover, desktopOpen, updatePopoverPosition]);
+  }, [closeDesktopPopover, desktopOpen]);
 
   const handleCustomApply = () => {
     lastEmittedRangeRef.current = 'custom';

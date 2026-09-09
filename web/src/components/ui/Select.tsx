@@ -2,7 +2,6 @@ import React, {
   useCallback,
   useEffect,
   useId,
-  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -10,6 +9,7 @@ import React, {
   type ReactNode
 } from 'react';
 import { createPortal } from 'react-dom';
+import { useAnchorPosition } from '@/hooks/useAnchorPosition';
 import { IconChevronDown } from './icons';
 import styles from './Select.module.scss';
 
@@ -66,8 +66,7 @@ const findNextEnabledOptionIndex = (
   return -1;
 };
 
-const resolveDropdownStyle = (element: HTMLElement, dropdownMinWidth?: number): CSSProperties => {
-  const rect = element.getBoundingClientRect();
+const resolveDropdownStyle = (rect: DOMRect, dropdownMinWidth?: number): CSSProperties => {
   const viewportWidth = window.innerWidth;
   const viewportHeight = window.innerHeight;
   const availableWidth = Math.max(0, viewportWidth - VIEWPORT_MARGIN * 2);
@@ -133,7 +132,6 @@ export function Select({
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const dropdownRef = useRef<HTMLDivElement | null>(null);
-  const rafRef = useRef<number | null>(null);
   const [dropdownStyle, setDropdownStyle] = useState<CSSProperties | null>(null);
   const isOpen = open && !disabled;
   const searchable = Boolean(search);
@@ -159,61 +157,10 @@ export function Select({
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [disabled, open]);
 
-  const updateDropdownStyle = useCallback(() => {
-    if (!wrapRef.current) return;
-    setDropdownStyle(resolveDropdownStyle(wrapRef.current, dropdownMinWidth));
+  const updateDropdownStyle = useCallback((rect: DOMRect) => {
+    setDropdownStyle(resolveDropdownStyle(rect, dropdownMinWidth));
   }, [dropdownMinWidth]);
-
-  const scheduleDropdownStyleUpdate = useCallback(() => {
-    if (typeof window === 'undefined') return;
-    if (rafRef.current !== null) {
-      window.cancelAnimationFrame(rafRef.current);
-    }
-    rafRef.current = window.requestAnimationFrame(() => {
-      rafRef.current = null;
-      updateDropdownStyle();
-    });
-  }, [updateDropdownStyle]);
-
-  useLayoutEffect(() => {
-    if (!isOpen) {
-      if (rafRef.current !== null && typeof window !== 'undefined') {
-        window.cancelAnimationFrame(rafRef.current);
-        rafRef.current = null;
-      }
-      return;
-    }
-
-    updateDropdownStyle();
-
-    const handleViewportChange = () => {
-      scheduleDropdownStyleUpdate();
-    };
-
-    const resizeObserver =
-      typeof ResizeObserver !== 'undefined' && wrapRef.current
-        ? new ResizeObserver(() => {
-            scheduleDropdownStyleUpdate();
-          })
-        : null;
-
-    if (resizeObserver && wrapRef.current) {
-      resizeObserver.observe(wrapRef.current);
-    }
-
-    window.addEventListener('resize', handleViewportChange);
-    window.addEventListener('scroll', handleViewportChange, true);
-
-    return () => {
-      window.removeEventListener('resize', handleViewportChange);
-      window.removeEventListener('scroll', handleViewportChange, true);
-      resizeObserver?.disconnect();
-      if (rafRef.current !== null) {
-        window.cancelAnimationFrame(rafRef.current);
-        rafRef.current = null;
-      }
-    };
-  }, [isOpen, scheduleDropdownStyleUpdate, updateDropdownStyle]);
+  useAnchorPosition(isOpen, wrapRef, updateDropdownStyle);
 
   const selectedIndex = useMemo(() => options.findIndex((option) => option.value === value), [options, value]);
   const visibleSelectedIndex = visibleOptions.findIndex((option) => option.value === value);

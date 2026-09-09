@@ -9,8 +9,9 @@ import styles from './DashboardToolbar.module.scss';
 
 const COLLAPSED_STORAGE_KEY = 'keeper-dashboard-toolbar-collapsed';
 type ToolbarSize = { width: number; height: number };
-// Key Viewer 切换页面会重新挂载 Shell，只在同一次提交内交接工具条尺寸。
-let pendingLayout: ToolbarSize | null = null;
+// Key Viewer 切页会重挂载 Shell，只在同一次提交内交接尺寸与导航焦点。
+type ToolbarHandoff = { size: ToolbarSize | null; focusNavigation: boolean };
+let pendingLayout: ToolbarHandoff | null = null;
 
 interface DashboardToolbarProps<T extends string> {
   items: ReadonlyArray<{ id: T; label: string; href: string }>;
@@ -63,8 +64,7 @@ export function DashboardToolbar<T extends string>({ items, activeId, onNavigate
     Object.assign(copy.style, { position: 'absolute', left: '0', top: '0', visibility: 'hidden', pointerEvents: 'none' });
     const target = copy.getBoundingClientRect();
     copy.remove();
-    const previous = sizeRef.current ?? pendingLayout;
-    pendingLayout = null;
+    const previous = sizeRef.current;
     if (!previous || Math.abs(previous.width - target.width) > .5 || Math.abs(previous.height - target.height) > .5) {
       const from = animationRef.current ? dock.getBoundingClientRect() : previous;
       animationRef.current?.cancel();
@@ -95,7 +95,15 @@ export function DashboardToolbar<T extends string>({ items, activeId, onNavigate
   }, [collapsed]);
 
   useLayoutEffect(() => {
+    const handoff = pendingLayout;
+    pendingLayout = null;
+    if (!sizeRef.current) sizeRef.current = handoff?.size ?? null;
     measure();
+    if (handoff?.focusNavigation) {
+      const compact = collapsed || (hostRef.current?.clientWidth ?? 0) <= 900;
+      const target = compact ? triggerRef.current : dockRef.current?.querySelector<HTMLElement>('[data-dashboard-tabs] [aria-selected="true"]');
+      target?.focus({ preventScroll: true });
+    }
     const host = hostRef.current;
     const dock = dockRef.current;
     if (!host || !dock) return;
@@ -115,13 +123,16 @@ export function DashboardToolbar<T extends string>({ items, activeId, onNavigate
     if (controls) mutation.observe(controls, { subtree: true, childList: true, characterData: true });
     void document.fonts?.ready.then(() => { if (host.isConnected) measure(); });
     return () => { observer.disconnect(); mutation.disconnect(); cancelAnimationFrame(frame); };
-  }, [measure, activeId, i18n.language, filters.length]);
+  }, [measure, collapsed, activeId, i18n.language, filters.length]);
 
   useLayoutEffect(() => {
     const dock = dockRef.current;
     return () => {
       const size = dock?.getBoundingClientRect();
-      const handoff = size?.width ? { width: size.width, height: size.height } : null;
+      const handoff: ToolbarHandoff = {
+        size: size?.width ? { width: size.width, height: size.height } : null,
+        focusNavigation: !!dock?.querySelector('[data-dashboard-page-trigger]:focus, [data-dashboard-tabs] a:focus'),
+      };
       pendingLayout = handoff;
       queueMicrotask(() => { if (pendingLayout === handoff) pendingLayout = null; });
       animationRef.current?.cancel();
@@ -167,6 +178,8 @@ export function DashboardToolbar<T extends string>({ items, activeId, onNavigate
   }, [menuOpen]);
 
   const activatePage = (id: T) => {
+    // 选择项卸载前恢复顺序焦点，避免下一次 Tab 跳过全局筛选并滚到内容区。
+    if (menuOpen) triggerRef.current?.focus({ preventScroll: true });
     setMenuOpen(false);
     if (id === activeId) return;
     onNavigate(id);

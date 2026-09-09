@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { act } from 'react';
+import { act, useState } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DashboardToolbar } from '../DashboardToolbar';
@@ -67,6 +67,23 @@ describe('DashboardToolbar', () => {
     expect(navigate).toHaveBeenCalledWith('analysis');
     expect(trigger.getAttribute('aria-expanded')).toBe('false');
     expect(scroll).toHaveBeenCalledTimes(2);
+  });
+
+  it.each([false, true])('restores menu selection focus, remounting toolbar: %s', async (remount) => {
+    function Pages() {
+      const [page, setPage] = useState('overview');
+      return <DashboardToolbar key={remount ? page : 'shared'} items={items} activeId={page} onNavigate={setPage} onRefresh={refresh} />;
+    }
+    await act(async () => root.render(<Pages />));
+    const trigger = () => container.querySelector<HTMLButtonElement>('[data-dashboard-page-trigger]')!;
+    await act(async () => trigger().click());
+    await act(async () => container.querySelector<HTMLAnchorElement>('[data-dashboard-page-menu] a[aria-current="page"]')!.click());
+    expect(document.activeElement).toBe(trigger());
+    await act(async () => trigger().click());
+    const next = container.querySelector<HTMLAnchorElement>('[data-dashboard-page-menu] a[href="/cpa/analysis"]')!;
+    await act(async () => { next.focus(); next.click(); });
+    expect(trigger().getAttribute('aria-label')).toContain('Analysis');
+    expect(document.activeElement).toBe(trigger());
   });
 
   it('keeps the current scroll position when reselecting the current page or refreshing', async () => {
