@@ -1212,7 +1212,7 @@ describe('UsagePage toolbar styles', () => {
     expect(analysisPanelSource).toContain('<Bar data={chartData} options={chartOptions} plugins={[drawRequestsLineOnTopPlugin, drawTokenAverageLinePlugin]} />')
     expect(analysisPanelSource).toContain("id: 'analysis-token-average-line'")
     expect(analysisPanelSource).toContain("const activeContentKey = `${activeTab?.id ?? 'empty'}:${items.map((item) => item.key).join('|')}`")
-    expect(analysisPanelSource).toContain('<Doughnut key={`chart-${activeContentKey}`} data={chartData} options={chartOptions} plugins={[labelsPlugin]} />')
+    expect(analysisPanelSource).toContain('<Doughnut key={chartKey} data={chartData} options={chartOptions} plugins={[labelsPlugin]} />')
     expect(analysisPanelSource).toContain('hoverOffset: COMPOSITION_DONUT_HOVER_OFFSET')
     expect(analysisPanelSource).toContain("position: 'analysisCompositionCursor'")
     expect(analysisPanelSource).toContain('analysisCompositionCursor')

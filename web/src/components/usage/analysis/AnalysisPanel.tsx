@@ -1615,10 +1615,13 @@ function CompositionPanel({ tabs, loading, isDark, windowMinutes }: { tabs: Comp
   }), [t]);
   const chartData = useMemo(() => buildCompositionChartData(items), [items]);
   const chartOptions = useMemo(() => buildCompositionChartOptions(chartTheme, tooltipLabels), [chartTheme, tooltipLabels]);
-  const labelsPlugin = useMemo(() => createCompositionLabelsPlugin(
-    items.map((item) => ({ name: item.label, share: formatPercent(toNumber(item.percent)) })),
-    chartTheme.textPrimary,
-  ), [items, chartTheme.textPrimary]);
+  const chartLabels = useMemo(() => items.map((item) => ({
+    name: item.label,
+    share: formatPercent(toNumber(item.percent)),
+  })), [items]);
+  const labelsPlugin = useMemo(() => createCompositionLabelsPlugin(chartLabels, chartTheme.textPrimary), [chartLabels, chartTheme.textPrimary]);
+  // 插件只在图表创建时安装，标签或主题色变化后需重建图表以更新闭包。
+  const chartKey = JSON.stringify([activeContentKey, chartLabels, chartTheme.textPrimary]);
   const hasUnavailableCost = items.some((item) => item.cost_available === false);
   return (
     <section className={`${styles.analysisCard} keeper-card-surface`}>
@@ -1655,7 +1658,7 @@ function CompositionPanel({ tabs, loading, isDark, windowMinutes }: { tabs: Comp
                 role="img"
                 aria-label={`${activeTab.label}: ${items.map((item) => `${item.label} ${formatPercent(toNumber(item.percent))}`).join(', ')}`}
               >
-                <Doughnut key={`chart-${activeContentKey}`} data={chartData} options={chartOptions} plugins={[labelsPlugin]} />
+                <Doughnut key={chartKey} data={chartData} options={chartOptions} plugins={[labelsPlugin]} />
               </div>
             </div>
             <div key={`list-${activeContentKey}`} className={styles.compositionUsageList}>
