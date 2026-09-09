@@ -72,7 +72,7 @@ const analysis: AnalysisResponse = {
 };
 
 describe('AnalysisPanel token chart summary', () => {
-  it.each([undefined, ['api_key', 'model'] as const])('keeps range totals in the token chart for composition dimensions %s', (compositionDimensions) => {
+  it.each([undefined, ['model'] as const])('keeps range totals in the token chart for composition dimensions %s', (compositionDimensions) => {
     const markup = renderToStaticMarkup(
       <AnalysisPanel analysis={analysis} loading={false} isDark={false} isMobile={false} compositionDimensions={compositionDimensions} />,
     );

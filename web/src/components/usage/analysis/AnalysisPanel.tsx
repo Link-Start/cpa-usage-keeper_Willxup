@@ -1605,7 +1605,7 @@ const formatCompositionRate = (value: number, windowMinutes: number | null): str
 
 function CompositionPanel({ tabs, loading, isDark, windowMinutes }: { tabs: CompositionTab[]; loading: boolean; isDark: boolean; windowMinutes: number | null }) {
   const { t } = useTranslation();
-  const [activeTabId, setActiveTabId] = useState<CompositionTab['id']>('api_key');
+  const [activeTabId, setActiveTabId] = useState<CompositionTab['id']>(tabs[0]?.id ?? 'model');
   const activeTab = tabs.find((tab) => tab.id === activeTabId) ?? tabs[0];
   const items = activeTab?.items ?? EMPTY_COMPOSITION_ITEMS;
   const activeContentKey = `${activeTab?.id ?? 'empty'}:${items.map((item) => item.key).join('|')}`;
@@ -1624,7 +1624,7 @@ function CompositionPanel({ tabs, loading, isDark, windowMinutes }: { tabs: Comp
     <section className={`${styles.analysisCard} keeper-card-surface`}>
       <AnalysisCardHeader
         title={t('usage_stats.analysis_composition_title')}
-        subtitle={t('usage_stats.analysis_composition_subtitle')}
+        subtitle={tabs.length === 1 ? t('usage_stats.analysis_composition_single_dimension_subtitle') : t('usage_stats.analysis_composition_subtitle')}
         showPricingHint={hasUnavailableCost}
         hint={t('usage_stats.cost_need_price')}
       />
@@ -1634,8 +1634,8 @@ function CompositionPanel({ tabs, loading, isDark, windowMinutes }: { tabs: Comp
             key={tab.id}
             type="button"
             role="tab"
-            aria-selected={tab.id === activeTabId}
-            className={`${styles.compositionTab} ${tab.id === activeTabId ? styles.compositionTabActive : ''}`}
+            aria-selected={tab.id === activeTab?.id}
+            className={`${styles.compositionTab} ${tab.id === activeTab?.id ? styles.compositionTabActive : ''}`}
             onClick={() => setActiveTabId(tab.id)}
           >
             {tab.label}
