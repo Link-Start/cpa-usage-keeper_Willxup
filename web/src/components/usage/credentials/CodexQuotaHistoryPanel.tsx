@@ -15,6 +15,7 @@ import type { CodexQuotaHistoryCycle, CodexQuotaHistoryResponse, CodexQuotaHisto
 import { useThemeStore } from '@/stores'
 import { formatCompactNumber, formatUsd } from '@/utils/usage'
 import { buildUsageChartTooltipStyle, getUsageChartTheme, toUsageChartGradientFill, USAGE_CHART_REQUESTS_LINE_COLOR, type UsageChartGradientColor } from '@/utils/usage/chartConfig'
+import { quotaRemainingStatus } from './credentialViewModels'
 import styles from './CodexQuotaHistoryPanel.module.scss'
 
 type QuotaEfficiencyChartType = 'bar' | 'line'
@@ -265,7 +266,7 @@ function CurrentCycleEfficiencyCard({
   return (
     <section className={styles.card} data-codex-quota-current-cycle="true">
       <header className={styles.cardHeader}>
-        <div>
+        <div className={styles.currentCycleHeading}>
           <h3>
             {t('usage_stats.credentials_quota_history_current_title')}
             {window ? ` · ${formatWindowLabel(window, t)}` : ''}
@@ -289,10 +290,21 @@ function CurrentCycleEfficiencyCard({
               : t('usage_stats.credentials_quota_history_no_current')}
           </p>
         </div>
-        {cycle && chart.hasUnavailableCost ? (
-          <small className={styles.costHeaderHint} data-codex-quota-cost-warning="true">
-            {t('usage_stats.credentials_quota_history_cost_unavailable')}
-          </small>
+        {cycle ? (
+          <div className={styles.currentCycleStatus}>
+            <dl className={styles.currentRemaining} data-status={quotaRemainingStatus(cycle.last_remaining_percent)}>
+              <dt>{t('usage_stats.credentials_quota_history_current_remaining')}</dt>
+              <dd>
+                {cycle.last_remaining_percent ?? '—'}
+                {cycle.last_remaining_percent !== null ? <span>%</span> : null}
+              </dd>
+            </dl>
+            {chart.hasUnavailableCost ? (
+              <small className={styles.costHeaderHint} data-codex-quota-cost-warning="true">
+                {t('usage_stats.credentials_quota_history_cost_unavailable')}
+              </small>
+            ) : null}
+          </div>
         ) : null}
       </header>
       {!cycle ? (

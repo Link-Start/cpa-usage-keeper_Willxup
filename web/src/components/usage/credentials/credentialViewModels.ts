@@ -408,7 +408,10 @@ function quotaStatus(row: UsageQuotaRow, percent: number | null, kind: DisplayQu
   if (row.limitReached) {
     return 'danger'
   }
-  const remainingPercent = quotaBarPercent(percent, kind)
+  return quotaRemainingStatus(quotaBarPercent(percent, kind))
+}
+
+export function quotaRemainingStatus(remainingPercent: number | null): QuotaStatus {
   if (remainingPercent === null) {
     return 'unknown'
   }

@@ -171,6 +171,28 @@ describe('CodexQuotaHistoryPanel', () => {
   }
   const modalButton = (label: string) => Array.from(document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button')).find((button) => button.textContent === label)!
 
+  it.each([
+    [100, 'ok'], [50, 'ok'], [49, 'warning'], [20, 'warning'], [19, 'danger'], [0, 'danger'], [null, 'unknown'],
+  ] as const)('shows the latest remaining percentage %s with quota status %s in the header', async (percent, status) => {
+    const next = cloneResponse()
+    next.cycles[0].last_remaining_percent = percent
+    fetchCodexQuotaHistory.mockResolvedValueOnce(next)
+    await act(async () => root.render(<CodexQuotaHistoryPanel authIndex="auth-1" />))
+
+    const remaining = container.querySelector('[data-codex-quota-current-cycle] header dl')
+    expect(remaining?.querySelector('dt')?.textContent).toBe('usage_stats.credentials_quota_history_current_remaining')
+    expect(remaining?.querySelector('dd')?.textContent).toBe(percent === null ? '—' : `${percent}%`)
+    expect(remaining?.getAttribute('data-status')).toBe(status)
+  })
+
+  it('does not present completed-cycle percentages as current', async () => {
+    const next = cloneResponse()
+    next.cycles = [next.cycles[1]]
+    fetchCodexQuotaHistory.mockResolvedValueOnce(next)
+    await act(async () => root.render(<CodexQuotaHistoryPanel authIndex="auth-1" />))
+    expect(container.querySelector('[data-codex-quota-current-cycle] header dl')).toBeNull()
+  })
+
   it('confirms deletion of a current cycle and reloads history with the selected window', async () => {
     await act(async () => root.render(<CodexQuotaHistoryPanel authIndex="auth-1" />))
     await openDelete()
@@ -463,6 +485,7 @@ describe('CodexQuotaHistoryPanel', () => {
     expect(currentRecord?.textContent).toContain('usage_stats.credentials_quota_history_cycle_expected_reset')
     expect(document.body.textContent).toContain('usage_stats.credentials_quota_history_no_transition')
     expect(document.body.querySelector('[data-codex-quota-efficiency-chart]')).toBeNull()
+    expect(container.querySelector('[data-codex-quota-current-cycle] header dd')?.textContent).toBe('76%')
     const chartSummary = document.body.querySelector('[data-codex-quota-current-cycle="true"] [data-codex-quota-chart-summary]')
     expect(chartSummary?.querySelector('[data-codex-quota-summary="median"]')?.textContent).toContain('—')
     expect(chartSummary?.querySelector('[data-codex-quota-summary="used"] [data-codex-quota-summary-metric="tokens"]')?.textContent).toBe('5.00K')
@@ -603,6 +626,10 @@ describe('CodexQuotaHistoryPanel', () => {
   })
 
   it('queries only the newly selected real window series', async () => {
+    const secondary = cloneResponse()
+    secondary.selected_window = secondary.windows[1]
+    secondary.cycles[0].last_remaining_percent = 19
+    fetchCodexQuotaHistory.mockResolvedValueOnce(response).mockResolvedValueOnce(secondary)
     await act(async () => {
       root.render(<CodexQuotaHistoryPanel authIndex="codex-auth" />)
       await Promise.resolve()
@@ -620,6 +647,9 @@ describe('CodexQuotaHistoryPanel', () => {
       { windowRole: 'secondary' },
       expect.any(AbortSignal),
     )
+    const remaining = container.querySelector('[data-codex-quota-current-cycle] header dl')
+    expect(remaining?.querySelector('dd')?.textContent).toBe('19%')
+    expect(remaining?.getAttribute('data-status')).toBe('danger')
   })
 
   it('retries the real window that failed instead of falling back to the default window', async () => {
@@ -679,7 +709,7 @@ describe('CodexQuotaHistoryPanel', () => {
       await Promise.resolve()
     })
     const warning = document.body.querySelector('[data-codex-quota-cost-warning]')
-    expect(warning?.parentElement?.tagName).toBe('HEADER')
+    expect(warning?.closest('header')).toBe(container.querySelector('[data-codex-quota-current-cycle] header'))
     expect(warning?.textContent).toBe('usage_stats.credentials_quota_history_cost_unavailable')
     expect(document.body.querySelector('[data-codex-quota-summary="median"]')?.textContent).toContain(
       'usage_stats.credentials_quota_history_cost_missing',
