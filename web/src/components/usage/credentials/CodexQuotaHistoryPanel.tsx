@@ -403,7 +403,7 @@ function QuotaSummaryRow({
           label={t('usage_stats.total_cost')}
           value={values.cost}
         />
-      </> : '—'}</dd>
+      </> : <span className={styles.summaryUnavailable}>—</span>}</dd>
     </div>
   )
 }
