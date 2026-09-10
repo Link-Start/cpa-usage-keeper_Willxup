@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { useTranslation } from 'react-i18next'
-import type { ChartData, ChartOptions } from 'chart.js'
+import type { CategoryScaleOptions, ChartData, ChartOptions } from 'chart.js'
 import { Chart } from 'react-chartjs-2'
 import '@/lib/chartjs'
 import quotaCostIcon from '@/assets/icons/quota-cost.svg'
@@ -846,7 +846,16 @@ function buildEfficiencyChart(
       },
       scales: {
         x: {
-          ticks: { color: muted, font: { size: 10 }, autoSkip: true, maxTicksLimit: 8, maxRotation: 0, minRotation: 0 },
+          afterBuildTicks: (axis) => {
+            const ticks = axis.ticks
+            const options = axis.options as CategoryScaleOptions
+            options.ticks.maxTicksLimit = axis.width >= 560 ? 8 : axis.width >= 200 ? 4 : 3
+            // 首尾作为主刻度优先保留，中间由 Chart.js 根据实际文字宽度均匀抽样。
+            if (ticks.length === 0) return
+            ticks[0].major = true
+            ticks[ticks.length - 1].major = true
+          },
+          ticks: { color: muted, font: { size: 10 }, autoSkip: true, major: { enabled: true }, maxRotation: 0, minRotation: 0 },
           grid: { display: false },
           border: { color: grid },
         },
