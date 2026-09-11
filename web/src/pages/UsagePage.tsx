@@ -294,7 +294,7 @@ type RequestEventFilterOptionsState = {
 
 export type RequestEventsPreferences = {
   version: typeof REQUEST_EVENTS_PREFERENCES_VERSION;
-  filters: RequestEventFilterState & { apiKeyId: string };
+  filters: RequestEventFilterState;
   visibleColumnIds: RequestEventColumnId[];
   columnOrder: RequestEventColumnId[];
 };
@@ -309,7 +309,7 @@ const DEFAULT_REQUEST_EVENT_FILTERS: RequestEventFilterState = {
 
 const buildDefaultRequestEventsPreferences = (): RequestEventsPreferences => ({
   version: REQUEST_EVENTS_PREFERENCES_VERSION,
-  filters: { ...DEFAULT_REQUEST_EVENT_FILTERS, apiKeyId: '' },
+  filters: { ...DEFAULT_REQUEST_EVENT_FILTERS },
   visibleColumnIds: [...REQUEST_EVENT_COLUMN_IDS],
   columnOrder: [...REQUEST_EVENT_COLUMN_IDS],
 });
@@ -333,9 +333,9 @@ const normalizeRequestEventResultFilter = (value: unknown): string => (
 
 const normalizeRequestEventPreferenceFilters = (value: unknown): RequestEventsPreferences['filters'] => {
   const filters = isRecord(value) ? value : {};
+  // 只恢复仍支持的列表筛选；旧 apiKeyId 不再参与查询，也不覆盖顶部选择。
   return {
     model: normalizeRequestEventFilterValue(filters.model),
-    apiKeyId: normalizeStoredApiKeyFilter(filters.apiKeyId),
     source: normalizeRequestEventFilterValue(filters.source),
     result: normalizeRequestEventResultFilter(filters.result),
   };
@@ -915,16 +915,6 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   const [eventsModelOptions, setEventsModelOptions] = useState<string[]>([]);
   const [eventsSourceOptions, setEventsSourceOptions] = useState<UsageSourceFilterOption[]>([]);
   const [eventsModelFilter, setEventsModelFilter] = useState(initialRequestEventsPreferences.filters.model);
-  // 列表只共享 API Key 候选数据，选中值、持久化和请求等待条件独立于顶部筛选。
-  const [eventsApiKeyFilter, setEventsApiKeyFilter] = useState(initialRequestEventsPreferences.filters.apiKeyId);
-  const eventsApiKeyRequestState = resolveApiKeyFilterRequestState(
-    eventsApiKeyFilter,
-    apiKeyOptions,
-    apiKeyOptionsLoaded,
-    apiKeyOptionsResolved,
-  );
-  const eventsApiKeyFilterReady = eventsApiKeyRequestState.ready;
-  const eventsRequestApiKeyId = eventsApiKeyRequestState.apiKeyId;
   const [eventsSourceFilter, setEventsSourceFilter] = useState(initialRequestEventsPreferences.filters.source);
   const [eventsResultFilter, setEventsResultFilter] = useState(initialRequestEventsPreferences.filters.result);
   const [eventsVisibleColumnIds, setEventsVisibleColumnIds] = useState<RequestEventColumnId[]>(initialRequestEventsPreferences.visibleColumnIds);
@@ -1329,18 +1319,13 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
       version: REQUEST_EVENTS_PREFERENCES_VERSION,
       filters: {
         model: eventsModelFilter,
-        apiKeyId: eventsApiKeyFilter,
         source: eventsSourceFilter,
         result: eventsResultFilter,
       },
       visibleColumnIds: eventsVisibleColumnIds,
       columnOrder: eventsColumnOrder,
     });
-  }, [eventsApiKeyFilter, eventsColumnOrder, eventsModelFilter, eventsResultFilter, eventsSourceFilter, eventsVisibleColumnIds]);
-
-  useEffect(() => {
-    setEventsPage(1);
-  }, [eventsApiKeyFilter, usageRangeQuery]);
+  }, [eventsColumnOrder, eventsModelFilter, eventsResultFilter, eventsSourceFilter, eventsVisibleColumnIds]);
 
   useEffect(() => {
     // Credentials 列表、quota cache 和 task polling 都跟页面可见性绑定，隐藏页不保持刷新或轮询。
@@ -1451,7 +1436,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   }, [onAuthRequired]);
 
   const loadEvents = useCallback(async () => {
-    if (!usageRangeQuery.valid || !eventsApiKeyFilterReady) return;
+    if (!usageRangeQuery.valid || !apiKeyFilterReady) return;
     eventsRequestControllerRef.current?.abort();
     eventsLoadMoreRequestControllerRef.current?.abort();
     eventsLoadMoreRequestControllerRef.current = null;
@@ -1469,7 +1454,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
         model: eventsModelFilter === ALL_REQUEST_EVENTS_FILTER ? undefined : eventsModelFilter,
         source: eventsSourceFilter === ALL_REQUEST_EVENTS_FILTER ? undefined : eventsSourceFilter,
         result: eventsResultFilter === ALL_REQUEST_EVENTS_FILTER ? undefined : eventsResultFilter,
-        apiKeyId: eventsRequestApiKeyId,
+        apiKeyId: requestApiKeyId,
       });
       if (eventsRequestControllerRef.current !== controller) {
         return;
@@ -1499,12 +1484,12 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
         eventsRequestControllerRef.current = null;
       }
     }
-  }, [eventsApiKeyFilterReady, eventsModelFilter, eventsResultFilter, eventsSourceFilter, onAuthRequired, recoverRangeBoundsConflict, eventsRequestApiKeyId, usageRangeQuery]);
+  }, [apiKeyFilterReady, eventsModelFilter, eventsResultFilter, eventsSourceFilter, onAuthRequired, recoverRangeBoundsConflict, requestApiKeyId, usageRangeQuery]);
 
   const loadMoreEvents = useCallback(async () => {
     const cursor = eventsNextCursor?.trim();
     if (!cursor || !eventsHasMore || eventsLoadMoreRequestControllerRef.current) return;
-    if (!usageRangeQuery.valid || !eventsApiKeyFilterReady) return;
+    if (!usageRangeQuery.valid || !apiKeyFilterReady) return;
 
     const controller = new AbortController();
     eventsLoadMoreRequestControllerRef.current = controller;
@@ -1518,7 +1503,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
         model: eventsModelFilter === ALL_REQUEST_EVENTS_FILTER ? undefined : eventsModelFilter,
         source: eventsSourceFilter === ALL_REQUEST_EVENTS_FILTER ? undefined : eventsSourceFilter,
         result: eventsResultFilter === ALL_REQUEST_EVENTS_FILTER ? undefined : eventsResultFilter,
-        apiKeyId: eventsRequestApiKeyId,
+        apiKeyId: requestApiKeyId,
       });
       if (eventsLoadMoreRequestControllerRef.current !== controller) return;
       setEventsAutoLoadMore(true);
@@ -1543,7 +1528,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
         setEventsLoadingMore(false);
       }
     }
-  }, [eventsApiKeyFilterReady, eventsHasMore, eventsModelFilter, eventsNextCursor, eventsResultFilter, eventsSourceFilter, onAuthRequired, recoverRangeBoundsConflict, eventsRequestApiKeyId, usageRangeQuery]);
+  }, [apiKeyFilterReady, eventsHasMore, eventsModelFilter, eventsNextCursor, eventsResultFilter, eventsSourceFilter, onAuthRequired, recoverRangeBoundsConflict, requestApiKeyId, usageRangeQuery]);
 
   const resetEventsPage = useCallback(() => {
     eventsLoadMoreRequestControllerRef.current?.abort();
@@ -1554,22 +1539,15 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     setEventsPage(1);
   }, []);
 
+  useEffect(() => {
+    // 顶部 Key 和时间范围共同限定列表；切换时立即丢弃旧游标，查询 effect 负责取消旧请求。
+    resetEventsPage();
+  }, [resetEventsPage, selectedApiKeyId, usageRangeQuery]);
 
   const handleEventsModelFilterChange = useCallback((model: string) => {
     setEventsModelFilter(model);
     resetEventsPage();
   }, [resetEventsPage]);
-
-  const handleEventsApiKeyFilterChange = useCallback((apiKeyId: string) => {
-    setEventsApiKeyFilter(apiKeyId);
-    resetEventsPage();
-  }, [resetEventsPage]);
-
-  useEffect(() => {
-    if (shouldResetSelectedApiKeyFilter(eventsApiKeyFilter, apiKeyOptions, apiKeyOptionsLoaded)) {
-      handleEventsApiKeyFilterChange('');
-    }
-  }, [apiKeyOptions, apiKeyOptionsLoaded, eventsApiKeyFilter, handleEventsApiKeyFilterChange]);
 
   const handleEventsSourceFilterChange = useCallback((source: string) => {
     setEventsSourceFilter(source);
@@ -1582,14 +1560,14 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   }, [resetEventsPage]);
 
   const handleEventsExport = useCallback(async (format: UsageEventsExportFormat) => {
-    if (!usageRangeQuery.valid || !eventsApiKeyFilterReady) return;
+    if (!usageRangeQuery.valid || !apiKeyFilterReady) return;
     setEventsExportingFormat(format);
     try {
       const file = await exportUsageEvents(usageRangeQuery, format, {
         model: eventsModelFilter === ALL_REQUEST_EVENTS_FILTER ? undefined : eventsModelFilter,
         source: eventsSourceFilter === ALL_REQUEST_EVENTS_FILTER ? undefined : eventsSourceFilter,
         result: eventsResultFilter === ALL_REQUEST_EVENTS_FILTER ? undefined : eventsResultFilter,
-        apiKeyId: eventsRequestApiKeyId,
+        apiKeyId: requestApiKeyId,
       });
       triggerBrowserFileDownload(file.blob, file.filename);
       showTopNotice('success', t('usage_stats.export_success'));
@@ -1607,7 +1585,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     } finally {
       setEventsExportingFormat(null);
     }
-  }, [eventsApiKeyFilterReady, eventsModelFilter, eventsResultFilter, eventsSourceFilter, onAuthRequired, recoverRangeBoundsConflict, eventsRequestApiKeyId, showTopNotice, t, usageRangeQuery]);
+  }, [apiKeyFilterReady, eventsModelFilter, eventsResultFilter, eventsSourceFilter, onAuthRequired, recoverRangeBoundsConflict, requestApiKeyId, showTopNotice, t, usageRangeQuery]);
 
   const handleRequestLogOpen = useCallback(async (event: UsageEvent) => {
     if (!requestLogAccessEnabled) return;
@@ -1737,11 +1715,11 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   }, [onAuthRequired, requestLogAccessEnabled, showTopNotice, t]);
 
   const refreshActiveTab = useCallback(async () => {
+    if (!apiKeyFilterReady && shouldShowRangeControls(activeTab)) return;
     if (activeTab === 'events') {
       await Promise.all([loadEventFilterOptions(), loadEvents()]);
       return;
     }
-    if (!apiKeyFilterReady && shouldShowRangeControls(activeTab)) return;
     if (activeTab === 'ranking') {
       await refreshRanking();
       return;
@@ -1762,11 +1740,11 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   }, [activeTab, apiKeyFilterReady, credentialSectionVisibility.enabled, loadActivity, loadAnalysis, loadApiKeySettings, loadAuthSessions, loadEventFilterOptions, loadEvents, loadPricing, loadRealtime, loadUsage, refreshCredentialDetail, refreshCredentials, refreshRanking]);
 
   const refreshAutoRefreshTab = useCallback(async () => {
+    if (!apiKeyFilterReady && shouldShowRangeControls(activeTab)) return;
     if (activeTab === 'events') {
       await loadEvents();
       return;
     }
-    if (!apiKeyFilterReady && shouldShowRangeControls(activeTab)) return;
     if (credentialSectionVisibility.enabled) {
       await refreshCredentials();
       return;
@@ -2306,10 +2284,8 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                   loading={eventsLoading}
                   totalCount={eventsTotalCount}
                   modelOptions={eventsModelOptions}
-                  apiKeyOptions={apiKeyOptions}
                   sourceOptions={eventsSourceOptions}
                   modelFilter={eventsModelFilter}
-                  apiKeyFilter={eventsApiKeyFilter}
                   sourceFilter={eventsSourceFilter}
                   resultFilter={eventsResultFilter}
                   exportingFormat={eventsExportingFormat}
@@ -2319,7 +2295,6 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                   visibleColumnIds={eventsVisibleColumnIds}
                   columnOrder={eventsColumnOrder}
                   onModelFilterChange={handleEventsModelFilterChange}
-                  onApiKeyFilterChange={handleEventsApiKeyFilterChange}
                   onSourceFilterChange={handleEventsSourceFilterChange}
                   onResultFilterChange={handleEventsResultFilterChange}
                   onExport={handleEventsExport}
