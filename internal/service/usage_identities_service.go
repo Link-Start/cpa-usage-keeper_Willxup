@@ -68,7 +68,12 @@ type UsageIdentityStatsResetter interface {
 }
 
 type UsageIdentityReader interface {
-	GetUsageIdentity(context.Context, int64) (entities.UsageIdentity, error)
+	GetUsageIdentity(context.Context, int64) (UsageIdentityDetail, error)
+}
+
+type UsageIdentityDetail struct {
+	Identity         entities.UsageIdentity
+	CredentialHealth UsageCredentialHealthSnapshot
 }
 
 type usageIdentityService struct {
@@ -100,12 +105,18 @@ func (s *usageIdentityService) ListActiveUsageIdentities(ctx context.Context) ([
 	return repository.ListActiveUsageIdentities(ctx, s.db)
 }
 
-func (s *usageIdentityService) GetUsageIdentity(ctx context.Context, id int64) (entities.UsageIdentity, error) {
+func (s *usageIdentityService) GetUsageIdentity(ctx context.Context, id int64) (UsageIdentityDetail, error) {
 	if id <= 0 {
-		return entities.UsageIdentity{}, ErrInvalidID
+		return UsageIdentityDetail{}, ErrInvalidID
 	}
 	// 详情按主键读取，不受列表分页、排序及删除状态影响。
-	return repository.FindUsageIdentityByID(ctx, s.db, id)
+	identity, err := repository.FindUsageIdentityByID(ctx, s.db, id)
+	if err != nil {
+		return UsageIdentityDetail{}, err
+	}
+	// 与列表共用内存健康快照，只处理当前凭证，不额外查询请求历史。
+	health := s.credentialHealthSnapshots([]entities.UsageIdentity{identity})[0]
+	return UsageIdentityDetail{Identity: identity, CredentialHealth: health}, nil
 }
 
 func (s *usageIdentityService) ListActiveUsageIdentitiesPage(ctx context.Context, request ListUsageIdentitiesRequest) (ListUsageIdentitiesResponse, error) {

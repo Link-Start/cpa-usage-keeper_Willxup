@@ -500,7 +500,7 @@ function credentialUsageStats(identity: UsageIdentity) {
   }
 }
 
-// 只合并统计字段，列表仍负责元数据、额度和健康状态，避免两条刷新链互相覆盖。
+// 独立刷新本轮统计和健康快照，元数据与额度继续由列表维护。
 export function updateCredentialDetailStats(selection: CredentialDetailSelection, updated: UsageIdentity): CredentialDetailSelection {
   const identity = {
     ...selection.row.identity,
@@ -518,11 +518,18 @@ export function updateCredentialDetailStats(selection: CredentialDetailSelection
     stats_updated_at: updated.stats_updated_at,
     stats_reset_at: updated.stats_reset_at,
     period_stats: updated.period_stats,
+    // 重置响应不带健康快照时保留旧值；详情读取返回的空窗口也必须应用。
+    credential_health: updated.credential_health ?? selection.row.identity.credential_health,
+  }
+  const stats = {
+    ...credentialUsageStats(identity),
+    credentialHealth: identity.credential_health,
+    windowCacheReadRate: windowCacheReadRate(identity.credential_health),
   }
   if (selection.kind === 'auth-file') {
-    return { kind: 'auth-file', row: { ...selection.row, identity, ...credentialUsageStats(identity) } }
+    return { kind: 'auth-file', row: { ...selection.row, identity, ...stats } }
   }
-  return { kind: 'ai-provider', row: { ...selection.row, identity, ...credentialUsageStats(identity), lastUsedText: identity.last_used_at, statsUpdatedText: identity.stats_updated_at } }
+  return { kind: 'ai-provider', row: { ...selection.row, identity, ...stats, lastUsedText: identity.last_used_at, statsUpdatedText: identity.stats_updated_at } }
 }
 
 function successRate(identity: Pick<UsageIdentity, 'total_requests' | 'success_count'>): number | null {

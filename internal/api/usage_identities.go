@@ -122,7 +122,7 @@ func registerUsageIdentityRoutes(router gin.IRoutes, usageIdentityProvider servi
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid usage identity id"})
 			return
 		}
-		row, err := reader.GetUsageIdentity(c.Request.Context(), id)
+		detail, err := reader.GetUsageIdentity(c.Request.Context(), id)
 		if err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
 				c.JSON(http.StatusNotFound, gin.H{"error": "usage identity not found"})
@@ -131,7 +131,7 @@ func registerUsageIdentityRoutes(router gin.IRoutes, usageIdentityProvider servi
 			writeInternalError(c, "get usage identity failed", err)
 			return
 		}
-		c.JSON(http.StatusOK, mapUsageIdentityResponse(row))
+		c.JSON(http.StatusOK, mapUsageIdentityResponseWithHealth(detail.Identity, &detail.CredentialHealth))
 	})
 	router.POST("/usage/identities/:id/stats/reset", func(c *gin.Context) {
 		resetter, ok := usageIdentityProvider.(service.UsageIdentityStatsResetter)
