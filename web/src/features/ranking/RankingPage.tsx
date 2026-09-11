@@ -413,6 +413,7 @@ export function RankingPage(props: RankingPageProps) {
             <div>
               <strong>{pendingProfile.display_name}</strong>
               <p>{t('ranking.join_confirm_body')}</p>
+              <p>{t('ranking.display_name_policy')}</p>
             </div>
           </div>
         ) : profileModalStep === 'confirm-pause' ? (
@@ -559,7 +560,7 @@ function ParticipationContent({
         value={displayName}
         onChange={(event) => setDisplayName(event.target.value)}
         label={t('ranking.display_name')}
-        hint={t('ranking.display_name_hint')}
+        hint={`${t('ranking.display_name_hint')}\n${t('ranking.display_name_policy')}`}
         error={profileError ? t(profileErrorKey(profileError)) : undefined}
         maxLength={RANKING_DISPLAY_NAME_MAX_LENGTH}
         autoComplete="off"
