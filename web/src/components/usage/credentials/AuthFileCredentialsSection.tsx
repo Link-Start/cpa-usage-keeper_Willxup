@@ -12,7 +12,7 @@ import styles from './CredentialSections.module.scss'
 import { formatCredentialTimestamp, type AuthFileCredentialRow, type DisplayQuota } from './credentialViewModels'
 import { deleteAuthFiles, fetchQuotaAutoRefreshSettings, fetchUsageQuotaResetCredits, setAuthFilesDisabled, updateQuotaAutoRefreshSettings, type UsageIdentityPageSort } from '@/lib/api'
 import type { QuotaAutoRefreshScheduleUnit, QuotaAutoRefreshSettings, UsageQuotaInspectionResult, UsageQuotaInspectionResultStatus, UsageQuotaInspectionStatusResponse, UsageQuotaResetCreditsResponse } from '@/lib/types'
-import { CredentialAliasEditor, isCredentialAliasEditorDisabled } from './CredentialAliasEditor'
+import { CredentialAliasEditor } from './CredentialAliasEditor'
 import { CredentialHealthPanel } from './CredentialHealthPanel'
 import { CredentialSubscriptionBadge } from './CredentialSubscriptionBadge'
 import { CredentialRowShell, CredentialSectionShell, CredentialTableHeader, CredentialsPagination, MetricPill, RequestMetric, TonePercent, cacheReadRateTone, capitalize, credentialToneClassName, formatCredentialNumber, successRateTone } from './CredentialSectionShell'
@@ -114,8 +114,7 @@ interface AuthFileCredentialsSectionProps {
   onRefreshQuota: () => Promise<void>
   onRefreshQuotaForAuthIndex: (authIndex: string) => Promise<void>
   onResetQuotaForAuthIndex: (authIndex: string) => Promise<void>
-  aliasSavingId?: string
-  onSaveAlias?: (id: string, alias: string) => Promise<void>
+  onEdit?: (row: AuthFileCredentialRow) => void
   onOpenDetails?: (row: AuthFileCredentialRow) => void
   /** 正在写入上游状态的 Keeper identity id 集合，用于阻止重复点击。 */
   statusPendingIdentityIds?: ReadonlySet<string>
@@ -126,7 +125,7 @@ interface AuthFileCredentialsSectionProps {
   onAfterInvalidAccountAction?: () => Promise<void>
 }
 
-export function AuthFileCredentialsSection({ rows, timeZone, total, page, totalPages, pageSize, activeOnly, sort, loading, quotaRefreshing, quotaRefreshError, quotaInspectionStatus, quotaInspectionLoading, quotaInspectionStarting, quotaInspectionError, onPageChange, onPageSizeChange, onActiveOnlyChange, onSortChange, onRefreshQuota, onRefreshQuotaForAuthIndex, onResetQuotaForAuthIndex, aliasSavingId, onSaveAlias, onOpenDetails, statusPendingIdentityIds, onToggleStatus, onSavePriority, onRefreshInspectionStatus, onStartInspection, onAfterInvalidAccountAction }: AuthFileCredentialsSectionProps) {
+export function AuthFileCredentialsSection({ rows, timeZone, total, page, totalPages, pageSize, activeOnly, sort, loading, quotaRefreshing, quotaRefreshError, quotaInspectionStatus, quotaInspectionLoading, quotaInspectionStarting, quotaInspectionError, onPageChange, onPageSizeChange, onActiveOnlyChange, onSortChange, onRefreshQuota, onRefreshQuotaForAuthIndex, onResetQuotaForAuthIndex, onEdit, onOpenDetails, statusPendingIdentityIds, onToggleStatus, onSavePriority, onRefreshInspectionStatus, onStartInspection, onAfterInvalidAccountAction }: AuthFileCredentialsSectionProps) {
   const { t } = useTranslation()
   const [inspectionOpen, setInspectionOpen] = useState(false)
   const [quotaUsageMode, setQuotaUsageMode] = useState<QuotaUsageMode>('current')
@@ -280,15 +279,14 @@ export function AuthFileCredentialsSection({ rows, timeZone, total, page, totalP
                 <ProviderBrandIcon providerType={row.identity.type} size={30} ariaLabel={row.typeLabel} />
               )
             )}
-            title={onSaveAlias ? (
+            title={onEdit ? (
               <CredentialAliasEditor
                 identityId={row.identity.id}
                 displayName={row.displayName}
-                alias={row.identity.alias}
-                saving={aliasSavingId === row.identity.id}
-                disabled={isCredentialAliasEditorDisabled(row.identity.id, row.identity.is_deleted, aliasSavingId)}
+
+                disabled={row.identity.is_deleted}
                 onOpenDetails={onOpenDetails ? () => onOpenDetails(row) : undefined}
-                onSaveAlias={onSaveAlias}
+                onEdit={() => onEdit(row)}
               />
             ) : onOpenDetails ? (
               <button

@@ -2,7 +2,7 @@ import { useTranslation } from 'react-i18next'
 import styles from './CredentialSections.module.scss'
 import { formatCredentialTimestamp, type AiProviderCredentialRow } from './credentialViewModels'
 import type { UsageIdentityPageSort } from '@/lib/api'
-import { CredentialAliasEditor, isCredentialAliasEditorDisabled } from './CredentialAliasEditor'
+import { CredentialAliasEditor } from './CredentialAliasEditor'
 import { CredentialHealthPanel } from './CredentialHealthPanel'
 import { CredentialRowShell, CredentialSectionShell, CredentialTableHeader, CredentialsPagination, MetricPill, RequestMetric, TonePercent, cacheReadRateTone, formatCredentialNumber, successRateTone } from './CredentialSectionShell'
 import { CredentialPriorityEditor } from './CredentialPriorityEditor'
@@ -18,8 +18,7 @@ interface AiProviderCredentialsSectionProps {
   activeOnly: boolean
   sort: UsageIdentityPageSort
   loading: boolean
-  aliasSavingId?: string
-  onSaveAlias?: (id: string, alias: string) => Promise<void>
+  onEdit?: (row: AiProviderCredentialRow) => void
   onOpenDetails?: (row: AiProviderCredentialRow) => void
   /** 正在写入上游状态的 Keeper identity id 集合，用于阻止重复点击。 */
   statusPendingIdentityIds?: ReadonlySet<string>
@@ -31,7 +30,7 @@ interface AiProviderCredentialsSectionProps {
   onSortChange: (sort: UsageIdentityPageSort) => void
 }
 
-export function AiProviderCredentialsSection({ rows, total, page, totalPages, pageSize, activeOnly, sort, loading, aliasSavingId, onSaveAlias, onOpenDetails, statusPendingIdentityIds, onToggleStatus, onSavePriority, onPageChange, onPageSizeChange, onActiveOnlyChange, onSortChange }: AiProviderCredentialsSectionProps) {
+export function AiProviderCredentialsSection({ rows, total, page, totalPages, pageSize, activeOnly, sort, loading, onEdit, onOpenDetails, statusPendingIdentityIds, onToggleStatus, onSavePriority, onPageChange, onPageSizeChange, onActiveOnlyChange, onSortChange }: AiProviderCredentialsSectionProps) {
   const { t } = useTranslation()
   const helpText = t('usage_stats.credentials_ai_providers_active_only_help')
 
@@ -94,15 +93,14 @@ export function AiProviderCredentialsSection({ rows, total, page, totalPages, pa
             // OpenAI 兼容类供应商没有对应的整条停用语义，静态图标复用同一套行内提示。
             <CredentialStatusUnsupportedIcon displayName={row.displayName} providerType={row.identity.type} />
           )}
-          title={onSaveAlias ? (
+          title={onEdit ? (
             <CredentialAliasEditor
               identityId={row.identity.id}
               displayName={row.displayName}
-              alias={row.identity.alias}
-              saving={aliasSavingId === row.identity.id}
-              disabled={isCredentialAliasEditorDisabled(row.identity.id, row.identity.is_deleted, aliasSavingId)}
+
+              disabled={row.identity.is_deleted}
               onOpenDetails={onOpenDetails ? () => onOpenDetails(row) : undefined}
-              onSaveAlias={onSaveAlias}
+              onEdit={() => onEdit(row)}
             />
           ) : onOpenDetails ? (
             <button

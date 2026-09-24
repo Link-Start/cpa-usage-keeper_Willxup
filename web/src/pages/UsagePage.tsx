@@ -1,3 +1,4 @@
+import { CredentialEditModal } from '@/components/usage/credentials/CredentialEditModal';
 import { UsageComparisonCharts } from '@/components/usage/UsageComparisonCharts';
 import { useState, useMemo, useCallback, useEffect, useRef, type MouseEvent as ReactMouseEvent } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -946,6 +947,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   const [eventsExportingFormat, setEventsExportingFormat] = useState<UsageEventsExportFormat | null>(null);
   const [eventsFilterOptionsLoaded, setEventsFilterOptionsLoaded] = useState(false);
   const [credentialDetailSelection, setCredentialDetailSelection] = useState<CredentialDetailSelection | null>(null);
+  const [credentialEditSelection, setCredentialEditSelection] = useState<CredentialDetailSelection | null>(null);
   const [credentialDetailOpen, setCredentialDetailOpen] = useState(false);
   const [credentialPriorityRevision, setCredentialPriorityRevision] = useState(0);
   const credentialDetailRequestRef = useRef<{ id: string; controller: AbortController } | null>(null);
@@ -2389,8 +2391,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                       onRefreshQuota={credentialsData.refreshQuotaForCurrentAuthFilePage}
                       onRefreshQuotaForAuthIndex={credentialsData.refreshQuotaForAuthIndex}
                       onResetQuotaForAuthIndex={credentialsData.resetQuotaForAuthIndex}
-                      aliasSavingId={credentialsData.aliasSavingId}
-                      onSaveAlias={credentialsData.saveUsageIdentityAlias}
+                      onEdit={(row) => setCredentialEditSelection({ kind: 'auth-file', row })}
                       onOpenDetails={(row) => handleCredentialDetailOpen({ kind: 'auth-file', row })}
                       statusPendingIdentityIds={credentialsData.credentialStatusPendingIdentityIds}
                       onToggleStatus={credentialsData.toggleAuthFileStatus}
@@ -2410,8 +2411,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                       activeOnly={credentialsData.aiProviderActiveOnly}
                       sort={credentialsData.aiProviderSort}
                       loading={credentialsData.loading}
-                      aliasSavingId={credentialsData.aliasSavingId}
-                      onSaveAlias={credentialsData.saveUsageIdentityAlias}
+                      onEdit={(row) => setCredentialEditSelection({ kind: 'ai-provider', row })}
                       onOpenDetails={(row) => handleCredentialDetailOpen({ kind: 'ai-provider', row })}
                       statusPendingIdentityIds={credentialsData.credentialStatusPendingIdentityIds}
                       onToggleStatus={credentialsData.toggleAiProviderStatus}
@@ -2460,6 +2460,16 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
           </div>
         </main>
       </div>
+      {credentialEditSelection && <CredentialEditModal
+        key={`${credentialEditSelection.kind}:${credentialEditSelection.row.identity.id}`}
+        selection={credentialEditSelection}
+        onClose={() => setCredentialEditSelection(null)}
+        onSaveField={(change) => credentialsData.saveCredentialField(credentialEditSelection.kind, credentialEditSelection.row.identity.id, credentialEditSelection.row.identity.identity, change)}
+        onSaved={() => {
+          setCredentialEditSelection(null);
+          showTopNotice('success', t('usage_stats.credentials_edit_saved'));
+        }}
+      />}
       <CredentialDetailDrawer
         open={credentialDetailOpen}
         selection={currentCredentialDetailSelection}

@@ -97,6 +97,11 @@ export type CredentialDetailSelection =
   | { kind: 'auth-file'; row: AuthFileCredentialRow }
   | { kind: 'ai-provider'; row: AiProviderCredentialRow }
 
+export type CredentialEditChange =
+  | { field: 'alias'; value: string }
+  | { field: 'priority'; value: number }
+  | { field: 'disabled'; value: boolean }
+
 export interface CredentialIdentityGroups {
   authFiles: UsageIdentity[]
   aiProviders: UsageIdentity[]

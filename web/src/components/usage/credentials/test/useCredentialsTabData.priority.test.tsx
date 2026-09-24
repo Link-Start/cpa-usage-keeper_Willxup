@@ -68,4 +68,20 @@ describe('credential priority save data flow', () => {
     expect(onPrioritySaved).not.toHaveBeenCalled()
     expect(onNotice).toHaveBeenCalledWith('error', expect.any(String))
   })
+  it('routes modal fields to their own endpoints and refreshes after each successful field', async () => {
+    await act(async () => root.render(<Harness onNotice={onNotice} onPrioritySaved={onPrioritySaved} />))
+    await act(async () => {
+      await latest!.saveCredentialField('ai-provider', 'local-id', 'idx/one', { field: 'alias', value: 'Office' })
+      await latest!.saveCredentialField('ai-provider', 'local-id', 'idx/one', { field: 'priority', value: 0 })
+      await latest!.saveCredentialField('ai-provider', 'local-id', 'idx/one', { field: 'disabled', value: true })
+    })
+    const calls = fetchMock.mock.calls.filter(([, init]) => init?.method === 'PATCH')
+    expect(calls.map(([url]) => String(url))).toEqual([
+      '/api/v1/usage/identities/local-id', '/api/v1/ai-providers/idx%2Fone/priority', '/api/v1/ai-providers/idx%2Fone/status',
+    ])
+    expect(calls.map(([, init]) => JSON.parse(String(init!.body)))).toEqual([{ alias: 'Office' }, { priority: 0 }, { disabled: true }])
+    expect(onPrioritySaved).toHaveBeenCalledTimes(3)
+    expect(onNotice).not.toHaveBeenCalled()
+  })
+
 })

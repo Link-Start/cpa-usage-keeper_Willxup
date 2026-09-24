@@ -1,0 +1,112 @@
+// @vitest-environment happy-dom
+import { act } from 'react'
+import { createRoot, type Root } from 'react-dom/client'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { CredentialEditModal } from '../CredentialEditModal'
+import type { CredentialDetailSelection, CredentialEditChange } from '../credentialViewModels'
+
+globalThis.IS_REACT_ACT_ENVIRONMENT = true
+vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }))
+const selection = (type = 'codex'): CredentialDetailSelection => ({
+  kind: type === 'codex' ? 'auth-file' : 'ai-provider',
+  row: { displayName: 'Office', identity: { id: '7', identity: 'idx/one', type, alias: 'Office', priority: 5, disabled: false } },
+} as CredentialDetailSelection)
+const field = (key: string) => {
+  const label = Array.from(document.querySelectorAll('label')).find((el) => el.textContent === `usage_stats.credentials_edit_${key}`)!
+  return document.getElementById(label.htmlFor) as HTMLInputElement
+}
+async function change(el: HTMLInputElement, value: string) {
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(el, value)
+    el.dispatchEvent(new Event('input', { bubbles: true }))
+  })
+}
+const button = (key: string) => Array.from(document.querySelectorAll<HTMLButtonElement>('button')).find((el) => el.textContent === `common.${key}`)!
+
+describe('credential unified editor', () => {
+  let container: HTMLDivElement
+  let root: Root
+  const onClose = vi.fn()
+  const onSaved = vi.fn()
+  beforeEach(() => {
+    container = document.createElement('div'); document.body.appendChild(container); root = createRoot(container)
+    onClose.mockClear(); onSaved.mockClear()
+  })
+  afterEach(async () => { await act(async () => root.unmount()); container.remove() })
+  const render = async (onSaveField: (change: CredentialEditChange) => Promise<void>, type = 'codex') => {
+    await act(async () => root.render(<CredentialEditModal selection={selection(type)} onClose={onClose} onSaved={onSaved} onSaveField={onSaveField} />))
+  }
+
+  it('opens all fields without sending requests and cancels an unsaved draft', async () => {
+    const save = vi.fn(async () => undefined)
+    await render(save)
+    expect(document.querySelector('[role="dialog"]')).not.toBeNull()
+    expect(field('alias').value).toBe('Office')
+    expect(field('priority').value).toBe('5')
+    expect(button('save').disabled).toBe(true)
+    await change(field('alias'), 'Draft')
+    await act(async () => button('cancel').click())
+    expect(onClose).toHaveBeenCalledTimes(1)
+    expect(save).not.toHaveBeenCalled()
+  })
+
+  it('preserves the draft and retries only unsaved fields after partial success', async () => {
+    let fail = true
+    const save = vi.fn(async (change: CredentialEditChange) => {
+      if (change.field === 'priority' && fail) { fail = false; throw new Error('upstream failed') }
+    })
+    await render(save)
+    await change(field('alias'), 'Home')
+    await change(field('priority'), '-2')
+    await act(async () => document.querySelector<HTMLInputElement>('input[type="checkbox"]')!.click())
+    await act(async () => button('save').click())
+    expect(save.mock.calls.map(([change]) => change.field)).toEqual(['alias', 'priority'])
+    expect(onSaved).not.toHaveBeenCalled()
+    expect(field('alias').value).toBe('Home')
+    expect(document.querySelector('[role="status"]')?.textContent).toContain('credentials_edit_partial')
+    await act(async () => button('save').click())
+    expect(save.mock.calls.map(([change]) => change)).toEqual([
+      { field: 'alias', value: 'Home' }, { field: 'priority', value: -2 },
+      { field: 'priority', value: -2 }, { field: 'disabled', value: true },
+    ])
+    expect(onSaved).toHaveBeenCalledTimes(1)
+  })
+
+  it('rejects invalid priority before saving any field and permits an explicit zero', async () => {
+    const save = vi.fn(async () => undefined)
+    await render(save)
+    await change(field('alias'), '')
+    await change(field('priority'), '1.5')
+    await act(async () => button('save').click())
+    expect(save).not.toHaveBeenCalled()
+    expect(document.querySelector('[role="alert"]')?.textContent).toContain('credentials_priority_invalid')
+    await change(field('priority'), '0')
+    await act(async () => button('save').click())
+    expect(save.mock.calls).toEqual([[{ field: 'alias', value: '' }], [{ field: 'priority', value: 0 }]])
+  })
+
+  it('keeps unsupported provider status read-only and explains OpenAI priority scope', async () => {
+    const save = vi.fn(async () => undefined)
+    await render(save, 'openai')
+    expect(document.querySelector<HTMLInputElement>('input[type="checkbox"]')!.disabled).toBe(true)
+    expect(document.body.textContent).toContain('credentials_edit_unsupported')
+    expect(document.body.textContent).toContain('credentials_priority_openai_scope')
+    await change(field('priority'), '7')
+    await act(async () => button('save').click())
+    expect(save.mock.calls).toEqual([[{ field: 'priority', value: 7 }]])
+  })
+
+  it('locks fields and closure during an outstanding save', async () => {
+    let finish!: () => void
+    const save = vi.fn(() => new Promise<void>((resolve) => { finish = resolve }))
+    await render(save)
+    await change(field('alias'), 'New')
+    await act(async () => button('save').click())
+    expect(field('alias').disabled).toBe(true)
+    expect(button('cancel').disabled).toBe(true)
+    await act(async () => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })))
+    expect(onClose).not.toHaveBeenCalled()
+    await act(async () => finish())
+    expect(onSaved).toHaveBeenCalledTimes(1)
+  })
+})
