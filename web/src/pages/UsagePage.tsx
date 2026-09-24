@@ -947,6 +947,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   const [eventsExportingFormat, setEventsExportingFormat] = useState<UsageEventsExportFormat | null>(null);
   const [eventsFilterOptionsLoaded, setEventsFilterOptionsLoaded] = useState(false);
   const [credentialDetailSelection, setCredentialDetailSelection] = useState<CredentialDetailSelection | null>(null);
+  const credentialEditFallbackRef = useRef<HTMLElement | null>(null);
   const [credentialEditSelection, setCredentialEditSelection] = useState<CredentialDetailSelection | null>(null);
   const [credentialDetailOpen, setCredentialDetailOpen] = useState(false);
   const [credentialPriorityRevision, setCredentialPriorityRevision] = useState(0);
@@ -2076,7 +2077,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
           updateAvailable={hasNewVersion}
         />}
 
-        <main className={styles.contentColumn}>
+        <main ref={credentialEditFallbackRef} tabIndex={-1} className={styles.contentColumn}>
           <div className={styles.container}>
             {loading && !usage && activeTab === 'overview' && (
               <div className={styles.loadingOverlay} aria-busy="true">
@@ -2463,6 +2464,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
       {credentialEditSelection && <CredentialEditModal
         key={`${credentialEditSelection.kind}:${credentialEditSelection.row.identity.id}`}
         selection={credentialEditSelection}
+        fallbackFocusRef={credentialEditFallbackRef}
         onClose={() => setCredentialEditSelection(null)}
         onSaveField={(change) => credentialsData.saveCredentialField(credentialEditSelection.kind, credentialEditSelection.row.identity.id, credentialEditSelection.row.identity.identity, change)}
         onSaved={() => {

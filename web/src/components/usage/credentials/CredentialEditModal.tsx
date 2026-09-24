@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useLayoutEffect, useRef, useState, type RefObject } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Modal } from '@/components/ui/Modal'
 import { Button } from '@/components/ui/Button'
@@ -14,11 +14,20 @@ interface CredentialEditModalProps {
   onClose: () => void
   onSaveField: (change: CredentialEditChange) => Promise<void>
   onSaved: () => void
+  fallbackFocusRef?: RefObject<HTMLElement | null>
 }
 
 // 弹框挂在页面层，保存导致列表重新排序或过滤掉当前行时仍保留草稿。
-export function CredentialEditModal({ selection, onClose, onSaveField, onSaved }: CredentialEditModalProps) {
+export function CredentialEditModal({ selection, onClose, onSaveField, onSaved, fallbackFocusRef }: CredentialEditModalProps) {
   const { t } = useTranslation()
+  useLayoutEffect(() => {
+    const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    // 页面会直接卸载编辑弹框；在公共 Modal 转移焦点之前记住入口，并在卸载时恢复。
+    return () => {
+      const target = opener?.isConnected ? opener : fallbackFocusRef?.current
+      target?.focus()
+    }
+  }, [fallbackFocusRef])
   const { identity, displayName } = selection.row
   const [saved, setSaved] = useState({ alias: identity.alias ?? '', priority: identity.priority ?? 0, disabled: identity.disabled ?? false })
   const [alias, setAlias] = useState(saved.alias)

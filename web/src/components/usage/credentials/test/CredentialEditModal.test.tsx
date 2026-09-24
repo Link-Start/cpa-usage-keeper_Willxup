@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { act } from 'react'
+import { act, useRef, useState } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { CredentialEditModal } from '../CredentialEditModal'
@@ -109,4 +109,40 @@ describe('credential unified editor', () => {
     await act(async () => finish())
     expect(onSaved).toHaveBeenCalledTimes(1)
   })
+  it.each(['cancel', 'escape', 'save'])('restores focus to the opener after %s closes the modal', async (action) => {
+    function Harness() {
+      const [open, setOpen] = useState(false)
+      return <><button onClick={() => setOpen(true)}>Edit</button>{open && <CredentialEditModal selection={selection()} onClose={() => setOpen(false)} onSaved={() => setOpen(false)} onSaveField={async () => undefined} />}</>
+    }
+    await act(async () => root.render(<Harness />))
+    const trigger = container.querySelector<HTMLButtonElement>('button')!
+    await act(async () => { trigger.focus(); trigger.click() })
+    if (action === 'save') await change(field('alias'), 'Updated')
+    await act(async () => {
+      field('alias').focus()
+      if (action === 'escape') document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+      else button(action).click()
+    })
+    expect(document.activeElement).toBe(trigger)
+  })
+
+  it('focuses the page fallback when saving removes the original row', async () => {
+    function Harness() {
+      const fallbackRef = useRef<HTMLElement | null>(null)
+      const [open, setOpen] = useState(false)
+      const [visible, setVisible] = useState(true)
+      return <main ref={fallbackRef} tabIndex={-1}>
+        {visible && <button onClick={() => setOpen(true)}>Edit</button>}
+        {open && <CredentialEditModal selection={selection()} fallbackFocusRef={fallbackRef} onClose={() => setOpen(false)} onSaved={() => setOpen(false)} onSaveField={async () => { setVisible(false) }} />}
+      </main>
+    }
+    await act(async () => root.render(<Harness />))
+    const trigger = container.querySelector<HTMLButtonElement>('button')!
+    await act(async () => { trigger.focus(); trigger.click() })
+    await change(field('alias'), 'Updated')
+    await act(async () => button('save').click())
+    expect(trigger.isConnected).toBe(false)
+    expect(document.activeElement).toBe(container.querySelector('main'))
+  })
+
 })

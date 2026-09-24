@@ -35,7 +35,11 @@ export function CredentialAliasEditor({ identityId, displayName, disabled = fals
             <button
               type="button"
               className={styles.credentialAliasEditButton}
-              onClick={onEdit}
+              onClick={(event) => {
+                // 明确记录鼠标/触摸与键盘共同的回焦入口，包括默认不聚焦按钮的浏览器。
+                event.currentTarget.focus()
+                onEdit()
+              }}
               title={t('usage_stats.credentials_edit_title')}
               aria-label={t('usage_stats.credentials_edit_title')}
             >
