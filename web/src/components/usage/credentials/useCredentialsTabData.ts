@@ -9,7 +9,7 @@ import {
 import { useCredentialPages } from './useCredentialPages'
 import { useQuotaCache } from './useQuotaCache'
 import { useQuotaInspection } from './useQuotaInspection'
-import { ApiError, resetUsageQuota, setCredentialDisabled, updateUsageIdentityAlias, type CredentialStatusKind, type UsageIdentityPageSort } from '@/lib/api'
+import { ApiError, resetUsageQuota, setCredentialDisabled, setCredentialPriority, updateUsageIdentityAlias, type CredentialStatusKind, type UsageIdentityPageSort } from '@/lib/api'
 import i18n from '@/i18n'
 import type { UsageIdentity, UsageIdentityTypeCount, UsageQuotaCheckResponse, UsageQuotaInspectionStatusResponse, UsageQuotaResetResponse } from '@/lib/types'
 import { quotaRefreshDisplayError, useQuotaRefreshTasks, type QuotaState } from './useQuotaRefreshTasks'
@@ -56,6 +56,7 @@ interface UseCredentialsTabDataOptions {
   enabledAiProviders: boolean
   onAuthRequired?: () => void
   onNotice?: (kind: 'success' | 'info' | 'error', message: string) => void
+  onPrioritySaved?: () => void
 }
 
 export interface CredentialsTabData {
@@ -100,6 +101,8 @@ export interface CredentialsTabData {
   credentialStatusPendingIdentityIds: ReadonlySet<string>
   toggleAuthFileStatus: (identityId: string, authIndex: string, disabled: boolean) => void
   toggleAiProviderStatus: (identityId: string, authIndex: string, disabled: boolean) => void
+  saveAuthFilePriority: (identityId: string, authIndex: string, priority: number) => Promise<void>
+  saveAiProviderPriority: (identityId: string, authIndex: string, priority: number) => Promise<void>
   refresh: () => Promise<void>
   saveUsageIdentityAlias: (id: string, alias: string) => Promise<void>
   resetUsageIdentityStats: (id: string) => Promise<UsageIdentity>
@@ -110,7 +113,7 @@ export interface CredentialsTabData {
   startQuotaInspection: () => Promise<void>
 }
 
-export function useCredentialsTabData({ enabledAuthFiles, enabledAiProviders, onAuthRequired, onNotice }: UseCredentialsTabDataOptions): CredentialsTabData {
+export function useCredentialsTabData({ enabledAuthFiles, enabledAiProviders, onAuthRequired, onNotice, onPrioritySaved }: UseCredentialsTabDataOptions): CredentialsTabData {
   const credentialPages = useCredentialPages({ enabledAuthFiles, enabledAiProviders, onAuthRequired })
   const currentAuthIndexes = useMemo(
     () => selectQuotaEligibleAuthIndexes(credentialPages.authFileIdentities),
@@ -213,6 +216,35 @@ export function useCredentialsTabData({ enabledAuthFiles, enabledAiProviders, on
     void toggleCredentialStatus('ai-provider', identityId, authIndex, disabled)
   }, [toggleCredentialStatus])
 
+  const saveCredentialPriority = useCallback(async (kind: CredentialStatusKind, _identityId: string, authIndex: string, priority: number) => {
+    try {
+      await setCredentialPriority(kind, authIndex, priority)
+      // 重新读取当前筛选和排序；OpenAI provider 的其它 key 也通过服务端结果对齐。
+      await refreshCredentialPagesRef.current()
+      onPrioritySaved?.()
+      onNotice?.('success', i18n.t('usage_stats.credentials_priority_save_success'))
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 401) onAuthRequired?.()
+      if (error instanceof ApiError && error.status === 404) {
+        await refreshCredentialPagesRef.current()
+      }
+      const key = error instanceof ApiError && error.status === 404
+        ? 'usage_stats.credentials_priority_stale_target'
+        : error instanceof ApiError && error.status === 409 && kind === 'auth-file'
+          ? 'usage_stats.credentials_priority_conflict_auth_file'
+          : error instanceof ApiError && error.status === 502
+            ? 'usage_stats.credentials_priority_not_applied'
+            : 'usage_stats.credentials_priority_save_failed'
+      onNotice?.('error', i18n.t(key))
+      throw error
+    }
+  }, [onAuthRequired, onNotice, onPrioritySaved])
+
+  const saveAuthFilePriority = useCallback((identityId: string, authIndex: string, priority: number) =>
+    saveCredentialPriority('auth-file', identityId, authIndex, priority), [saveCredentialPriority])
+  const saveAiProviderPriority = useCallback((identityId: string, authIndex: string, priority: number) =>
+    saveCredentialPriority('ai-provider', identityId, authIndex, priority), [saveCredentialPriority])
+
   const saveUsageIdentityAlias = useCallback(async (id: string, alias: string) => {
     setAliasSavingId(id)
     try {
@@ -301,6 +333,8 @@ export function useCredentialsTabData({ enabledAuthFiles, enabledAiProviders, on
     credentialStatusPendingIdentityIds,
     toggleAuthFileStatus,
     toggleAiProviderStatus,
+    saveAuthFilePriority,
+    saveAiProviderPriority,
     refresh: refresh,
     saveUsageIdentityAlias,
     resetUsageIdentityStats: credentialPages.resetStats,

@@ -947,6 +947,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   const [eventsFilterOptionsLoaded, setEventsFilterOptionsLoaded] = useState(false);
   const [credentialDetailSelection, setCredentialDetailSelection] = useState<CredentialDetailSelection | null>(null);
   const [credentialDetailOpen, setCredentialDetailOpen] = useState(false);
+  const [credentialPriorityRevision, setCredentialPriorityRevision] = useState(0);
   const credentialDetailRequestRef = useRef<{ id: string; controller: AbortController } | null>(null);
   const [requestLogResponse, setRequestLogResponse] = useState<UsageEventRequestLogResponse | null>(null);
   const [requestLogError, setRequestLogError] = useState('');
@@ -1014,6 +1015,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     enabledAiProviders: credentialSectionVisibility.showAiProvider && pageVisible,
     onAuthRequired,
     onNotice: showTopNotice,
+    onPrioritySaved: () => setCredentialPriorityRevision((current) => current + 1),
   });
   const refreshCredentials = credentialsData.refresh;
   const [analysisLoading, setAnalysisLoading] = useState(false);
@@ -1689,6 +1691,10 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   }, [credentialDetailID, credentialDetailOpen, onAuthRequired]);
 
   useEffect(() => {
+    if (credentialPriorityRevision > 0) void refreshCredentialDetail();
+  }, [credentialPriorityRevision, refreshCredentialDetail]);
+
+  useEffect(() => {
     if (!credentialDetailOpen) return;
     // 详情按稳定 ID 独立刷新，凭证因重置移出当前分页后仍能观察新增用量。
     void refreshCredentialDetail();
@@ -1715,10 +1721,10 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     const id = credentialDetailSelection.row.identity.id;
     if (credentialDetailSelection.kind === 'auth-file') {
       const row = credentialsData.authFileRows.find((item) => item.identity.id === id);
-      return row ? updateCredentialDetailStats({ kind: 'auth-file', row }, credentialDetailSelection.row.identity) : credentialDetailSelection;
+      return row ? updateCredentialDetailStats({ kind: 'auth-file', row }, { ...credentialDetailSelection.row.identity, priority: row.identity.priority }) : credentialDetailSelection;
     }
     const row = credentialsData.aiProviderRows.find((item) => item.identity.id === id);
-    return row ? updateCredentialDetailStats({ kind: 'ai-provider', row }, credentialDetailSelection.row.identity) : credentialDetailSelection;
+    return row ? updateCredentialDetailStats({ kind: 'ai-provider', row }, { ...credentialDetailSelection.row.identity, priority: row.identity.priority }) : credentialDetailSelection;
   }, [credentialDetailSelection, credentialsData.authFileRows, credentialsData.aiProviderRows]);
 
   const handleRequestLogDownload = useCallback(async (eventId: string) => {
@@ -2388,6 +2394,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                       onOpenDetails={(row) => handleCredentialDetailOpen({ kind: 'auth-file', row })}
                       statusPendingIdentityIds={credentialsData.credentialStatusPendingIdentityIds}
                       onToggleStatus={credentialsData.toggleAuthFileStatus}
+                      onSavePriority={credentialsData.saveAuthFilePriority}
                       onRefreshInspectionStatus={credentialsData.refreshQuotaInspectionStatus}
                       onStartInspection={credentialsData.startQuotaInspection}
                       onAfterInvalidAccountAction={credentialsData.refresh}
@@ -2408,6 +2415,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                       onOpenDetails={(row) => handleCredentialDetailOpen({ kind: 'ai-provider', row })}
                       statusPendingIdentityIds={credentialsData.credentialStatusPendingIdentityIds}
                       onToggleStatus={credentialsData.toggleAiProviderStatus}
+                      onSavePriority={credentialsData.saveAiProviderPriority}
                       onPageChange={credentialsData.setAiProviderPage}
                       onPageSizeChange={credentialsData.setAiProviderPageSize}
                       onActiveOnlyChange={credentialsData.setAiProviderActiveOnly}
