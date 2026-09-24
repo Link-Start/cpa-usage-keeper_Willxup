@@ -145,4 +145,25 @@ describe('credential unified editor', () => {
     expect(document.activeElement).toBe(container.querySelector('main'))
   })
 
+  it('ignores IME confirmation and saves once on the following ordinary Enter', async () => {
+    const save = vi.fn(async () => undefined)
+    await render(save)
+    const input = field('alias')
+    await change(input, 'New alias')
+    const key = async (options: KeyboardEventInit = {}) => {
+      await act(async () => input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true, ...options })))
+    }
+    await key({ isComposing: true })
+    expect(save).not.toHaveBeenCalled()
+    await act(async () => input.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true })))
+    await key()
+    expect(save).not.toHaveBeenCalled()
+    await act(async () => input.dispatchEvent(new CompositionEvent('compositionend', { bubbles: true })))
+    await key({ keyCode: 229 })
+    expect(save).not.toHaveBeenCalled()
+    await key()
+    expect(save).toHaveBeenCalledTimes(1)
+    expect(save).toHaveBeenCalledWith({ field: 'alias', value: 'New alias' })
+  })
+
 })

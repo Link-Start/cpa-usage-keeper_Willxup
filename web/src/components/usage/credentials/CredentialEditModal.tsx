@@ -1,5 +1,6 @@
 import { useLayoutEffect, useRef, useState, type RefObject } from 'react'
 import { useTranslation } from 'react-i18next'
+import { useCredentialEnterSave } from './useCredentialEnterSave'
 import { Modal } from '@/components/ui/Modal'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
@@ -22,9 +23,10 @@ export function CredentialEditModal({ selection, onClose, onSaveField, onSaved, 
   const { t } = useTranslation()
   useLayoutEffect(() => {
     const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    const fallback = fallbackFocusRef?.current
     // 页面会直接卸载编辑弹框；在公共 Modal 转移焦点之前记住入口，并在卸载时恢复。
     return () => {
-      const target = opener?.isConnected ? opener : fallbackFocusRef?.current
+      const target = opener?.isConnected ? opener : fallback
       target?.focus()
     }
   }, [fallbackFocusRef])
@@ -77,6 +79,8 @@ export function CredentialEditModal({ selection, onClose, onSaveField, onSaved, 
     }
   }
 
+  const enterSave = useCredentialEnterSave(save)
+
   return (
     <Modal open title={t('usage_stats.credentials_edit_title')} width={600} closeDisabled={saving}
       onClose={() => { if (!busyRef.current) onClose() }}
@@ -84,7 +88,7 @@ export function CredentialEditModal({ selection, onClose, onSaveField, onSaved, 
         <Button variant="secondary" disabled={saving} onClick={onClose}>{t('common.cancel')}</Button>
         <Button loading={saving} disabled={!dirty || readOnly} onClick={() => void save()}>{t('common.save')}</Button>
       </>}>
-      <form className={styles.credentialEditForm} onSubmit={(event) => { event.preventDefault(); void save() }}>
+      <form {...enterSave} className={styles.credentialEditForm} onSubmit={(event) => { event.preventDefault(); void save() }}>
         <p className={styles.credentialEditName}>{displayName}</p>
         <Input label={t('usage_stats.credentials_edit_alias')} value={alias} maxLength={50} disabled={saving || readOnly}
           placeholder={t('usage_stats.credentials_alias_placeholder')}

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
+import { useCredentialEnterSave } from './useCredentialEnterSave'
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner'
 import { IconCheck, IconX } from '@/components/ui/icons'
 import styles from './CredentialSections.module.scss'
@@ -162,6 +163,8 @@ export function CredentialPriorityEditor({ priority, displayName, readOnly = fal
     }
   }
 
+  const enterSave = useCredentialEnterSave(save)
+
   if (!onSave || readOnly) {
     if (priority === null || priority === undefined) return null
     return <span className={styles.credentialPriorityBadge}>P{currentPriority}</span>
@@ -209,9 +212,7 @@ export function CredentialPriorityEditor({ priority, displayName, readOnly = fal
               aria-invalid={Boolean(error) || undefined}
               aria-describedby={[hintId, openAIShared ? noteId : '', error ? errorId : ''].filter(Boolean).join(' ')}
               onChange={(event) => { setDraft(event.target.value); setError('') }}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter') { event.preventDefault(); void save() }
-              }}
+              {...enterSave}
             />
             <button type="button" className={styles.credentialPriorityAction} onClick={() => void save()} disabled={saving}
               aria-label={saving ? t('usage_stats.credentials_priority_saving') : t('usage_stats.credentials_priority_save')}>
