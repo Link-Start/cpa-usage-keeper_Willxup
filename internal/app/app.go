@@ -307,8 +307,9 @@ func NewWithConfig(cfg config.Config) (*App, error) {
 	cpaAPIKeyService := service.NewCPAAPIKeyService(db)
 	authFilesManagementService := service.NewAuthFilesManagementService(cpaClient)
 	// 单条凭证开关成功后立即与 CPA 对齐；runner 自带合并窗口和 nil 保护。
-	credentialStatusService := service.NewCredentialStatusService(db, cpaClient, metadataSyncRunner)
-	credentialPriorityService := service.NewCredentialPriorityService(db, cpaClient, metadataSyncRunner)
+	credentialMutationLocks := &service.CredentialMutationLocks{}
+	credentialStatusService := service.NewCredentialStatusService(db, cpaClient, metadataSyncRunner, credentialMutationLocks)
+	credentialPriorityService := service.NewCredentialPriorityService(db, cpaClient, metadataSyncRunner, credentialMutationLocks)
 	if cfg.TLSSkipVerify {
 		logrus.WithField("cpa_base_url", cfg.CPABaseURL).Warn("TLS certificate verification is disabled for CPA and Redis queue connections")
 	}

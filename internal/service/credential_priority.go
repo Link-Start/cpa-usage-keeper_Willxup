@@ -48,11 +48,11 @@ type credentialPriorityService struct {
 	db      *gorm.DB
 	client  CredentialPriorityClient
 	refresh MetadataRefresher
-	locks   keyedMutex
+	locks   *CredentialMutationLocks
 }
 
-func NewCredentialPriorityService(db *gorm.DB, client CredentialPriorityClient, refresh MetadataRefresher) CredentialPriorityProvider {
-	return &credentialPriorityService{db: db, client: client, refresh: refresh}
+func NewCredentialPriorityService(db *gorm.DB, client CredentialPriorityClient, refresh MetadataRefresher, locks *CredentialMutationLocks) CredentialPriorityProvider {
+	return &credentialPriorityService{db: db, client: client, refresh: refresh, locks: locks}
 }
 
 func (s *credentialPriorityService) SetAuthFilePriority(ctx context.Context, authIndex string, priority int) (CredentialPriorityResponse, error) {

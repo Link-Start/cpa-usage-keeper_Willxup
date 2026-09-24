@@ -56,11 +56,11 @@ type credentialStatusService struct {
 	client  CredentialStatusClient
 	refresh MetadataRefresher
 	// locks 串行化同一 auth_index 的读改写，避免并发开关互相覆盖 excluded-models。
-	locks keyedMutex
+	locks *CredentialMutationLocks
 }
 
-func NewCredentialStatusService(db *gorm.DB, client CredentialStatusClient, refresh MetadataRefresher) CredentialStatusProvider {
-	return &credentialStatusService{db: db, client: client, refresh: refresh}
+func NewCredentialStatusService(db *gorm.DB, client CredentialStatusClient, refresh MetadataRefresher, locks *CredentialMutationLocks) CredentialStatusProvider {
+	return &credentialStatusService{db: db, client: client, refresh: refresh, locks: locks}
 }
 
 // SetAuthFileDisabled 用列表里的 auth_index 反查文件名，再按 CPA 的 name + auth_index 定位唯一账号。
