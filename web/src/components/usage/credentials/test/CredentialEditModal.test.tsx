@@ -166,4 +166,25 @@ describe('credential unified editor', () => {
     expect(save).toHaveBeenCalledWith({ field: 'alias', value: 'New alias' })
   })
 
+  it('keeps the draft open when Escape cancels IME composition', async () => {
+    const save = vi.fn(async () => undefined)
+    await render(save)
+    const input = field('alias')
+    await act(async () => input.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true })))
+    const escape = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })
+    await act(async () => input.dispatchEvent(escape))
+    expect(escape.defaultPrevented).toBe(false)
+    expect(document.querySelector('[role="dialog"]')).not.toBeNull()
+    expect(onClose).not.toHaveBeenCalled()
+    expect(save).not.toHaveBeenCalled()
+    await act(async () => input.dispatchEvent(new CompositionEvent('compositionend', { bubbles: true })))
+    for (const options of [{ isComposing: true }, { keyCode: 229 }]) {
+      await act(async () => input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true, ...options })))
+      expect(document.querySelector('[role="dialog"]')).not.toBeNull()
+      expect(onClose).not.toHaveBeenCalled()
+    }
+    await act(async () => input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })))
+    expect(onClose).toHaveBeenCalledTimes(1)
+  })
+
 })
