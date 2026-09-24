@@ -264,7 +264,7 @@ func (s *credentialPriorityService) findIdentity(ctx context.Context, authType e
 
 func (s *credentialPriorityService) requestRefresh() {
 	if s.refresh != nil {
-		s.refresh.RequestMetadataRefresh()
+		s.refresh.RequestLocalMetadataRefresh()
 	}
 }
 

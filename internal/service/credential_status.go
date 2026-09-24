@@ -28,9 +28,9 @@ var (
 	ErrCredentialStatusConflict = errors.New("credential status target cannot be changed on its own")
 )
 
-// MetadataRefresher 让开关成功后尽快与 CPA 重新对齐；实现方自带 nil 保护和合并窗口。
+// MetadataRefresher 让本地操作后尽快与 CPA 对齐，不改变当前轮询/通知模式。
 type MetadataRefresher interface {
-	RequestMetadataRefresh()
+	RequestLocalMetadataRefresh()
 }
 
 // CredentialStatusClient 是凭证开关需要的 CPA 能力子集。
@@ -186,12 +186,12 @@ func (s *credentialStatusService) persistDisabled(ctx context.Context, authType 
 	if err := repository.UpdateUsageIdentityDisabled(ctx, s.db, authType, authIndex, disabled); err != nil {
 		// CPA 已经成功时，本地写回失败也要排队一次 metadata 同步，让后台在数据库恢复后重新对齐状态。
 		if s.refresh != nil {
-			s.refresh.RequestMetadataRefresh()
+			s.refresh.RequestLocalMetadataRefresh()
 		}
 		return fmt.Errorf("update usage identity disabled state: %w", err)
 	}
 	if s.refresh != nil {
-		s.refresh.RequestMetadataRefresh()
+		s.refresh.RequestLocalMetadataRefresh()
 	}
 	return nil
 }

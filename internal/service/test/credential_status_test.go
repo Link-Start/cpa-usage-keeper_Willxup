@@ -146,7 +146,7 @@ type credentialStatusRefresherStub struct {
 	calls int
 }
 
-func (s *credentialStatusRefresherStub) RequestMetadataRefresh() {
+func (s *credentialStatusRefresherStub) RequestLocalMetadataRefresh() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.calls++
