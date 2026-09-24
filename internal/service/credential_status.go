@@ -55,7 +55,7 @@ type credentialStatusService struct {
 	db      *gorm.DB
 	client  CredentialStatusClient
 	refresh MetadataRefresher
-	// locks 串行化同一 auth_index 的读改写，避免并发开关互相覆盖 excluded-models。
+	// locks 按认证文件名或供应商 auth_index 串行化读改写，避免跨操作互相覆盖。
 	locks *CredentialMutationLocks
 }
 
@@ -69,7 +69,6 @@ func (s *credentialStatusService) SetAuthFileDisabled(ctx context.Context, authI
 	if err != nil {
 		return CredentialStatusResponse{}, err
 	}
-	defer s.locks.lock("auth-file:" + resolvedAuthIndex)()
 
 	identity, err := repository.FindActiveUsageIdentityByAuthTypeAndIdentity(ctx, s.db, entities.UsageIdentityAuthTypeAuthFile, resolvedAuthIndex)
 	if err != nil {
@@ -85,6 +84,8 @@ func (s *credentialStatusService) SetAuthFileDisabled(ctx context.Context, authI
 	if name == "" {
 		return CredentialStatusResponse{}, fmt.Errorf("%w: auth file name is unavailable", ErrCredentialStatusValidation)
 	}
+
+	defer s.locks.lockAuthFile(name)()
 
 	statusCode, err := s.client.UpdateAuthFileStatus(ctx, name, resolvedAuthIndex, disabled)
 	if err != nil {

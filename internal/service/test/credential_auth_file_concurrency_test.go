@@ -63,17 +63,34 @@ func (c *authFileReplacementClient) UpdateProviderKeyExcludedModels(context.Cont
 	return 0, fmt.Errorf("unused")
 }
 
+func (c *authFileReplacementClient) DeleteAuthFiles(context.Context, []string) error {
+	return fmt.Errorf("unused")
+}
+
 func TestAuthFileStatusAndPriorityShareMutationLock(t *testing.T) {
-	for _, firstKind := range []string{"status", "priority"} {
-		t.Run(firstKind+"-first", func(t *testing.T) {
+	for _, scenario := range []struct {
+		name      string
+		firstKind string
+		bulk      bool
+	}{
+		{"single-status-first", "status", false}, {"single-priority-first", "priority", false},
+		{"bulk-status-first", "status", true}, {"bulk-priority-first", "priority", true},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			firstKind := scenario.firstKind
 			db := openMetadataTestDatabase(t, "auth-file-shared-lock.db")
 			seedAuthFileCredential(t, db, "auth.json", "auth-index")
 			client := &authFileReplacementClient{file: authfiles.AuthFile{Name: "auth.json", AuthIndex: "auth-index"}, firstKind: firstKind, firstStarted: make(chan struct{}), releaseFirst: make(chan struct{}), secondStarted: make(chan struct{})}
 			locks := &service.CredentialMutationLocks{}
 			status := service.NewCredentialStatusService(db, client, nil, locks)
 			priority := service.NewCredentialPriorityService(db, client, nil, locks)
+			bulk := service.NewAuthFilesManagementService(client, locks)
 			actions := map[string]func() error{
 				"status": func() error {
+					if scenario.bulk {
+						_, err := bulk.SetAuthFilesDisabled(context.Background(), []string{"auth.json"}, true)
+						return err
+					}
 					_, err := status.SetAuthFileDisabled(context.Background(), "auth-index", true)
 					return err
 				},

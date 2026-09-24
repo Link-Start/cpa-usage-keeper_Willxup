@@ -60,7 +60,6 @@ func (s *credentialPriorityService) SetAuthFilePriority(ctx context.Context, aut
 	if err != nil {
 		return CredentialPriorityResponse{}, err
 	}
-	defer s.locks.lock("auth-file:" + authIndex)()
 	identity, err := s.findIdentity(ctx, entities.UsageIdentityAuthTypeAuthFile, authIndex)
 	if err != nil {
 		return CredentialPriorityResponse{}, err
@@ -72,6 +71,8 @@ func (s *credentialPriorityService) SetAuthFilePriority(ctx context.Context, aut
 	if name == "" {
 		return CredentialPriorityResponse{}, fmt.Errorf("%w: auth file name is unavailable", ErrCredentialPriorityValidation)
 	}
+
+	defer s.locks.lockAuthFile(name)()
 
 	statusCode, err := s.client.UpdateAuthFilePriority(ctx, name, priority)
 	if err != nil {
