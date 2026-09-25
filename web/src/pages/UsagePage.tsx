@@ -2248,7 +2248,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                   requestIdentity={activityRequestIdentity}
                   onWindowChange={setActivityWindow}
                 />
-                <UsageComparisonCharts comparisons={overviewComparisons ?? undefined} loading={comparisonsLoading} />
+                <UsageComparisonCharts isDark={resolvedTheme === 'dark'} isMobile={isMobile} comparisons={overviewComparisons ?? undefined} loading={comparisonsLoading} />
               </>
             )}
 
