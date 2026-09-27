@@ -1,6 +1,8 @@
 package pricing
 
 import (
+	"time"
+
 	"cpa-usage-keeper/internal/helper"
 )
 
@@ -8,6 +10,8 @@ import (
 type CostSubject struct {
 	Dimensions UsageDimensions
 	Tokens     helper.UsageTokenCostInput
+	// Timestamp 是已存 CPA 事件时间，供每日时段分支匹配。
+	Timestamp time.Time
 }
 
 func NewCostSubject(dimensions UsageDimensions, tokens helper.UsageTokenCostInput) CostSubject {

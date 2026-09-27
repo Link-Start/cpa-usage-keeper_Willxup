@@ -11,9 +11,26 @@ import (
 
 // RuleConfig 是持久化规则的领域表示。CompileSnapshot 会统一规范化 Key 和 Value。
 type RuleConfig struct {
-	Key        string
-	Value      string
-	Multiplier float64
+	Key        string  `json:"key"`
+	Value      string  `json:"value"`
+	Multiplier float64 `json:"multiplier"`
+}
+
+// UnmarshalJSON 保留显式零倍率，并拒绝遗漏倍率的条件规则。
+func (r *RuleConfig) UnmarshalJSON(data []byte) error {
+	var wire struct {
+		Key        *string  `json:"key"`
+		Value      *string  `json:"value"`
+		Multiplier *float64 `json:"multiplier"`
+	}
+	if err := decodePricingObject(data, &wire); err != nil {
+		return err
+	}
+	if wire.Key == nil || wire.Value == nil || wire.Multiplier == nil {
+		return fmt.Errorf("conditional multiplier requires key, value and multiplier")
+	}
+	*r = RuleConfig{Key: *wire.Key, Value: *wire.Value, Multiplier: *wire.Multiplier}
+	return nil
 }
 
 // ModelConfig 将一条模型价格与只属于该价格的规则集合绑定。
