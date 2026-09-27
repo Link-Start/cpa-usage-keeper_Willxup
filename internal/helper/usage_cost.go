@@ -35,10 +35,10 @@ func CalculateUsageTokenCostBreakdown(input UsageTokenCostInput, pricing entitie
 }
 
 func calculateUsageTokenCostBreakdown(input UsageTokenCostInput, pricing entities.ModelPriceSetting) UsageTokenCostBreakdown {
-	normalInputTokens := input.InputTokens - input.CacheReadTokens - input.CacheCreationTokens
-	if normalInputTokens < 0 {
-		normalInputTokens = 0
-	}
+	// 缓存 Token 逐步从非负输入量扣除，避免两个异常大缓存值相加导致 int64 下溢。
+	normalInputTokens := input.InputTokens
+	normalInputTokens -= min(normalInputTokens, input.CacheReadTokens)
+	normalInputTokens -= min(normalInputTokens, input.CacheCreationTokens)
 	breakdown := UsageTokenCostBreakdown{
 		UncachedInputCostUSD: (float64(normalInputTokens) / 1_000_000.0) * pricing.PromptPricePer1M,
 		CacheReadCostUSD:     (float64(input.CacheReadTokens) / 1_000_000.0) * pricing.CacheReadPricePer1M,

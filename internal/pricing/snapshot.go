@@ -5,6 +5,7 @@ import (
 	"math"
 	"sort"
 	"strings"
+	"time"
 
 	"cpa-usage-keeper/internal/entities"
 )
@@ -46,15 +47,18 @@ type compiledRule struct {
 }
 
 type compiledModel struct {
-	pricing entities.ModelPriceSetting
-	rules   []compiledRule
+	pricing  entities.ModelPriceSetting
+	rules    []compiledRule
+	branches []compiledBranch
 }
 
 // Snapshot 是编译后只读的完整价格目录。内部集合在发布后不再修改。
 type Snapshot struct {
-	modelsByName map[string]compiledModel
-	modelConfigs []ModelConfig
-	activeFields ActiveFields
+	modelsByName   map[string]compiledModel
+	modelConfigs   []ModelConfig
+	pricingConfigs []ModelPricingConfig
+	activeFields   ActiveFields
+	location       *time.Location
 }
 
 // CompileSnapshot 规范化并校验完整价格集合，只有整个候选集合安全时才返回快照。
@@ -249,7 +253,9 @@ func cloneRules(input []RuleConfig) []RuleConfig {
 	if input == nil {
 		return nil
 	}
-	return append([]RuleConfig(nil), input...)
+	result := make([]RuleConfig, len(input))
+	copy(result, input)
+	return result
 }
 
 // ModelConfigs 返回稳定排序的深拷贝，调用方不能修改 Snapshot 内部集合。

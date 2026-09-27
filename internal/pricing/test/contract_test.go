@@ -18,6 +18,35 @@ const completeConfigJSON = `{
   "branches":[{"id":"branch-1","name":"Large","context":{"type":"gt","threshold":0},"period":{"type":"window","start":"20:00","end":"08:00"},"prices":{"input":0,"output":0,"cache_read":0,"cache_write":0}}]
 }`
 
+type pricingExample struct {
+	Name   string                      `json:"name"`
+	Config *pricing.ModelPricingConfig `json:"config"`
+	Input  struct {
+		Model               string `json:"model"`
+		ServiceTier         string `json:"service_tier"`
+		Timestamp           string `json:"timestamp"`
+		InputTokens         int64  `json:"input_tokens"`
+		OutputTokens        int64  `json:"output_tokens"`
+		CacheReadTokens     int64  `json:"cache_read_tokens"`
+		CacheCreationTokens int64  `json:"cache_creation_tokens"`
+	} `json:"input"`
+	Want pricing.FeeResult `json:"want"`
+}
+
+// loadPricingExamples 保持后续计价器测试与本提交固定的输入／结果用例共用同一份数据。
+func loadPricingExamples(t *testing.T) []pricingExample {
+	t.Helper()
+	data, err := os.ReadFile("testdata/pricing_examples.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var examples []pricingExample
+	if err := json.Unmarshal(data, &examples); err != nil {
+		t.Fatal(err)
+	}
+	return examples
+}
+
 func TestCompletePricingConfigKeepsExplicitZeroAndArrays(t *testing.T) {
 	var config pricing.ModelPricingConfig
 	if err := json.Unmarshal([]byte(completeConfigJSON), &config); err != nil {
@@ -71,27 +100,8 @@ func TestCompletePricingConfigRejectsOmittedNullAndIrrelevantFields(t *testing.T
 
 // 这些固定输入与期望值供 CMT02 的统一计价器行为测试复用；当前只检查合同可解码。
 func TestPricingExamplesAreStableAndDecodable(t *testing.T) {
-	data, err := os.ReadFile("testdata/pricing_examples.json")
-	if err != nil {
-		t.Fatal(err)
-	}
-	var examples []struct {
-		Name   string                      `json:"name"`
-		Config *pricing.ModelPricingConfig `json:"config"`
-		Input  struct {
-			Model               string `json:"model"`
-			Timestamp           string `json:"timestamp"`
-			InputTokens         int64  `json:"input_tokens"`
-			OutputTokens        int64  `json:"output_tokens"`
-			CacheReadTokens     int64  `json:"cache_read_tokens"`
-			CacheCreationTokens int64  `json:"cache_creation_tokens"`
-		} `json:"input"`
-		Want pricing.FeeResult `json:"want"`
-	}
-	if err := json.Unmarshal(data, &examples); err != nil {
-		t.Fatal(err)
-	}
-	if len(examples) != 5 || examples[0].Name != "entire_request_above_context_threshold" || examples[0].Want.TotalCostUSD != 0.54 {
+	examples := loadPricingExamples(t)
+	if len(examples) != 6 || examples[0].Name != "entire_request_above_context_threshold" || examples[0].Want.TotalCostUSD != 0.54 || examples[2].Want.TotalCostUSD != 3 {
 		t.Fatalf("fixed pricing examples changed unexpectedly: %+v", examples)
 	}
 	for _, example := range examples {

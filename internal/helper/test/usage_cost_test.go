@@ -74,6 +74,16 @@ func TestCalculateUsageTokenCostBreakdownClampsNormalInputAtZero(t *testing.T) {
 	assertCostClose(t, breakdown.CacheWriteCostUSD, 0.04*3.75)
 }
 
+func TestCalculateUsageTokenCostBreakdownDoesNotUnderflowWithHugeCacheTokens(t *testing.T) {
+	pricing := entities.ModelPriceSetting{PromptPricePer1M: 3}
+	breakdown := helper.CalculateUsageTokenCostBreakdown(helper.UsageTokenCostInput{
+		InputTokens: 1, CacheReadTokens: math.MaxInt64, CacheCreationTokens: math.MaxInt64,
+	}, pricing)
+	if breakdown.UncachedInputCostUSD != 0 || breakdown.TotalCostUSD != 0 {
+		t.Fatalf("cache subtraction underflowed into billable input: %+v", breakdown)
+	}
+}
+
 func TestCalculateUsageTokenCostBreakdownAppliesMultiplierToEverySegment(t *testing.T) {
 	multiplier := 1.5
 	pricing := entities.ModelPriceSetting{
