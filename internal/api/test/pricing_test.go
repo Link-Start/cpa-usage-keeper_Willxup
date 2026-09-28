@@ -11,6 +11,7 @@ import (
 
 	. "cpa-usage-keeper/internal/api"
 	"cpa-usage-keeper/internal/entities"
+	"cpa-usage-keeper/internal/pricing"
 	"cpa-usage-keeper/internal/service"
 	servicedto "cpa-usage-keeper/internal/service/dto"
 )
@@ -31,6 +32,18 @@ type pricingStub struct {
 }
 
 type pricingTimeoutError struct{}
+
+func (s *pricingStub) ListPricingModels(context.Context) (servicedto.PricingModelsResponse, error) {
+	return servicedto.PricingModelsResponse{}, s.err
+}
+
+func (s *pricingStub) SavePricingModel(context.Context, pricing.ModelPricingConfig) (servicedto.SavePricingModelResponse, error) {
+	return servicedto.SavePricingModelResponse{}, s.err
+}
+
+func (s *pricingStub) DeletePricingModel(context.Context, string) (servicedto.DeletePricingModelResponse, error) {
+	return servicedto.DeletePricingModelResponse{}, s.err
+}
 
 func (pricingTimeoutError) Error() string   { return "net/http: TLS handshake timeout" }
 func (pricingTimeoutError) Timeout() bool   { return true }

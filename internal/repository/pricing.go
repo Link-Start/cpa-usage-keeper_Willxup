@@ -106,6 +106,9 @@ func UpsertModelPriceSetting(db *gorm.DB, input dto.ModelPriceSettingInput) (*en
 		return nil, err
 	}
 	setting.PriceMultiplier = &multiplier
+	if input.BranchesJSON != nil {
+		setting.BranchesJSON = *input.BranchesJSON
+	}
 
 	if err := db.Save(setting).Error; err != nil {
 		return nil, fmt.Errorf("save pricing setting: %w", err)
@@ -139,15 +142,33 @@ func normalizeModelPricingStyle(style string) (string, error) {
 }
 
 func DeleteModelPriceSetting(db *gorm.DB, model string) error {
+	_, err := deleteModelPriceSetting(db, model)
+	return err
+}
+
+// DeleteModelPriceSettingRequired 删除完整配置及级联规则，返回不存在以供新合同映射 404。
+func DeleteModelPriceSettingRequired(db *gorm.DB, model string) error {
+	deleted, err := deleteModelPriceSetting(db, model)
+	if err != nil {
+		return err
+	}
+	if !deleted {
+		return gorm.ErrRecordNotFound
+	}
+	return nil
+}
+
+func deleteModelPriceSetting(db *gorm.DB, model string) (bool, error) {
 	if db == nil {
-		return fmt.Errorf("database is nil")
+		return false, fmt.Errorf("database is nil")
 	}
 	modelName := strings.TrimSpace(model)
 	if modelName == "" {
-		return fmt.Errorf("model is required")
+		return false, fmt.Errorf("model is required")
 	}
-	if err := db.Where("model = ?", modelName).Delete(&entities.ModelPriceSetting{}).Error; err != nil {
-		return fmt.Errorf("delete pricing setting: %w", err)
+	result := db.Where("model = ?", modelName).Delete(&entities.ModelPriceSetting{})
+	if result.Error != nil {
+		return false, fmt.Errorf("delete pricing setting: %w", result.Error)
 	}
-	return nil
+	return result.RowsAffected > 0, nil
 }

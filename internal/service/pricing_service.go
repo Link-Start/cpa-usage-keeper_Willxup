@@ -23,6 +23,12 @@ import (
 var ErrInvalidPricingInput = errors.New("invalid pricing input")
 
 type PricingProvider interface {
+	// ListPricingModels 同一配置临界区返回已发布完整配置与对应修订号。
+	ListPricingModels(context.Context) (servicedto.PricingModelsResponse, error)
+	// SavePricingModel 同事务替换一个模型的基础价、分支和规则；不等待已取得旧快照的事件批次。
+	SavePricingModel(context.Context, pricing.ModelPricingConfig) (servicedto.SavePricingModelResponse, error)
+	// DeletePricingModel 只删除当前配置及规则并推进修订，已存事件费用保持不变。
+	DeletePricingModel(context.Context, string) (servicedto.DeletePricingModelResponse, error)
 	ListUsedModels(context.Context) ([]string, error)
 	ListPricing(context.Context) ([]entities.ModelPriceSetting, error)
 	PreviewPricingSync(context.Context, string) (servicedto.PricingSyncPreview, error)
