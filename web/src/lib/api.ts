@@ -4,13 +4,26 @@ import { resolveUsageRequestRange } from '@/utils/usage/rangeQuery'
 
 export class ApiError extends Error {
   status: number
+  code?: string
 
-  constructor(message: string, status: number) {
+  constructor(message: string, status: number, code?: string) {
     super(message)
     this.name = 'ApiError'
     this.status = status
+    this.code = code
   }
 }
+
+export const MIGRATION_IN_PROGRESS_EVENT = 'keeper:migration-in-progress'
+
+export interface MigrationInProgressEventDetail {
+  requestSequence: number
+}
+
+let apiRequestSequence = 0
+
+// 标记最近发出的 API 请求，让启动门禁忽略恢复 ready 前发出的迁移晚响应。
+export const latestApiRequestSequence = (): number => apiRequestSequence
 
 export const isUsageRangeBoundsConflict = (error: unknown): error is ApiError => (
   error instanceof ApiError && error.status === 409
@@ -116,15 +129,19 @@ export function apiPath(path: string): string {
 
 async function parseApiError(response: Response, fallback: string): Promise<never> {
   let message = fallback
+  let code: string | undefined
   try {
-    const payload = await response.json() as { error?: string }
+    const payload = await response.json() as { error?: string; message?: string; code?: string }
     if (payload.error) {
       message = payload.error
+    } else if (payload.message) {
+      message = payload.message
     }
+    code = payload.code
   } catch {
     // ignore invalid error payloads
   }
-  throw new ApiError(message, response.status)
+  throw new ApiError(message, response.status, code)
 }
 
 function isMutatingMethod(method: string | undefined): boolean {
@@ -175,6 +192,7 @@ export function clearEmbedSessionToken(): void {
 }
 
 export async function apiFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+  const requestSequence = ++apiRequestSequence
   const headers = new Headers(init?.headers)
   if (isMutatingMethod(init?.method)) {
     headers.set('X-CPA-Usage-Keeper-Request', 'fetch')
@@ -191,6 +209,19 @@ export async function apiFetch(input: RequestInfo | URL, init?: RequestInit): Pr
     credentials: 'include',
     headers,
   })
+  if (response.status === 503 && typeof window !== 'undefined') {
+    try {
+      const payload = await response.clone().json() as { code?: string }
+      // 仅迁移专用错误会令已有页面退回启动页；costs_busy 仍由原业务处理。
+      if (payload.code === 'migration_in_progress') {
+        window.dispatchEvent(new CustomEvent<MigrationInProgressEventDetail>(MIGRATION_IN_PROGRESS_EVENT, {
+          detail: { requestSequence },
+        }))
+      }
+    } catch {
+      // 非标准 503 响应交由原请求调用方处理。
+    }
+  }
   if (response.status === 401) {
     clearEmbedSessionToken()
   }
