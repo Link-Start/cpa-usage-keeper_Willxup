@@ -69,6 +69,7 @@ func TestUsageOverviewFiveDimensionsMigrationRebuildsFromCurrentUsageEvents(t *t
 	for _, table := range []string{"usage_overview_hourly_stats", "usage_overview_daily_stats"} {
 		index := "uniq_" + table + "_dimensions"
 		assertUsageOverviewFiveDimensionMigrationRows(t, db, table)
+		assertNoFuturePricingColumns(t, db, table, "cost_usd", "unavailable_cost_count")
 		assertUsageOverviewFiveDimensionIndex(t, db, table, index)
 		assertUsageOverviewIndexCreatedAfterClear(t, statements.String(), table, index)
 		oldIndex := "uniq_" + table + "_bucket_api_model_auth_alias"
@@ -110,6 +111,8 @@ func TestUsageOverviewFiveDimensionsMigrationRestartsCleanlyAfterBatchFailure(t 
 	assertUsageOverviewMigrationVersionCount(t, db, 0)
 	assertUsageOverviewMigrationRequestCount(t, db, "usage_overview_hourly_stats", 1000)
 	assertUsageOverviewMigrationRequestCount(t, db, "usage_overview_daily_stats", 1000)
+	assertNoFuturePricingColumns(t, db, "usage_overview_hourly_stats", "cost_usd", "unavailable_cost_count")
+	assertNoFuturePricingColumns(t, db, "usage_overview_daily_stats", "cost_usd", "unavailable_cost_count")
 
 	// version 缺失时重跑会再次执行 setup：清空首批结果、checkpoint 归零后完整重建。
 	if err := db.Exec("DROP TRIGGER fail_usage_overview_second_batch").Error; err != nil {
@@ -122,6 +125,23 @@ func TestUsageOverviewFiveDimensionsMigrationRestartsCleanlyAfterBatchFailure(t 
 	assertUsageOverviewMigrationVersionCount(t, db, 1)
 	assertUsageOverviewMigrationRequestCount(t, db, "usage_overview_hourly_stats", 1001)
 	assertUsageOverviewMigrationRequestCount(t, db, "usage_overview_daily_stats", 1001)
+	assertNoFuturePricingColumns(t, db, "usage_overview_hourly_stats", "cost_usd", "unavailable_cost_count")
+	assertNoFuturePricingColumns(t, db, "usage_overview_daily_stats", "cost_usd", "unavailable_cost_count")
+}
+
+func TestUsageOverviewFiveDimensionsMigrationCreatesMissingDailyTableWithoutFutureColumns(t *testing.T) {
+	db := openUnmigratedTestDatabase(t)
+	createLegacyUsageOverviewFiveDimensionSchema(t, db)
+	seedUsageOverviewFiveDimensionMigrationData(t, db)
+	if err := db.Exec("DROP TABLE usage_overview_daily_stats").Error; err != nil {
+		t.Fatalf("drop missing daily fixture table: %v", err)
+	}
+	runOnlyMigration(t, db, usageOverviewFiveDimensionsMigrationVersion)
+	assertUsageOverviewMigrationCheckpoint(t, db, 4)
+	for _, table := range []string{"usage_overview_hourly_stats", "usage_overview_daily_stats"} {
+		assertUsageOverviewFiveDimensionMigrationRows(t, db, table)
+		assertNoFuturePricingColumns(t, db, table, "cost_usd", "unavailable_cost_count")
+	}
 }
 
 func seedUsageOverviewFiveDimensionBatchEvents(t *testing.T, db *gorm.DB, count int) {
