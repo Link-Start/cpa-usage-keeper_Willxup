@@ -98,6 +98,7 @@ const (
 	migrationAddUsageEventSessionFields             = "20260912_usage_event_session_fields"
 	migrationAddUsageEventResponseModel             = "20260918_usage_event_response_model"
 	migrationAddUsageEventStreamStatusCode          = "20260919_usage_event_stream_status_code"
+	migrationAddPricingStorageStructure             = "20260923_pricing_storage_structure"
 )
 
 type schemaMigration struct {
@@ -247,6 +248,8 @@ func orderedMigrations() []databaseMigration {
 		{version: migrationAddUsageEventSessionFields, run: addUsageEventSessionFieldsMigration},
 		{version: migrationAddUsageEventResponseModel, run: addUsageEventResponseModelMigration},
 		{version: migrationAddUsageEventStreamStatusCode, run: addUsageEventStreamStatusCodeMigration},
+		// 费用结构只在全部已发布旧迁移之后增列，旧数据回填由后续启动阶段控制。
+		{version: migrationAddPricingStorageStructure, run: addPricingStorageStructureMigration},
 	}
 }
 

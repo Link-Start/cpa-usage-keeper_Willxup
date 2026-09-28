@@ -22,6 +22,7 @@ var modelPriceSettingColumns = []string{
 	"cache_read_price_per1_m",
 	"cache_creation_price_per1_m",
 	"price_multiplier",
+	"branches_json",
 	"created_at",
 	"updated_at",
 }
