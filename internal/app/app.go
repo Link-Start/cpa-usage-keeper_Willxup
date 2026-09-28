@@ -8,7 +8,6 @@ import (
 	"net/url"
 	"strings"
 	"sync"
-	"time"
 
 	"cpa-usage-keeper/internal/api"
 	"cpa-usage-keeper/internal/auth"
@@ -219,39 +218,8 @@ func NewWithConfig(cfg config.Config) (*App, error) {
 	})
 	// metadataSyncRunner 提前创建，保证控制消息和后台任务使用同一个调度器实例。
 	metadataSyncRunner := NewMetadataSyncRunner(syncService, cfg.MetadataSyncInterval)
-	// redisPullSource 负责 Redis batch pull，并在 usage/queue 两个 key 间做一次兼容探测。
-	redisPullSource := poller.NewRedisPullSource(cpa.RedisQueueOptions{
-		BaseURL:       cfg.CPABaseURL,
-		RedisAddr:     cfg.RedisQueueAddr,
-		ManagementKey: cfg.CPAManagementKey,
-		Timeout:       cfg.RequestTimeout,
-		BatchSize:     cfg.RedisQueueBatchSize,
-		TLS:           cfg.RedisQueueTLS,
-		TLSSkipVerify: cfg.TLSSkipVerify,
-	})
-	// httpPullSource 保持 HTTP usage queue 兜底路径不变。
-	httpPullSource := poller.NewHTTPPullSource(cfg.CPABaseURL, cfg.CPAManagementKey, cfg.RequestTimeout, cfg.TLSSkipVerify, cfg.RedisQueueBatchSize)
-	// redisSubscribeSource 保持 Redis SUBSCRIBE 优先路径不变。
-	redisSubscribeSource := poller.NewRedisSubscribeSource(poller.RedisSubscribeOptions{
-		BaseURL:       cfg.CPABaseURL,
-		RedisAddr:     cfg.RedisQueueAddr,
-		ManagementKey: cfg.CPAManagementKey,
-		Timeout:       cfg.RequestTimeout,
-		TLS:           cfg.RedisQueueTLS,
-		TLSSkipVerify: cfg.TLSSkipVerify,
-	})
-	// usage 通道可能混入 metadata 控制消息，落 inbox 前先过滤并转交 metadata runner。
-	// inbox writer 不再接收 queue key，来源由 runner 传入并写入 redis_usage_inboxes.source。
-	redisInboxWriter := poller.NewControlAwareRedisInboxWriter(poller.NewRedisInboxWriter(db), metadataSyncRunner)
-	// redisIngestRunner 继续负责三种 usage 拉取方式的选择和降级。
-	redisIngestRunner := poller.NewRedisIngestRunner(redisSubscribeSource, redisPullSource, httpPullSource, redisInboxWriter, poller.RedisIngestRunnerConfig{
-		IdleInterval:       cfg.RedisQueueIdleInterval,
-		BatchSize:          cfg.RedisQueueBatchSize,
-		HTTPBackoffInitial: time.Second,
-		HTTPBackoffMax:     30 * time.Second,
-	})
-	// usage 链路一旦降级或失败，metadata 同步回到轮询，直到下一条 CPA 控制消息重新启用通知模式。
-	redisIngestRunner.SetControlMessageObserver(metadataSyncRunner)
+	// 正常运行继续写 source 列并通知 metadata；首次升级使用独立纯接收工厂。
+	redisIngestRunner := newNormalUsageIngestRunner(cfg, db, metadataSyncRunner)
 	// redisProcessRunner 仍然只处理本地 inbox 到 usage_events 的消费。
 	redisProcessRunner := poller.NewRedisProcessRunner(syncService)
 	// errorEventService 同时承担 Errors runner 的直接写入和详情 API 的分页读取。

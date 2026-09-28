@@ -40,6 +40,21 @@ func OpenDatabasePools(cfg config.Config) (*gorm.DB, *gorm.DB, error) {
 	if err != nil {
 		return nil, nil, err
 	}
+	return openReadPoolForWriter(cfg, db)
+}
+
+// OpenUnmigratedDatabasePools 只准备 writer/WAL 和只读池，供启动引导先保护旧库再执行 migration。
+// 调用方负责先持久化初始化身份，并在旧库完成备份之前避免运行任何业务 migration。
+func OpenUnmigratedDatabasePools(cfg config.Config) (*gorm.DB, *gorm.DB, error) {
+	db, err := OpenDatabaseConnection(cfg)
+	if err != nil {
+		return nil, nil, err
+	}
+	return openReadPoolForWriter(cfg, db)
+}
+
+// openReadPoolForWriter 给文件库配独立只读池，内存库复用 writer；失败关闭已打开的池，成功交调用方管理。
+func openReadPoolForWriter(cfg config.Config, db *gorm.DB) (*gorm.DB, *gorm.DB, error) {
 	// :memory: 和临时内存 URI 按连接隔离，必须复用 writer 才能保持原来同一份数据库。
 	if sqliteDatabaseRequiresSinglePool(cfg.SQLitePath) {
 		return db, db, nil
@@ -88,6 +103,53 @@ func OpenDatabase(cfg config.Config) (*gorm.DB, error) {
 	if err != nil {
 		return nil, err
 	}
+	db, err := OpenDatabaseConnection(cfg)
+	if err != nil {
+		return nil, err
+	}
+	closeOnError := true
+	defer func() {
+		if closeOnError {
+			closeDatabasePool(db)
+		}
+	}()
+	// 空文件和新文件都按新库处理，直接 AutoMigrate 到当前 schema 后标记历史迁移已完成。
+	hasTables, err := sqliteDatabaseHasTables(db)
+	if err != nil {
+		return nil, err
+	}
+	if !databaseExists || !hasTables {
+		if err := db.AutoMigrate(entities.All()...); err != nil {
+			return nil, fmt.Errorf("auto migrate fresh database: %w", err)
+		}
+		if err := migration.MarkAllAsApplied(db); err != nil {
+			return nil, fmt.Errorf("mark schema migrations applied: %w", err)
+		}
+		closeOnError = false
+		return db, nil
+	}
+	// 现有同步入口维持原行为；未迁移引导调用 OpenUnmigratedDatabasePools，备份前不进入此路径。
+	migrationBackupWriter := backup.NewWriter(cfg.BackupDir)
+	sqlDB, err := db.DB()
+	if err != nil {
+		return nil, fmt.Errorf("configure sqlite database: %w", err)
+	}
+	if err := migration.Run(db, migration.RunOptions{BeforeDestructiveMigration: func(ctx context.Context, version string) error {
+		backupPath, err := migrationBackupWriter.WriteDatabase(ctx, sqlDB, time.Now())
+		if err != nil {
+			return err
+		}
+		logrus.WithFields(logrus.Fields{"version": version, "backup_path": backupPath}).Info("database backed up before destructive migration")
+		return nil
+	}}); err != nil {
+		return nil, fmt.Errorf("run schema migrations: %w", err)
+	}
+	closeOnError = false
+	return db, nil
+}
+
+// OpenDatabaseConnection 只打开唯一 writer 并设置连接级 SQLite 约束，不执行建表或业务迁移。
+func OpenDatabaseConnection(cfg config.Config) (*gorm.DB, error) {
 	// SQLite DSN 统一补齐 busy_timeout/foreign_keys，调用方只需要传项目配置里的路径。
 	dsn := sqliteDSN(cfg.SQLitePath)
 	// GORM 自动时间也先落到项目 TZ，再由 storageTime serializer 输出统一字符串。
@@ -132,46 +194,14 @@ func OpenDatabase(cfg config.Config) (*gorm.DB, error) {
 		return nil, fmt.Errorf("enable sqlite foreign keys: %w", err)
 	}
 
-	// 空文件和新文件都按新库处理，直接 AutoMigrate 到当前 schema 后标记历史迁移已完成。
-	hasTables, err := sqliteDatabaseHasTables(db)
-	if err != nil {
-		return nil, err
-	}
-	if !databaseExists || !hasTables {
-		if err := db.AutoMigrate(entities.All()...); err != nil {
-			return nil, fmt.Errorf("auto migrate fresh database: %w", err)
-		}
-		if err := migration.MarkAllAsApplied(db); err != nil {
-			return nil, fmt.Errorf("mark schema migrations applied: %w", err)
-		}
-		// 新库初始化已完成，连接池开始由调用方负责生命周期。
-		closeOnError = false
-		return db, nil
-	}
-
-	// 已有业务表的数据库必须走显式迁移，确保旧库按版本顺序补齐结构和索引。
-	// 破坏性 migration 直接复用定时任务的 Writer，生成相同目录和 database_*.db 文件名。
-	migrationBackupWriter := backup.NewWriter(cfg.BackupDir)
-	if err := migration.Run(db, migration.RunOptions{BeforeDestructiveMigration: func(ctx context.Context, version string) error {
-		// 在线 SQLite backup 读取唯一 writer 的一致快照；失败会原样返回并阻止 migration 进入清表事务。
-		backupPath, err := migrationBackupWriter.WriteDatabase(ctx, sqlDB, time.Now())
-		if err != nil {
-			return err
-		}
-		logrus.WithFields(logrus.Fields{"version": version, "backup_path": backupPath}).Info("database backed up before destructive migration")
-		return nil
-	}}); err != nil {
-		return nil, fmt.Errorf("run schema migrations: %w", err)
-	}
-
-	// 旧库迁移已完成，连接池开始由调用方负责生命周期。
+	// 未迁移连接交给调用方；初始化身份、备份和历史 schema 均由后续阶段显式控制。
 	closeOnError = false
 	return db, nil
 }
 
-// OpenReadDatabase 为纯查询路径创建独立只读池；schema 初始化和所有写事务仍只由 OpenDatabase 负责。
+// OpenReadDatabase 为文件库创建独立只读池；既可用于未迁移引导，也可在完整 schema 初始化后服务业务查询。
 func OpenReadDatabase(cfg config.Config) (*gorm.DB, error) {
-	// writer 必须先完成 WAL 与 schema 初始化，这里只基于同一路径构造只读 DSN。
+	// writer 必须先开启 WAL；业务 schema 是否已初始化由调用方的启动阶段决定。
 	dsn, err := sqliteReadDSN(cfg.SQLitePath)
 	// 内存库或非法 query 参数无法形成独立硬只读 URI，必须在打开连接前明确失败。
 	if err != nil {
