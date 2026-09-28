@@ -3,12 +3,14 @@ package service
 import (
 	"context"
 	"fmt"
+	"math"
 	"strings"
 	"time"
 
 	"cpa-usage-keeper/internal/config"
 	"cpa-usage-keeper/internal/cpa"
 	"cpa-usage-keeper/internal/entities"
+	"cpa-usage-keeper/internal/pricing"
 	"cpa-usage-keeper/internal/quota"
 	"cpa-usage-keeper/internal/repository"
 	repositorydto "cpa-usage-keeper/internal/repository/dto"
@@ -58,13 +60,15 @@ type SyncService struct {
 	baseURL         string
 	now             func() time.Time
 	recentUsage     RecentUsageEventAppender
+	pricingCatalog  *pricing.Catalog
 	// usageAggregation 只接收提交后通知，不允许热路径同步调用聚合仓储函数。
 	usageAggregation UsageAggregationNotifier
 	// usageHeaderQuota 与聚合 runner 解耦，在 Quota worker 内按一分钟窗口自行合并。
 	usageHeaderQuota UsageHeaderSnapshotAppender
 }
 
-// NewSyncService 按生产配置组装 CPA metadata client；远端 usage 拉取由 poller 独立负责。
+// NewSyncService 按配置组装 metadata／维护服务；远端 usage 拉取由 poller 独立负责。
+// 需要消费 inbox 的调用方使用 NewSyncServiceWithOptions 显式注入共享 PricingCatalog。
 func NewSyncService(db *gorm.DB, cfg config.Config) *SyncService {
 	return NewSyncServiceWithOptions(db, SyncServiceOptions{
 		BaseURL: cfg.CPABaseURL,
@@ -79,6 +83,8 @@ type SyncServiceOptions struct {
 	MetadataFetcher   MetadataFetcher
 	Now               func() time.Time
 	RecentUsageEvents RecentUsageEventAppender
+	// PricingCatalog 与价格保存服务共享，消费批次只从中固定一次只读快照。
+	PricingCatalog *pricing.Catalog
 	// UsageAggregationNotifier 注入 App 唯一的单 writer runner。
 	UsageAggregationNotifier UsageAggregationNotifier
 	// UsageHeaderQuota 独立接收原始 Header；是否配置聚合 notifier 不影响它。
@@ -86,6 +92,7 @@ type SyncServiceOptions struct {
 }
 
 // NewSyncServiceWithOptions 是统一构造入口，负责填充默认时钟和 metadata fetcher。
+// 仅 metadata／维护调用可不注入价格；事件消费必须与价格保存服务共享同一个 Catalog。
 func NewSyncServiceWithOptions(db *gorm.DB, opts SyncServiceOptions) *SyncService {
 	now := opts.Now
 	if now == nil {
@@ -102,6 +109,7 @@ func NewSyncServiceWithOptions(db *gorm.DB, opts SyncServiceOptions) *SyncServic
 		baseURL:         strings.TrimSpace(opts.BaseURL),
 		now:             now,
 		recentUsage:     opts.RecentUsageEvents,
+		pricingCatalog:  opts.PricingCatalog,
 		// 构造时只保存 notifier 接口，不启动额外 goroutine。
 		usageAggregation: opts.UsageAggregationNotifier,
 		// Header appender 始终独立于聚合 notifier，生产 App 会同时注入两个接收方。
@@ -119,9 +127,14 @@ func NewSyncServiceWithClient(db *gorm.DB, baseURL string, client CPAClientFetch
 
 // ProcessRedisUsageInbox 是 Redis 同步的本地处理阶段：只读取 pending/process_failed inbox 行并写入 usage_events。
 // 成功处理后仅用 usage_event_key 记录 inbox 与最终事件的关联。
+// 每批归一化后固定价格快照，USD 总费用／可用性随事件与 processed 标记原子提交，通知仅在提交后发送。
+// 未注入 Catalog 属于装配错误，在读取 inbox 前返回，不把它当作缺价或消耗消息重试次数。
 func (s *SyncService) ProcessRedisUsageInbox(ctx context.Context) (*servicedto.RedisBatchSyncResult, error) {
 	if err := s.validate(syncMetadataOptional); err != nil {
 		return nil, err
+	}
+	if s.pricingCatalog == nil {
+		return nil, fmt.Errorf("sync service pricing catalog is nil")
 	}
 	// 本操作虽然从 SELECT pending inbox 开始，但它决定随后 usage_events 与 processed 状态的原子写入。
 	// 使用局部 Write scope 让列表、identity 解析、失败回读和事务都只依赖唯一 writer；普通页面查询仍自动走 reader。
@@ -296,6 +309,22 @@ func (s *SyncService) processRedisInboxRows(ctx context.Context, writeDB *gorm.D
 	// 后续事务只处理 ready 子集；成功行一旦提交就不会在 unresolved 重试时重复入库。
 	validRows = readyRows
 	events = readyEvents
+	// 单批只固定一个已编译价格快照；普通改价可并发发布下一份，当前批次仍按原价写完。
+	feeResolver := s.pricingCatalog.NewResolver()
+	for index := range events {
+		fee := feeResolver.CalculateFee(repository.UsageEventCostSubject(events[index]))
+		if math.IsNaN(fee.TotalCostUSD) || math.IsInf(fee.TotalCostUSD, 0) {
+			feeErr := fmt.Errorf("calculate usage event fee: non-finite amount")
+			readyFailures := markRedisInboxRowsProcessFailed(writeDB, validRows, feeErr)
+			failureCounts = failureCounts.add(readyFailures)
+			failureResult := newRedisBatchSyncResult("failed", processedRows)
+			failureResult.RetryPending = failureCounts.requiresRetryWait()
+			failureResult.DiscardedRows = failureCounts.discarded
+			return failureResult, joinErrors(decodeErr, typeErr, feeErr)
+		}
+		events[index].CostUSD = &fee.TotalCostUSD
+		events[index].CostAvailable = &fee.Available
+	}
 
 	// usage_events 入库和 inbox processed 标记必须同事务提交，避免标记失败后同一 inbox 重试造成重复事件。
 	logrus.WithField("event_count", len(events)).Debug("redis usage events persistence started")

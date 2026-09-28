@@ -7,12 +7,14 @@ import (
 	"cpa-usage-keeper/internal/repository/dto"
 )
 
+// UsageEventCostSubject 将待入库或已入库的归一化事件的九维和四类 Token 映射到统一计价输入，
+// 并保留 CPA 事件时间供时段分支使用；此处不再执行 Token 归一化。
 func UsageEventCostSubject(event entities.UsageEvent) pricing.CostSubject {
 	modelAlias := ""
 	if event.ModelAlias != nil {
 		modelAlias = *event.ModelAlias
 	}
-	return newUsagePricingCostSubject(
+	subject := newUsagePricingCostSubject(
 		event.APIGroupKey,
 		event.Model,
 		event.AuthIndex,
@@ -27,6 +29,9 @@ func UsageEventCostSubject(event entities.UsageEvent) pricing.CostSubject {
 		event.CacheReadTokens,
 		event.CacheCreationTokens,
 	)
+	// 分支时段使用 CPA 已存事件时间，不能使用处理时钟或本地接收时间。
+	subject.Timestamp = event.Timestamp
+	return subject
 }
 
 func UsageEventRecordCostSubject(record dto.UsageEventRecord) pricing.CostSubject {

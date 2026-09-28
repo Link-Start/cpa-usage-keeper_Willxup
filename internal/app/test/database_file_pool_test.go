@@ -17,6 +17,7 @@ import (
 	"cpa-usage-keeper/internal/config"
 	"cpa-usage-keeper/internal/entities"
 	"cpa-usage-keeper/internal/poller"
+	"cpa-usage-keeper/internal/pricing"
 	"cpa-usage-keeper/internal/repository"
 	"cpa-usage-keeper/internal/service"
 	servicedto "cpa-usage-keeper/internal/service/dto"
@@ -228,6 +229,7 @@ func TestRedisUsageProcessingStaysOnWriterWhenReadersAreOccupied(t *testing.T) {
 	notifier := &databasePoolUsageAggregationNotifier{}
 	syncService := service.NewSyncServiceWithOptions(application.DB, service.SyncServiceOptions{
 		BaseURL: "https://cpa.example.com", Now: func() time.Time { return now }, UsageAggregationNotifier: notifier,
+		PricingCatalog: pricing.NewCatalog(pricing.EmptySnapshot()),
 	})
 	readers, releaseReaders := holdDatabasePoolReaders(t, application.ReadDB)
 	defer releaseReaders()

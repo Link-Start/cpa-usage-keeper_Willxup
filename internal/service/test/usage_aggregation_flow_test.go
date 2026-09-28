@@ -63,7 +63,7 @@ func TestProcessRedisUsageInboxReturnsAfterCommitWithoutSynchronousAggregation(t
 	}
 	notifier := &recordingUsageAggregationNotifier{}
 	headerAppender := &recordingUsageHeaderSnapshotAppender{}
-	syncService := service.NewSyncServiceWithOptions(db, service.SyncServiceOptions{
+	syncService := service.NewSyncServiceWithOptions(db, service.SyncServiceOptions{PricingCatalog: emptyPricingCatalogForTest(),
 		BaseURL:                  "https://cpa.example.com",
 		Now:                      func() time.Time { return now },
 		UsageAggregationNotifier: notifier,
@@ -108,7 +108,7 @@ func TestProcessRedisUsageInboxEmptyBatchKeepsLegacyCatchUpWithoutNotifier(t *te
 	if _, _, err := repository.InsertUsageEvents(db, events); err != nil {
 		t.Fatalf("insert pending raw event: %v", err)
 	}
-	syncService := service.NewSyncServiceWithOptions(db, service.SyncServiceOptions{BaseURL: "https://cpa.example.com", Now: func() time.Time { return now }})
+	syncService := service.NewSyncServiceWithOptions(db, service.SyncServiceOptions{PricingCatalog: emptyPricingCatalogForTest(), BaseURL: "https://cpa.example.com", Now: func() time.Time { return now }})
 
 	result, err := syncService.ProcessRedisUsageInbox(context.Background())
 	if err != nil {
@@ -139,7 +139,7 @@ func TestProcessRedisUsageInboxEmptyBatchKeepsLegacyCatchUpWithoutNotifier(t *te
 func TestSyncMetadataNotifiesIdentityAggregationWithoutRunningCatchUp(t *testing.T) {
 	db := openUsageServiceTestDatabase(t)
 	notifier := &recordingUsageAggregationNotifier{}
-	syncService := service.NewSyncServiceWithOptions(db, service.SyncServiceOptions{
+	syncService := service.NewSyncServiceWithOptions(db, service.SyncServiceOptions{PricingCatalog: emptyPricingCatalogForTest(),
 		BaseURL:                  "https://cpa.example.com",
 		MetadataFetcher:          newMetadataTestFetcher(),
 		UsageAggregationNotifier: notifier,

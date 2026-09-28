@@ -3,6 +3,7 @@ package test
 import (
 	"math"
 	"testing"
+	"time"
 
 	"cpa-usage-keeper/internal/entities"
 	"cpa-usage-keeper/internal/pricing"
@@ -13,6 +14,7 @@ import (
 func TestPricingDimensionSubjectsMapAllNineFieldsAndFourTokenSegments(t *testing.T) {
 	alias := " alias-a "
 	event := entities.UsageEvent{
+		Timestamp:           time.Date(2026, 9, 23, 13, 0, 0, 0, time.UTC),
 		APIGroupKey:         " group-a ",
 		Model:               " model-a ",
 		AuthIndex:           " auth-a ",
@@ -78,6 +80,9 @@ func TestPricingDimensionSubjectsMapAllNineFieldsAndFourTokenSegments(t *testing
 		repository.UsageEventRecordCostSubject(record),
 		repository.UsageOverviewHourlyCostSubject(hourly),
 		repository.UsageOverviewDailyCostSubject(daily),
+	}
+	if !subjects[0].Timestamp.Equal(event.Timestamp) {
+		t.Fatalf("event pricing subject lost CPA timestamp: got %s want %s", subjects[0].Timestamp, event.Timestamp)
 	}
 	resolver := repositoryPricingResolver(t, []pricing.RuleConfig{
 		{Key: "service_tier", Value: "priority", Multiplier: 2},
