@@ -1,6 +1,7 @@
 package repository
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"sync"
@@ -99,6 +100,11 @@ type UsageRecentEventCache struct {
 	appendCh chan []entities.UsageEvent
 	// appendSlots 在复制事件前预留队列槽位，队列满时直接丢弃，避免满队列还复制整批事件。
 	appendSlots chan struct{}
+	// appendStateMu 保护成功投递和完成处理的批次水位，以及等待排空的通知通道。
+	appendStateMu    sync.Mutex
+	acceptedAppends  uint64
+	completedAppends uint64
+	appendProgressCh chan struct{}
 	// stopCh 通知 worker 退出。
 	stopCh chan struct{}
 	// doneCh 在 worker 完全退出后关闭，Close 用它等待资源释放。
@@ -255,6 +261,13 @@ func (c *UsageRecentEventCache) run() {
 			c.releaseAppendSlot()
 			// 复用同步追加路径，保证测试追加和异步追加的剪枝/池化语义一致。
 			c.appendEvents(events)
+			c.appendStateMu.Lock()
+			c.completedAppends++
+			if c.appendProgressCh != nil {
+				close(c.appendProgressCh)
+				c.appendProgressCh = nil
+			}
+			c.appendStateMu.Unlock()
 		case <-c.stopCh:
 			// 收到停止信号后直接退出；队列里未处理的事件不再阻塞关闭。
 			return
@@ -273,9 +286,19 @@ func (c *UsageRecentEventCache) TryAppend(events []entities.UsageEvent) bool {
 		return false
 	}
 	clonedEvents := cloneUsageEventsForRecentCache(events)
+	// 投递与水位递增保持同一顺序；并发调用不能让后投递批次先计数。
+	c.appendStateMu.Lock()
+	defer c.appendStateMu.Unlock()
+	select {
+	case <-c.stopCh:
+		c.releaseAppendSlot()
+		return false
+	default:
+	}
 	select {
 	case c.appendCh <- clonedEvents:
 		// 投递成功即可返回，真正写入缓存由 worker 异步完成。
+		c.acceptedAppends++
 		return true
 	case <-c.stopCh:
 		// 关闭过程中放弃投递，并归还刚才预留的槽位。
@@ -285,6 +308,45 @@ func (c *UsageRecentEventCache) TryAppend(events []entities.UsageEvent) bool {
 		// 理论上拿到槽位后 appendCh 应可写；保留防御分支，避免异常状态阻塞写入链路。
 		c.releaseAppendSlot()
 		return false
+	}
+}
+
+// DrainAcceptedAppends 等待调用时已成功投递的批次写入缓存，不关闭 worker 或清除事件及健康桶。
+// nil 缓存表示未启用最近事件缓存，排空直接成功；关闭时若仍有未处理批次则返回错误。
+func (c *UsageRecentEventCache) DrainAcceptedAppends(ctx context.Context) error {
+	if c == nil {
+		return nil
+	}
+	c.appendStateMu.Lock()
+	target := c.acceptedAppends
+	c.appendStateMu.Unlock()
+	for {
+		c.appendStateMu.Lock()
+		if c.completedAppends >= target {
+			c.appendStateMu.Unlock()
+			return nil
+		}
+		if c.appendProgressCh == nil {
+			c.appendProgressCh = make(chan struct{})
+		}
+		progress := c.appendProgressCh
+		c.appendStateMu.Unlock()
+
+		select {
+		case <-progress:
+			// worker 每处理完一个批次都会通知等待者重新检查目标水位。
+		case <-c.doneCh:
+			c.appendStateMu.Lock()
+			complete := c.completedAppends >= target
+			c.appendStateMu.Unlock()
+			if complete {
+				return nil
+			}
+			return fmt.Errorf("recent event cache closed before accepted appends drained")
+		case <-ctx.Done():
+			// 只取消这次等待，worker 和已投递的批次继续运行。
+			return ctx.Err()
+		}
 	}
 }
 

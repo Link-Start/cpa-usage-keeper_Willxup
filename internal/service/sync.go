@@ -28,6 +28,11 @@ type RecentUsageEventAppender interface {
 	TryAppend([]entities.UsageEvent) bool
 }
 
+// recentUsageAcceptedDrainer 只等待停稳前已接受的异步缓存追加完成，不关闭共享缓存或清理健康桶。
+type recentUsageAcceptedDrainer interface {
+	DrainAcceptedAppends(context.Context) error
+}
+
 // UsageAggregationNotifier 把已提交 usage 或 identity 变化转成后台 runner 的非阻塞唤醒。
 type UsageAggregationNotifier interface {
 	// NotifyUsageEventsCommitted 只接收已经与 inbox processed 状态共同提交的事件。
@@ -54,6 +59,7 @@ const (
 
 // SyncService 负责同步 CPA metadata，并处理已经落入本地 inbox 的 usage 原始消息。
 type SyncService struct {
+	usageWork       usageWorkGate
 	db              *gorm.DB
 	client          CPAClientFetcher
 	metadataFetcher MetadataFetcher
@@ -136,6 +142,12 @@ func (s *SyncService) ProcessRedisUsageInbox(ctx context.Context) (*servicedto.R
 	if s.pricingCatalog == nil {
 		return nil, fmt.Errorf("sync service pricing catalog is nil")
 	}
+	// 许可从读待处理 inbox 前持有到事务提交后的 recent、聚合和 Header 通知返回；暂停不会改写重试状态。
+	leave, err := s.usageWork.enter(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer leave()
 	// 本操作虽然从 SELECT pending inbox 开始，但它决定随后 usage_events 与 processed 状态的原子写入。
 	// 使用局部 Write scope 让列表、identity 解析、失败回读和事务都只依赖唯一 writer；普通页面查询仍自动走 reader。
 	// Write clause 后重新创建 session，既保留 writer 选择，又保证每个仓储调用从干净 Statement 开始，不继承上一条查询条件。
@@ -190,12 +202,40 @@ func (s *SyncService) ProcessRedisUsageInbox(ctx context.Context) (*servicedto.R
 	return s.processRedisInboxRows(ctx, writeDB, processableRows, fetchedAt)
 }
 
+// PauseUsageWork 停稳本服务的事件处理和存储维护，并排空此前已接受的 recent 缓存追加。
+// 返回的 resume 必须在重算结束或失败后调用；取消等待会自动恢复许可，不留下跨任务暂停状态。
+func (s *SyncService) PauseUsageWork(ctx context.Context) (func(), error) {
+	if err := s.validate(syncMetadataOptional); err != nil {
+		return nil, err
+	}
+	resume, err := s.usageWork.pause(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if drainer, ok := s.recentUsage.(recentUsageAcceptedDrainer); ok {
+		if err := drainer.DrainAcceptedAppends(ctx); err != nil {
+			resume()
+			return nil, fmt.Errorf("drain accepted recent usage appends: %w", err)
+		}
+	}
+	if err := ctx.Err(); err != nil {
+		resume()
+		return nil, err
+	}
+	return resume, nil
+}
+
 // CleanupRedisUsageInbox 只清理 Redis inbox 表，供测试和单独维护入口使用；每日任务使用 CleanupStorage 统一执行。
 func (s *SyncService) CleanupRedisUsageInbox(ctx context.Context) error {
 	if err := s.validate(syncMetadataOptional); err != nil {
 		return err
 	}
-	_, err := repository.CleanupRedisUsageInbox(s.db, s.now())
+	leave, err := s.usageWork.enter(ctx)
+	if err != nil {
+		return err
+	}
+	defer leave()
+	_, err = repository.CleanupRedisUsageInbox(s.db.WithContext(ctx), s.now())
 	return err
 }
 
@@ -204,6 +244,11 @@ func (s *SyncService) CleanupStorage(ctx context.Context) error {
 	if err := s.validate(syncMetadataOptional); err != nil {
 		return err
 	}
+	leave, err := s.usageWork.enter(ctx)
+	if err != nil {
+		return err
+	}
+	defer leave()
 	result, err := repository.CleanupStorage(s.db.WithContext(ctx), s.now())
 	entry := logrus.WithFields(logrus.Fields{
 		"redis_processed_deleted":     result.RedisInbox.ProcessedDeleted,
