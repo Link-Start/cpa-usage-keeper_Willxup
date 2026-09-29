@@ -37,9 +37,9 @@ type RecentUsageEvent struct {
 	Timestamp time.Time
 	// APIGroupKey 保留 Overview / KeyOverview 的 API Key 作用域过滤条件。
 	APIGroupKey string
-	// Model 用于 realtime 当前模型占比和 cost 价格表匹配。
+	// Model 用于 realtime 当前模型占比及维度分组；费用直接使用事件已存金额。
 	Model string
-	// ModelAlias 保留 CPA 上报的请求来源别名，真实 Model 缺价时可用于价格回退。
+	// ModelAlias 保留 CPA 上报的请求来源别名，供现有维度筛选和展示使用。
 	ModelAlias string
 	// AuthIndex 用于关联 usage_identities，找不到身份时才使用 fallback。
 	AuthIndex string
@@ -69,6 +69,9 @@ type RecentUsageEvent struct {
 	CacheReadTokens     int64
 	CacheCreationTokens int64
 	TotalTokens         int64
+	// nil 表示历史费用尚未回填；明确的零金额和缺价 false 必须保留。
+	CostUSD       *float64
+	CostAvailable *bool
 }
 
 // UsageRecentEventCacheOptions 控制最近事件缓存的时钟、窗口和投递队列大小。
@@ -139,6 +142,8 @@ type recentUsageEventLoadRow struct {
 	CacheReadTokens     int64
 	CacheCreationTokens int64
 	TotalTokens         int64
+	CostUSD             *float64 `gorm:"column:cost_usd"`
+	CostAvailable       *bool    `gorm:"column:cost_available"`
 }
 
 type recentUsageStringPool struct {
@@ -413,6 +418,8 @@ func (c *UsageRecentEventCache) appendEvents(events []entities.UsageEvent) {
 			CacheReadTokens:     event.CacheReadTokens,
 			CacheCreationTokens: event.CacheCreationTokens,
 			TotalTokens:         event.TotalTokens,
+			CostUSD:             event.CostUSD,
+			CostAvailable:       event.CostAvailable,
 		})
 	}
 	// 剪枝时间来自缓存时钟，只决定保留窗口，不影响 Overview 当前边界选择。
@@ -514,7 +521,7 @@ func loadUsageRecentEventCacheRows(db *gorm.DB, start time.Time) ([]recentUsageE
 	var rows []recentUsageEventLoadRow
 	// 只 select 最近缓存和 realtime 必需字段，避免大字段进入 70 分钟内存窗口。
 	if err := db.Model(&entities.UsageEvent{}).
-		Select("api_group_key, provider, auth_type, model, model_alias, timestamp, source, auth_index, service_tier, response_service_tier, reasoning_effort, endpoint, executor_type, failed, generate, latency_ms, ttft_ms, input_tokens, output_tokens, reasoning_tokens, cached_tokens, cache_read_tokens, cache_creation_tokens, total_tokens").
+		Select("api_group_key, provider, auth_type, model, model_alias, timestamp, source, auth_index, service_tier, response_service_tier, reasoning_effort, endpoint, executor_type, failed, generate, latency_ms, ttft_ms, input_tokens, output_tokens, reasoning_tokens, cached_tokens, cache_read_tokens, cache_creation_tokens, total_tokens, cost_usd, cost_available").
 		// 启动加载只取 retention 左边界之后的数据。
 		Where("timestamp >= ?", timeutil.FormatStorageTime(start)).
 		// 按时间排序让后续剪枝和调试输出更直观。
@@ -563,6 +570,8 @@ func (c *UsageRecentEventCache) recentEventFromRowLocked(row recentUsageEventLoa
 		CacheReadTokens:       row.CacheReadTokens,
 		CacheCreationTokens:   row.CacheCreationTokens,
 		TotalTokens:           row.TotalTokens,
+		CostUSD:               cloneFloat64Ptr(row.CostUSD),
+		CostAvailable:         cloneBoolPtr(row.CostAvailable),
 	}
 }
 
@@ -674,14 +683,26 @@ func cloneUsageEventsForRecentCache(events []entities.UsageEvent) []entities.Usa
 		result[index].ModelAlias = cloneStringPtr(events[index].ModelAlias)
 		result[index].Generate = cloneBoolPtr(events[index].Generate)
 		result[index].TTFTMS = cloneInt64Ptr(events[index].TTFTMS)
+		result[index].CostUSD = cloneFloat64Ptr(events[index].CostUSD)
+		result[index].CostAvailable = cloneBoolPtr(events[index].CostAvailable)
 	}
 	return result
 }
 
 func cloneRecentUsageEvent(event RecentUsageEvent) RecentUsageEvent {
-	// RecentUsageEvent 也包含 TTFT 指针，返回给调用方前需要复制。
+	// 返回事件前复制 TTFT 与费用指针，调用方修改结果不能污染缓存。
 	event.TTFTMS = cloneInt64Ptr(event.TTFTMS)
+	event.CostUSD = cloneFloat64Ptr(event.CostUSD)
+	event.CostAvailable = cloneBoolPtr(event.CostAvailable)
 	return event
+}
+
+func cloneFloat64Ptr(value *float64) *float64 {
+	if value == nil {
+		return nil
+	}
+	cloned := *value
+	return &cloned
 }
 
 func cloneBoolPtr(value *bool) *bool {
@@ -716,6 +737,8 @@ func recentUsageEventToEntity(event RecentUsageEvent) entities.UsageEvent {
 		CacheReadTokens:     event.CacheReadTokens,
 		CacheCreationTokens: event.CacheCreationTokens,
 		TotalTokens:         event.TotalTokens,
+		CostUSD:             cloneFloat64Ptr(event.CostUSD),
+		CostAvailable:       cloneBoolPtr(event.CostAvailable),
 	}
 	if modelAlias := strings.TrimSpace(event.ModelAlias); modelAlias != "" {
 		result.ModelAlias = &modelAlias
