@@ -31,6 +31,35 @@ func emptyPricingResolverForTest() pricing.Resolver {
 	return pricing.NewCatalog(pricing.EmptySnapshot()).NewResolver()
 }
 
+func emptyPricingSnapshotForTest() *pricing.Snapshot {
+	return pricing.EmptySnapshot()
+}
+
+// requestEventFixtureWithZeroFees 仅为不验证金额的请求测试明确赋予已结算零费用，不改全局入库行为。
+func requestEventFixtureWithZeroFees(events []entities.UsageEvent) []entities.UsageEvent {
+	for index := range events {
+		if events[index].CostUSD == nil {
+			zero := 0.0
+			events[index].CostUSD = &zero
+		}
+		if events[index].CostAvailable == nil {
+			available := true
+			events[index].CostAvailable = &available
+		}
+	}
+	return events
+}
+
+// collectRequestEventsForTest 只在测试里把真实流式导出收集成切片，生产路径保持逐行写出。
+func collectRequestEventsForTest(db *gorm.DB, filter dto.UsageQueryFilter, snapshot *pricing.Snapshot) ([]dto.UsageEventRecord, error) {
+	var records []dto.UsageEventRecord
+	err := repository.StreamUsageEventsWithFilter(db, filter, func(record dto.UsageEventRecord) error {
+		records = append(records, record)
+		return nil
+	}, snapshot)
+	return records, err
+}
+
 func TestOpenDatabaseCreatesFreshDatabaseFromCurrentSchemaWithoutRunningMigrations(t *testing.T) {
 	logs := captureRepositoryLogs(t)
 	db := openTestDatabase(t)

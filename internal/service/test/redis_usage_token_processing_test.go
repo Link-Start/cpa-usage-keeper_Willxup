@@ -55,8 +55,13 @@ func TestProcessRedisUsageInboxKnownExecutorBypassesIdentityLookup(t *testing.T)
 	if err := db.Create(&entities.ModelPriceSetting{Model: "gpt-5.6", PricingStyle: entities.ModelPricingStyleOpenAI, PromptPricePer1M: 1, CompletionPricePer1M: 2, PriceMultiplier: &multiplier}).Error; err != nil {
 		t.Fatalf("seed model price: %v", err)
 	}
+	pricingSnapshot, err := repository.LoadPricingSnapshot(context.Background(), db)
+	if err != nil {
+		t.Fatalf("load pricing snapshot before processing: %v", err)
+	}
+	pricingCatalog := pricing.NewCatalog(pricingSnapshot)
 	lookupCount := registerTokenIdentityTypeLookupCallback(t, db, nil)
-	_, err := repository.InsertRedisUsageInboxMessages(db, []repodto.RedisInboxInsert{{
+	_, err = repository.InsertRedisUsageInboxMessages(db, []repodto.RedisInboxInsert{{
 		Source: "usage",
 		RawMessage: `{
 			"provider":"OpenAI",
@@ -73,7 +78,7 @@ func TestProcessRedisUsageInboxKnownExecutorBypassesIdentityLookup(t *testing.T)
 		t.Fatalf("seed inbox row: %v", err)
 	}
 
-	syncService := service.NewSyncServiceWithOptions(db, service.SyncServiceOptions{PricingCatalog: emptyPricingCatalogForTest(), BaseURL: "https://cpa.example.com"})
+	syncService := service.NewSyncServiceWithOptions(db, service.SyncServiceOptions{PricingCatalog: pricingCatalog, BaseURL: "https://cpa.example.com"})
 	result, err := syncService.ProcessRedisUsageInbox(context.Background())
 	if err != nil {
 		t.Fatalf("ProcessRedisUsageInbox returned error: %v", err)
@@ -105,11 +110,6 @@ func TestProcessRedisUsageInboxKnownExecutorBypassesIdentityLookup(t *testing.T)
 	// quota window 读取 usage_events 的 corrected Total，但成本仍按 Input=100、Output=20 计算为 0.00014。
 	windowStart := event.Timestamp.Add(-time.Minute)
 	windowEnd := event.Timestamp.Add(time.Minute)
-	pricingSnapshot, err := repository.LoadPricingSnapshot(context.Background(), db)
-	if err != nil {
-		t.Fatalf("load pricing snapshot: %v", err)
-	}
-	pricingCatalog := pricing.NewCatalog(pricingSnapshot)
 	window, err := repository.SumUsageWindowStatsByAuthIndex(context.Background(), db, "missing-but-not-needed", windowStart, &windowEnd, pricingCatalog.NewResolver())
 	if err != nil {
 		t.Fatalf("sum usage window stats: %v", err)

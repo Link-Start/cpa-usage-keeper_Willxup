@@ -8,6 +8,31 @@ import (
 	"cpa-usage-keeper/internal/pricing"
 )
 
+func TestSnapshotPricingStyleForModelUsesCurrentModelThenAlias(t *testing.T) {
+	primary := testPricingWithPrompt("primary", 10)
+	primary.PricingStyle = entities.ModelPricingStyleClaude
+	alias := testPricingWithPrompt("alias", 2)
+	unknown := testPricingWithPrompt("unknown", 1)
+	unknown.PricingStyle = entities.ModelPricingStyleClaude
+	snapshot := compileSnapshot(t, pricing.ModelConfig{Pricing: primary}, pricing.ModelConfig{Pricing: alias}, pricing.ModelConfig{Pricing: unknown})
+	for _, test := range []struct {
+		model, alias, want string
+	}{
+		{" primary ", " alias ", entities.ModelPricingStyleClaude},
+		{"  ", " alias ", entities.ModelPricingStyleClaude},
+		{"missing", " alias ", entities.ModelPricingStyleOpenAI},
+		{"missing", "also-missing", ""},
+	} {
+		if got := snapshot.PricingStyleForModel(test.model, test.alias); got != test.want {
+			t.Errorf("PricingStyleForModel(%q, %q) = %q, want %q", test.model, test.alias, got, test.want)
+		}
+	}
+	var absent *pricing.Snapshot
+	if got := absent.PricingStyleForModel("primary", "alias"); got != "" {
+		t.Fatalf("nil snapshot style = %q", got)
+	}
+}
+
 func TestCompileSnapshotNormalizesRulesAndExcludesIdentityRulesFromActiveFields(t *testing.T) {
 	t.Parallel()
 

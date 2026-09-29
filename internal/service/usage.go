@@ -689,7 +689,8 @@ func mapAnalysisCompositionRecord(item repodto.AnalysisCompositionRecord) servic
 	}
 }
 
-// Usage 页面里的 Request Event Log tab 下传分页、列表筛选条件和全局 API-Key。
+// ListUsageEvents 保留请求页的筛选、cursor 与 API-Key 权限，并转发已存 USD 费用及可用性。
+// 每次调用固定当前价格 Snapshot 只显示风格，不按现价重算；NULL／非法费用错误向上返回。
 func (s *usageService) ListUsageEvents(ctx context.Context, filter servicedto.UsageFilter) (*servicedto.UsageEventsPage, error) {
 	ctx = usageServiceContext(ctx)
 	apiGroupKey, err := s.resolveAPIGroupKey(ctx, filter.APIKeyID)
@@ -715,7 +716,7 @@ func (s *usageService) ListUsageEvents(ctx context.Context, filter servicedto.Us
 		AuthType:        filter.AuthType,
 		APIGroupKey:     apiGroupKey,
 		Result:          filter.Result,
-	}, s.pricing.NewResolver())
+	}, s.pricing.Snapshot())
 	if err != nil {
 		return nil, err
 	}
@@ -760,7 +761,8 @@ func (s *usageService) ListUsageEvents(ctx context.Context, filter servicedto.Us
 	return &servicedto.UsageEventsPage{Events: result, TotalCount: page.TotalCount, Page: page.Page, PageSize: page.PageSize, TotalPages: page.TotalPages, HasMore: page.HasMore}, nil
 }
 
-// StreamUsageEvents 使用 Request Event Log 相同筛选条件逐行导出，不应用分页。
+// StreamUsageEvents 使用请求页相同筛选逐行导出已存费用，不应用分页。
+// 每次导出固定当前 Snapshot 只显示风格；NULL／非法费用及 emit 错误向上返回。
 func (s *usageService) StreamUsageEvents(ctx context.Context, filter servicedto.UsageFilter, emit func(servicedto.UsageEventRecord) error) error {
 	ctx = usageServiceContext(ctx)
 	apiGroupKey, err := s.resolveAPIGroupKey(ctx, filter.APIKeyID)
@@ -814,7 +816,7 @@ func (s *usageService) StreamUsageEvents(ctx context.Context, filter servicedto.
 			CostAvailable:       row.CostAvailable,
 			PricingStyle:        row.PricingStyle,
 		})
-	}, s.pricing.NewResolver())
+	}, s.pricing.Snapshot())
 }
 
 // Request Event Log 的 model 筛选项只应用调用方传入的时间窗口；独立筛选项接口当前传空 filter。

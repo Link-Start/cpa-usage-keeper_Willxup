@@ -115,7 +115,7 @@ func TestUsageCostResolverChargesOpenAICacheReadAndWritePrices(t *testing.T) {
 	assertUsageCostClose(t, result.Cost.TotalCostUSD, 0.7*3+0.5*15+0.2*0.3+0.1*3.75)
 }
 
-func TestListUsageEventsWithFilterResolvesModelAndAliasPrices(t *testing.T) {
+func TestListUsageEventsWithFilterPreservesStoredModelAndAliasCosts(t *testing.T) {
 	for _, test := range []struct {
 		model string
 		cost  float64
@@ -128,21 +128,24 @@ func TestListUsageEventsWithFilterResolvesModelAndAliasPrices(t *testing.T) {
 			upsertUsageCostResolverPrice(t, db, "base-model", 10)
 			upsertUsageCostResolverPrice(t, db, "alias-model", 2)
 			alias := "alias-model"
+			storedCost, available := test.cost, true
 			eventTime := time.Date(2026, 6, 1, 10, 0, 0, 0, time.UTC)
 			if _, _, err := repository.InsertUsageEvents(db, []entities.UsageEvent{{
-				EventKey:    "event-alias-cost",
-				Model:       test.model,
-				ModelAlias:  &alias,
-				Timestamp:   eventTime,
-				InputTokens: 1_000_000,
-				TotalTokens: 1_000_000,
+				EventKey:      "event-alias-cost",
+				Model:         test.model,
+				ModelAlias:    &alias,
+				Timestamp:     eventTime,
+				InputTokens:   1_000_000,
+				TotalTokens:   1_000_000,
+				CostUSD:       &storedCost,
+				CostAvailable: &available,
 			}}); err != nil {
 				t.Fatalf("InsertUsageEvents returned error: %v", err)
 			}
 
 			start := eventTime.Add(-time.Minute)
 			end := eventTime.Add(time.Minute)
-			page, err := repository.ListUsageEventsWithFilter(db, repodto.UsageQueryFilter{StartTime: &start, EndTime: &end}, newUsageCostResolverForTest(t, db))
+			page, err := repository.ListUsageEventsWithFilter(db, repodto.UsageQueryFilter{StartTime: &start, EndTime: &end}, newUsageCostSnapshotForTest(t, db))
 			if err != nil {
 				t.Fatalf("ListUsageEventsWithFilter returned error: %v", err)
 			}
@@ -540,6 +543,15 @@ func newUsageCostResolverForTest(t *testing.T, db *gorm.DB) pricing.Resolver {
 		t.Fatalf("LoadPricingSnapshot returned error: %v", err)
 	}
 	return pricing.NewCatalog(snapshot).NewResolver()
+}
+
+func newUsageCostSnapshotForTest(t *testing.T, db *gorm.DB) *pricing.Snapshot {
+	t.Helper()
+	snapshot, err := repository.LoadPricingSnapshot(context.Background(), db)
+	if err != nil {
+		t.Fatalf("LoadPricingSnapshot returned error: %v", err)
+	}
+	return snapshot
 }
 
 func upsertUsageCostResolverPrice(t *testing.T, db *gorm.DB, model string, promptPrice float64) {

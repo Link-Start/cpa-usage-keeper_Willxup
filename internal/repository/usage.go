@@ -58,13 +58,14 @@ type usageEventProjection struct {
 	CacheReadTokens     int64
 	CacheCreationTokens int64
 	TotalTokens         int64
-	// 列表查询保留 SQL NULL，展示金额的切换由后续读取步骤完成。
+	// 保留 SQL NULL，读取时拒绝未完成费用，不能把它当作零价。
 	CostUSD       *float64
 	CostAvailable *bool
 }
 
-// Request Event Log Tab：先按列表条件统计总数，再加载当前页。
-func ListUsageEventsWithFilter(db *gorm.DB, filter dto.UsageQueryFilter, costResolver pricing.Resolver) (*dto.UsageEventsPageRecord, error) {
+// ListUsageEventsWithFilter 保留请求时间、身份、结果及 cursor 筛选，按页返回已存费用和可用性。
+// Snapshot 只提供当前展示风格，不重算费用；金额或可用性为 NULL／非法值时报错。
+func ListUsageEventsWithFilter(db *gorm.DB, filter dto.UsageQueryFilter, pricingSnapshot *pricing.Snapshot) (*dto.UsageEventsPageRecord, error) {
 	if db == nil {
 		return nil, fmt.Errorf("database is nil")
 	}
@@ -118,7 +119,7 @@ func ListUsageEventsWithFilter(db *gorm.DB, filter dto.UsageQueryFilter, costRes
 		query = query.Offset(offset)
 	}
 
-	rows, err := loadUsageEventRecordsForQuery(db, query, costResolver)
+	rows, err := loadUsageEventRecordsForQuery(db, query, pricingSnapshot)
 	if err != nil {
 		return nil, err
 	}
@@ -134,26 +135,15 @@ func ListUsageEventsWithFilter(db *gorm.DB, filter dto.UsageQueryFilter, costRes
 	return &dto.UsageEventsPageRecord{Events: rows, TotalCount: totalCount, Page: page, PageSize: pageSize, TotalPages: totalPages, HasMore: hasMore}, nil
 }
 
-// ExportUsageEventsWithFilter 使用 Request Event Log 相同筛选，但不应用分页。
-func ExportUsageEventsWithFilter(db *gorm.DB, filter dto.UsageQueryFilter, costResolver pricing.Resolver) ([]dto.UsageEventRecord, error) {
-	rows := []dto.UsageEventRecord{}
-	if err := StreamUsageEventsWithFilter(db, filter, func(row dto.UsageEventRecord) error {
-		rows = append(rows, row)
-		return nil
-	}, costResolver); err != nil {
-		return nil, err
-	}
-	return rows, nil
-}
-
-// StreamUsageEventsWithFilter 使用 Request Event Log 相同筛选逐行导出，不应用分页。
-func StreamUsageEventsWithFilter(db *gorm.DB, filter dto.UsageQueryFilter, emit func(dto.UsageEventRecord) error, costResolver pricing.Resolver) error {
+// StreamUsageEventsWithFilter 用列表相同筛选逐行导出已存费用，不应用分页。
+// Snapshot 只读当前展示风格；NULL／非法费用或 emit 错误立即向调用方传播。
+func StreamUsageEventsWithFilter(db *gorm.DB, filter dto.UsageQueryFilter, emit func(dto.UsageEventRecord) error, pricingSnapshot *pricing.Snapshot) error {
 	if db == nil {
 		return fmt.Errorf("database is nil")
 	}
 	query := applyUsageEventListQuery(db.Model(&entities.UsageEvent{}), filter)
 	query = query.Select(usageEventProjectionColumns).Order("timestamp DESC, id DESC")
-	return streamUsageEventRecordsForQuery(db, query, emit, costResolver)
+	return streamUsageEventRecordsForQuery(db, query, emit, pricingSnapshot)
 }
 
 // Request Event Log Filter Options：只按时间窗口收集 model 候选值。
@@ -206,19 +196,20 @@ func FindUsageEventRequestIDByID(db *gorm.DB, id int64) (string, error) {
 	return strings.TrimSpace(event.RequestID), nil
 }
 
-func loadUsageEventRecordsForQuery(db *gorm.DB, query *gorm.DB, costResolver pricing.Resolver) ([]dto.UsageEventRecord, error) {
+func loadUsageEventRecordsForQuery(db *gorm.DB, query *gorm.DB, pricingSnapshot *pricing.Snapshot) ([]dto.UsageEventRecord, error) {
 	var rows []dto.UsageEventRecord
-	// Request Events cost 只在响应阶段按当前价格配置计算，不回写 usage_events。
+	// 列表和导出沿用相同投影与费用来源，避免分页或格式改变持久金额。
 	if err := streamUsageEventRecordsForQuery(db, query, func(record dto.UsageEventRecord) error {
 		rows = append(rows, record)
 		return nil
-	}, costResolver); err != nil {
+	}, pricingSnapshot); err != nil {
 		return nil, err
 	}
 	return rows, nil
 }
 
-func streamUsageEventRecordsForQuery(db *gorm.DB, query *gorm.DB, emit func(dto.UsageEventRecord) error, costResolver pricing.Resolver) error {
+// streamUsageEventRecordsForQuery 按游标逐条读取已存费用；NULL 是未完成数据，不能冒充零价。
+func streamUsageEventRecordsForQuery(db *gorm.DB, query *gorm.DB, emit func(dto.UsageEventRecord) error, pricingSnapshot *pricing.Snapshot) error {
 	if emit == nil {
 		return fmt.Errorf("usage event stream callback is nil")
 	}
@@ -233,9 +224,15 @@ func streamUsageEventRecordsForQuery(db *gorm.DB, query *gorm.DB, emit func(dto.
 		if err := db.ScanRows(rows, &event); err != nil {
 			return fmt.Errorf("scan usage event: %w", err)
 		}
+		if event.CostUSD == nil || event.CostAvailable == nil {
+			return fmt.Errorf("usage event %d has NULL persisted cost or availability", event.ID)
+		}
+		if math.IsNaN(*event.CostUSD) || math.IsInf(*event.CostUSD, 0) {
+			return fmt.Errorf("usage event %d has non-finite persisted cost", event.ID)
+		}
 		record := usageEventProjectionToRecord(event)
-		// Request Events cost 只在响应阶段按当前价格配置计算，不回写 usage_events。
-		record.CostUSD, record.CostAvailable, record.PricingStyle = usageEventRecordCost(record, costResolver)
+		record.CostUSD, record.CostAvailable = *event.CostUSD, *event.CostAvailable
+		record.PricingStyle = pricingSnapshot.PricingStyleForModel(record.Model, record.ModelAlias)
 		if err := emit(record); err != nil {
 			return err
 		}
@@ -286,11 +283,6 @@ func usageEventProjectionToRecord(event usageEventProjection) dto.UsageEventReco
 		CacheCreationTokens: event.CacheCreationTokens,
 		TotalTokens:         event.TotalTokens,
 	}
-}
-
-func usageEventRecordCost(record dto.UsageEventRecord, costResolver pricing.Resolver) (float64, bool, string) {
-	result := costResolver.Calculate(UsageEventRecordCostSubject(record))
-	return result.Cost.TotalCostUSD, result.Available, result.PricingStyle
 }
 
 // usageEventProjectionToEntity 把轻量投影转回实体，供内存聚合复用原有事件处理逻辑。

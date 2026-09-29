@@ -18,14 +18,14 @@ func TestListUsageEventsExcludesCustomRangeEndBoundary(t *testing.T) {
 		{EventKey: "before-end", Model: "gpt-5", Timestamp: end.Add(-time.Nanosecond), TotalTokens: 20},
 		{EventKey: "at-end", Model: "gpt-5", Timestamp: end, TotalTokens: 30},
 	}
-	if _, _, err := repository.InsertUsageEvents(db, events); err != nil {
+	if _, _, err := repository.InsertUsageEvents(db, requestEventFixtureWithZeroFees(events)); err != nil {
 		t.Fatalf("InsertUsageEvents returned error: %v", err)
 	}
 
 	page, err := repository.ListUsageEventsWithFilter(db, repodto.UsageQueryFilter{
 		Range: "custom", CustomUnit: "hour", StartTime: &start, EndTime: &end, EndExclusive: true,
 		Page: 1, PageSize: 20,
-	}, emptyPricingResolverForTest())
+	}, emptyPricingSnapshotForTest())
 
 	if err != nil {
 		t.Fatalf("ListUsageEventsWithFilter returned error: %v", err)

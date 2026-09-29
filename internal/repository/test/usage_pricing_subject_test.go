@@ -8,7 +8,6 @@ import (
 	"cpa-usage-keeper/internal/entities"
 	"cpa-usage-keeper/internal/pricing"
 	"cpa-usage-keeper/internal/repository"
-	repodto "cpa-usage-keeper/internal/repository/dto"
 )
 
 func TestPricingDimensionSubjectsMapAllNineFieldsAndFourTokenSegments(t *testing.T) {
@@ -59,25 +58,8 @@ func TestPricingDimensionSubjectsMapAllNineFieldsAndFourTokenSegments(t *testing
 		CacheReadTokens:     hourly.CacheReadTokens,
 		CacheCreationTokens: hourly.CacheCreationTokens,
 	}
-	record := repodto.UsageEventRecord{
-		APIGroupKey:         event.APIGroupKey,
-		Model:               event.Model,
-		AuthIndex:           event.AuthIndex,
-		ModelAlias:          alias,
-		ServiceTier:         event.ServiceTier,
-		ResponseServiceTier: event.ResponseServiceTier,
-		ReasoningEffort:     event.ReasoningEffort,
-		Endpoint:            event.Endpoint,
-		ExecutorType:        event.ExecutorType,
-		InputTokens:         event.InputTokens,
-		OutputTokens:        event.OutputTokens,
-		CacheReadTokens:     event.CacheReadTokens,
-		CacheCreationTokens: event.CacheCreationTokens,
-	}
-
 	subjects := []pricing.CostSubject{
 		repository.UsageEventCostSubject(event),
-		repository.UsageEventRecordCostSubject(record),
 		repository.UsageOverviewHourlyCostSubject(hourly),
 		repository.UsageOverviewDailyCostSubject(daily),
 	}

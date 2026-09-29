@@ -24,11 +24,11 @@ func TestListUsageEventsWithFilterPreservesEventFields(t *testing.T) {
 	events := []entities.UsageEvent{
 		{EventKey: "event-1", APIGroupKey: "provider-a", Model: "claude-sonnet", ServiceTier: "priority", ExecutorType: "responses", Endpoint: "POST /v1/messages", Timestamp: time.Date(2026, 4, 16, 9, 0, 0, 0, time.UTC), Source: "codex-a", AuthIndex: "1", Failed: false, LatencyMS: 100, TTFTMS: &ttftMS, InputTokens: 10, OutputTokens: 20, ReasoningTokens: 5, CachedTokens: 0, CacheReadTokens: 7, CacheCreationTokens: 8, TotalTokens: 35},
 	}
-	if _, _, err := InsertUsageEvents(db, events); err != nil {
+	if _, _, err := InsertUsageEvents(db, requestEventFixtureWithZeroFees(events)); err != nil {
 		t.Fatalf("InsertUsageEvents returned error: %v", err)
 	}
 
-	page, err := ListUsageEventsWithFilter(db, repodto.UsageQueryFilter{Page: 1, PageSize: 10, Limit: 10}, emptyPricingResolverForTest())
+	page, err := ListUsageEventsWithFilter(db, repodto.UsageQueryFilter{Page: 1, PageSize: 10, Limit: 10}, emptyPricingSnapshotForTest())
 	if err != nil {
 		t.Fatalf("ListUsageEventsWithFilter returned error: %v", err)
 	}
@@ -74,7 +74,7 @@ func TestUsageQueriesFilterByAPIGroupKey(t *testing.T) {
 		t.Fatalf("InsertUsageEvents returned error: %v", err)
 	}
 
-	page, err := ListUsageEventsWithFilter(db, repodto.UsageQueryFilter{APIGroupKey: "sk-target-key", Page: 1, PageSize: 100, Limit: 100}, emptyPricingResolverForTest())
+	page, err := ListUsageEventsWithFilter(db, repodto.UsageQueryFilter{APIGroupKey: "sk-target-key", Page: 1, PageSize: 100, Limit: 100}, emptyPricingSnapshotForTest())
 	if err != nil {
 		t.Fatalf("ListUsageEventsWithFilter returned error: %v", err)
 	}

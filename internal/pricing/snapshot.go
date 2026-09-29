@@ -293,6 +293,20 @@ func (s *Snapshot) ModelConfig(model string) (ModelConfig, bool) {
 	return ModelConfig{}, false
 }
 
+// PricingStyleForModel 只从本次固定的当前配置读取展示风格，优先真实 model，缺配置才回退 alias；不计算费用。
+func (s *Snapshot) PricingStyleForModel(model, alias string) string {
+	if s == nil {
+		return ""
+	}
+	if config, ok := s.modelsByName[canonicalRequiredDimension(model)]; ok {
+		return config.pricing.PricingStyle
+	}
+	if config, ok := s.modelsByName[strings.TrimSpace(alias)]; ok {
+		return config.pricing.PricingStyle
+	}
+	return ""
+}
+
 func (s *Snapshot) ActiveFields() ActiveFields {
 	if s == nil {
 		return 0

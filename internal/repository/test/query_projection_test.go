@@ -24,16 +24,18 @@ func TestRequestEventListAndExportStreamUseLimitedRowProjection(t *testing.T) {
 	db := openTestDatabase(t)
 	modelAlias := "model-alias"
 	ttft := int64(25)
+	zeroCost, costAvailable := 0.0, true
 	if err := db.Create(&entities.UsageEvent{
 		EventKey: "projection-event", RequestID: "request-1", SessionID: "session-1", ParentSessionID: "parent-1",
 		Model: "model-a", ModelAlias: &modelAlias, Timestamp: time.Date(2026, 9, 13, 12, 0, 0, 0, time.UTC),
 		TTFTMS: &ttft, InputTokens: 10, OutputTokens: 5, CacheCreationTokens: 2, TotalTokens: 15,
+		CostUSD: &zeroCost, CostAvailable: &costAvailable,
 	}).Error; err != nil {
 		t.Fatalf("seed usage event: %v", err)
 	}
 	queries := captureUsageEventRowQueries(t, db)
 
-	page, err := repository.ListUsageEventsWithFilter(db, dto.UsageQueryFilter{PageSize: 10, SkipTotalCount: true}, emptyPricingResolverForTest())
+	page, err := repository.ListUsageEventsWithFilter(db, dto.UsageQueryFilter{PageSize: 10, SkipTotalCount: true}, emptyPricingSnapshotForTest())
 	if err != nil {
 		t.Fatalf("ListUsageEventsWithFilter: %v", err)
 	}
@@ -46,7 +48,7 @@ func TestRequestEventListAndExportStreamUseLimitedRowProjection(t *testing.T) {
 	if err := repository.StreamUsageEventsWithFilter(db, dto.UsageQueryFilter{}, func(record dto.UsageEventRecord) error {
 		streamed++
 		return nil
-	}, emptyPricingResolverForTest()); err != nil {
+	}, emptyPricingSnapshotForTest()); err != nil {
 		t.Fatalf("StreamUsageEventsWithFilter: %v", err)
 	}
 	if streamed != 1 {
@@ -59,7 +61,7 @@ func TestRequestEventListAndExportStreamUseLimitedRowProjection(t *testing.T) {
 	}
 	for _, query := range *queries {
 		columns := analysisProjectionSelectColumns(t, query)
-		for _, required := range []string{"id", "request_id", "model_alias", "ttft_ms", "cache_creation_tokens"} {
+		for _, required := range []string{"id", "request_id", "model_alias", "ttft_ms", "cache_creation_tokens", "cost_usd", "cost_available"} {
 			if !slices.Contains(columns, required) {
 				t.Fatalf("usage event projection misses %q: %s", required, query)
 			}
