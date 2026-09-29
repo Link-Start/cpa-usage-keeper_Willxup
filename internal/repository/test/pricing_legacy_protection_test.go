@@ -4,11 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"cpa-usage-keeper/internal/config"
 	"cpa-usage-keeper/internal/entities"
+	"cpa-usage-keeper/internal/pricing"
 	"cpa-usage-keeper/internal/repository"
 	"gorm.io/gorm"
 )
@@ -34,16 +36,16 @@ func openLegacyProtectionFixture(t *testing.T) (*gorm.DB, *gorm.DB, string) {
 	for _, statement := range []string{
 		`CREATE TABLE usage_events (id INTEGER PRIMARY KEY, timestamp TEXT, total_tokens INTEGER, input_tokens INTEGER, failed BOOLEAN)`,
 		`CREATE TABLE usage_events_archive (id INTEGER PRIMARY KEY, timestamp TEXT, total_tokens INTEGER, input_tokens INTEGER, failed BOOLEAN)`,
-		`CREATE TABLE usage_overview_hourly_stats (id INTEGER PRIMARY KEY, request_count INTEGER, success_count INTEGER, failure_count INTEGER, total_tokens INTEGER, input_tokens INTEGER)`,
-		`CREATE TABLE usage_overview_daily_stats (id INTEGER PRIMARY KEY, request_count INTEGER, success_count INTEGER, failure_count INTEGER, total_tokens INTEGER, input_tokens INTEGER)`,
+		`CREATE TABLE usage_overview_hourly_stats (id INTEGER PRIMARY KEY, bucket_start TEXT, request_count INTEGER, success_count INTEGER, failure_count INTEGER, total_tokens INTEGER, input_tokens INTEGER)`,
+		`CREATE TABLE usage_overview_daily_stats (id INTEGER PRIMARY KEY, bucket_start TEXT, request_count INTEGER, success_count INTEGER, failure_count INTEGER, total_tokens INTEGER, input_tokens INTEGER)`,
 		`CREATE TABLE usage_overview_aggregation_checkpoints (id INTEGER PRIMARY KEY, name TEXT, last_aggregated_usage_event_id INTEGER)`,
 		`CREATE TABLE model_price_settings (id INTEGER PRIMARY KEY, model TEXT, prompt_price_per1_m REAL, completion_price_per1_m REAL, price_multiplier REAL)`,
 		`CREATE TABLE model_price_rules (id INTEGER PRIMARY KEY, model_price_setting_id INTEGER, key TEXT, value TEXT, multiplier REAL)`,
 		`CREATE TABLE schema_migrations (version TEXT PRIMARY KEY, applied_at TEXT)`,
 		`INSERT INTO usage_events (id,timestamp,total_tokens,input_tokens,failed) VALUES (1,'2026-09-01T10:00:00Z',10,8,0),(3,'2026-09-01T10:01:00Z',30,25,0),(5,'2026-09-01T10:02:00Z',50,40,1),(8,'2026-09-01T11:00:00Z',80,70,0)`,
-		`INSERT INTO usage_events_archive (id,timestamp,total_tokens,input_tokens,failed) VALUES (2,'2026-08-01T10:00:00Z',20,15,0)`,
-		`INSERT INTO usage_overview_hourly_stats (id,request_count,success_count,failure_count,total_tokens,input_tokens) VALUES (1,4,3,1,110,88)`,
-		`INSERT INTO usage_overview_daily_stats (id,request_count,success_count,failure_count,total_tokens,input_tokens) VALUES (1,4,3,1,110,88)`,
+		`INSERT INTO usage_events_archive (id,timestamp,total_tokens,input_tokens,failed) VALUES (2,'2026-09-01T10:03:00Z',20,15,0)`,
+		`INSERT INTO usage_overview_hourly_stats (id,bucket_start,request_count,success_count,failure_count,total_tokens,input_tokens) VALUES (1,'2026-09-01T10:00:00Z',4,3,1,110,88)`,
+		`INSERT INTO usage_overview_daily_stats (id,bucket_start,request_count,success_count,failure_count,total_tokens,input_tokens) VALUES (1,'2026-09-01T00:00:00Z',4,3,1,110,88)`,
 		`INSERT INTO usage_overview_aggregation_checkpoints (id,name,last_aggregated_usage_event_id) VALUES (1,'overview',5)`,
 		`INSERT INTO model_price_settings (id,model,prompt_price_per1_m,completion_price_per1_m,price_multiplier) VALUES (1,'old-model',1.25,2.5,1.5)`,
 		`INSERT INTO model_price_rules (id,model_price_setting_id,key,value,multiplier) VALUES (1,1,'auth_index','old-auth',0.75)`,
@@ -134,11 +136,35 @@ func TestPricingLegacyProtectionBindsVerifiedBackupAndReusesItAfterFailure(t *te
 	}
 }
 
+func TestPricingLegacyProtectionRechecksOnlyOriginalEvidenceAfterFixedBaseline(t *testing.T) {
+	db, reader, backupDir := openLegacyProtectionFixture(t)
+	ctx := context.Background()
+	first, err := repository.ProtectPricingLegacyMigration(ctx, db, reader, backupDir, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	first.Fixed = &repository.PricingMigrationFixedBaseline{
+		OverviewCursor: 5, HotMaxID: 8, ArchiveMaxID: 2,
+		Configs: []pricing.ModelPricingConfig{},
+	}
+	encoded, err := json.Marshal(first)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Model(&entities.PricingMigrationState{}).Where("id = ?", 1).Update("baseline_json", string(encoded)).Error; err != nil {
+		t.Fatal(err)
+	}
+	again, err := repository.ProtectPricingLegacyMigration(ctx, db, reader, filepath.Join(t.TempDir(), "do-not-overwrite"), time.Now())
+	if err != nil || again.Fixed == nil || again.Fixed.HotMaxID != 8 || again.InboxMaxID != first.InboxMaxID {
+		t.Fatalf("M3 固定字段不应使原备份复验失败：baseline=%+v err=%v", again, err)
+	}
+}
+
 func TestPricingLegacyProtectionAcceptsCursorPastMaxIDWhenCoverageIsComplete(t *testing.T) {
 	db, reader, backupDir := openLegacyProtectionFixture(t)
 	for _, statement := range []string{
 		"UPDATE usage_overview_aggregation_checkpoints SET last_aggregated_usage_event_id = 20",
-		"UPDATE usage_overview_hourly_stats SET request_count = 5, success_count = 4, total_tokens = 190, input_tokens = 158",
+		"INSERT INTO usage_overview_hourly_stats (id,bucket_start,request_count,success_count,failure_count,total_tokens,input_tokens) VALUES (2,'2026-09-01T11:00:00Z',1,1,0,80,70)",
 		"UPDATE usage_overview_daily_stats SET request_count = 5, success_count = 4, total_tokens = 190, input_tokens = 158",
 	} {
 		if err := db.Exec(statement).Error; err != nil {
@@ -148,6 +174,42 @@ func TestPricingLegacyProtectionAcceptsCursorPastMaxIDWhenCoverageIsComplete(t *
 	baseline, err := repository.ProtectPricingLegacyMigration(context.Background(), db, reader, backupDir, time.Now())
 	if err != nil || baseline.Overview.Cursor != 20 || baseline.Hot.MaxID != 8 {
 		t.Fatalf("complete coverage with larger cursor rejected: %+v %v", baseline, err)
+	}
+}
+
+func TestPricingLegacyProtectionRejectsShiftedOldGroupsBeforeMigration(t *testing.T) {
+	for _, table := range []string{"usage_overview_hourly_stats", "usage_overview_daily_stats"} {
+		t.Run(table, func(t *testing.T) {
+			db, reader, backupDir := openLegacyProtectionFixture(t)
+			// 数量和 Token 总量仍然一致，只有旧桶归属错误；旧迁移清表前必须挡住。
+			shifted := "2026-09-02T00:00:00Z"
+			if err := db.Table(table).Where("id = ?", 1).Update("bucket_start", shifted).Error; err != nil {
+				t.Fatal(err)
+			}
+			_, err := repository.MigrateLegacyPricingEvents(context.Background(), db, reader, backupDir, time.Now())
+			if err == nil || !strings.Contains(err.Error(), table) {
+				t.Fatalf("旧 %s 分组错位应在迁移前被拒绝: %v", table, err)
+			}
+			var row struct {
+				BucketStart  string
+				RequestCount int64
+				TotalTokens  int64
+			}
+			if err := db.Table(table).Select("bucket_start, request_count, total_tokens").Where("id = ?", 1).Take(&row).Error; err != nil {
+				t.Fatal(err)
+			}
+			if row.BucketStart != shifted || row.RequestCount != 4 || row.TotalTokens != 110 {
+				t.Fatalf("失败前的旧统计被改写: %+v", row)
+			}
+			var applied int64
+			if err := db.Table("schema_migrations").Where("version = ?", "20260723_usage_overview_five_dimensions").Count(&applied).Error; err != nil || applied != 0 {
+				t.Fatalf("旧五维迁移不应执行: count=%d err=%v", applied, err)
+			}
+			var state entities.PricingMigrationState
+			if err := db.Where("id = ?", 1).Take(&state).Error; err != nil || state.BackupPath != nil || state.BaselineJSON != nil {
+				t.Fatalf("分组错位后错误记录为受保护: %+v %v", state, err)
+			}
+		})
 	}
 }
 

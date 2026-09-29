@@ -12,6 +12,7 @@ import (
 
 	"cpa-usage-keeper/internal/backup"
 	"cpa-usage-keeper/internal/entities"
+	"cpa-usage-keeper/internal/pricing"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 	"gorm.io/plugin/dbresolver"
@@ -32,7 +33,7 @@ type PricingLegacyEventEvidence struct {
 	Covered map[string]int64 `json:"covered"`
 }
 
-// PricingLegacyOverviewEvidence 记录旧水位和小时/日已有统计的总量，不替代 M2 的旧维度分组核对。
+// PricingLegacyOverviewEvidence 记录旧水位和小时/日已有统计的总量；分组在 M1 从备份另行核对。
 type PricingLegacyOverviewEvidence struct {
 	CheckpointTable string           `json:"checkpoint_table"`
 	Cursor          int64            `json:"cursor"`
@@ -51,6 +52,16 @@ type PricingLegacyBaseline struct {
 	Hot                PricingLegacyEventEvidence    `json:"hot"`
 	Archive            PricingLegacyEventEvidence    `json:"archive"`
 	Overview           PricingLegacyOverviewEvidence `json:"overview"`
+	// Fixed 在 M2 完成后保存实际 C、冷热 H 和等价旧价；M1 原证据始终保留。
+	Fixed *PricingMigrationFixedBaseline `json:"fixed,omitempty"`
+}
+
+// PricingMigrationFixedBaseline 是 M3 一次固定的费用输入，恢复时不重新读取已变化的现库价格与上限。
+type PricingMigrationFixedBaseline struct {
+	OverviewCursor int64                        `json:"overview_cursor"`
+	HotMaxID       int64                        `json:"hot_max_id"`
+	ArchiveMaxID   int64                        `json:"archive_max_id"`
+	Configs        []pricing.ModelPricingConfig `json:"configs"`
 }
 
 // ProtectPricingLegacyMigration 在任何旧业务 migration 之前固定一份可验证的原库备份。
@@ -84,7 +95,10 @@ func ProtectPricingLegacyMigration(ctx context.Context, writer, reader *gorm.DB,
 		if err != nil {
 			return PricingLegacyBaseline{}, err
 		}
-		storedJSON, err := json.Marshal(stored)
+		// M3 只能追加 fixed 子对象；复验 M1 唯一备份时不把该合法扩展与原备份误比。
+		originalEvidence := stored
+		originalEvidence.Fixed = nil
+		storedJSON, err := json.Marshal(originalEvidence)
 		if err != nil {
 			return PricingLegacyBaseline{}, fmt.Errorf("encode recorded pricing baseline: %w", err)
 		}
@@ -155,12 +169,10 @@ func decodePricingLegacyBaseline(value string) (PricingLegacyBaseline, error) {
 
 // openVerifiedPricingBackup 以只读模式打开归档并执行 SQLite quick_check，失败时不授予升级许可。
 func openVerifiedPricingBackup(ctx context.Context, path string) (*gorm.DB, func(), error) {
-	dsn := BuildSQLiteFileURI(path) + "?mode=ro&_query_only=on"
-	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	db, closeDB, err := openPricingBackupReadOnly(path)
 	if err != nil {
-		return nil, nil, fmt.Errorf("open pricing backup: %w", err)
+		return nil, nil, err
 	}
-	closeDB := func() { closeDatabasePool(db) }
 	var result string
 	if err := db.WithContext(ctx).Raw("PRAGMA quick_check").Scan(&result).Error; err != nil || result != "ok" {
 		closeDB()
@@ -169,7 +181,19 @@ func openVerifiedPricingBackup(ctx context.Context, path string) (*gorm.DB, func
 	return db, closeDB, nil
 }
 
-// collectPricingLegacyBaseline 只读取已验证备份的小型元数据与总量，不复制全量事件到控制行。
+// openPricingBackupReadOnly 供已完成 M1 quick_check 的同次升级读取原备份，不重复全文件校验。
+func openPricingBackupReadOnly(path string) (*gorm.DB, func(), error) {
+	dsn := BuildSQLiteFileURI(path) + "?mode=ro&_query_only=on"
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	if err != nil {
+		return nil, nil, fmt.Errorf("open pricing backup: %w", err)
+	}
+	closeDB := func() { closeDatabasePool(db) }
+	return db, closeDB, nil
+}
+
+// collectPricingLegacyBaseline 从已验证备份收集小型元数据，并在破坏性旧迁移前核对原分组。
+// 逐事件与旧桶行只留在备份文件，不复制到控制行。
 func collectPricingLegacyBaseline(ctx context.Context, db *gorm.DB) (PricingLegacyBaseline, error) {
 	baseline := PricingLegacyBaseline{SchemaVersion: pricingLegacyBaselineSchemaVersion, SchemaMigrations: []string{}, SchemaColumns: map[string][]string{}, ModelPriceSettings: []map[string]any{}, ModelPriceRules: []map[string]any{}}
 	tables, err := db.Migrator().GetTables()
@@ -252,6 +276,13 @@ func collectPricingLegacyBaseline(ctx context.Context, db *gorm.DB) (PricingLega
 	}
 	if err := verifyPricingLegacyCoverage(baseline); err != nil {
 		return baseline, err
+	}
+	// 总量相同仍可能把请求移到错误小时/自然日；旧五维迁移清表前必须确认原桶可由明细解释。
+	for _, period := range []string{"hourly", "daily"} {
+		table := "usage_overview_" + period + "_stats"
+		if err := verifyPricingM2Rollup(ctx, db, baseline, table, baseline.Overview.Cursor); err != nil {
+			return baseline, fmt.Errorf("verify original %s before migration: %w", table, err)
+		}
 	}
 	return baseline, nil
 }
@@ -393,7 +424,7 @@ func pricingLegacyIntegerTotals(ctx context.Context, db *gorm.DB, table string, 
 	return result, rows.Err()
 }
 
-// verifyPricingLegacyCoverage 只比较旧水位已覆盖的计数/Token；旧维度分组及转换另在 M2 核对。
+// verifyPricingLegacyCoverage 比较旧水位已覆盖的计数/Token；旧维度分组由调用方随后核对。
 func verifyPricingLegacyCoverage(b PricingLegacyBaseline) error {
 	if b.Overview.Cursor < 0 {
 		return fmt.Errorf("negative original overview cursor")
