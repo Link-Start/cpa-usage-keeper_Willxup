@@ -26,10 +26,10 @@ func TestAppWiredUsageAggregationRunnerCatchesUpExistingEventsAndStops(t *testin
 	if err := seedDB.Create(&identity).Error; err != nil {
 		t.Fatalf("seed startup identity: %v", err)
 	}
-	if _, _, err := repository.InsertUsageEvents(seedDB, []entities.UsageEvent{{
+	if _, _, err := repository.InsertUsageEvents(seedDB, []entities.UsageEvent{storedAppUsageEventFee(entities.UsageEvent{
 		EventKey: "app-startup-activity", APIGroupKey: "provider-a", Model: "model-a",
 		AuthType: "oauth", AuthIndex: identity.Identity, Timestamp: eventTime, InputTokens: 10, TotalTokens: 10,
-	}}); err != nil {
+	}, 0, false)}); err != nil {
 		t.Fatalf("seed startup usage event: %v", err)
 	}
 	closeDatabasePoolTestDB(t, seedDB)

@@ -70,7 +70,7 @@ func TestUsageQueriesFilterByAPIGroupKey(t *testing.T) {
 		{EventKey: "target-2", APIGroupKey: "sk-target-key", Model: "claude-opus", Timestamp: time.Date(2026, 4, 20, 10, 0, 0, 0, time.UTC), Source: "source-b", AuthIndex: "2", Failed: true, LatencyMS: 200, InputTokens: 15, OutputTokens: 25, TotalTokens: 40},
 		{EventKey: "other-1", APIGroupKey: "sk-other-key", Model: "claude-other", Timestamp: time.Date(2026, 4, 20, 11, 0, 0, 0, time.UTC), Source: "source-c", AuthIndex: "3", Failed: false, LatencyMS: 300, InputTokens: 100, OutputTokens: 200, TotalTokens: 300},
 	}
-	if _, _, err := InsertUsageEvents(db, events); err != nil {
+	if _, _, err := InsertUsageEvents(db, priceOverviewFixtureEvents(t, db, events)); err != nil {
 		t.Fatalf("InsertUsageEvents returned error: %v", err)
 	}
 

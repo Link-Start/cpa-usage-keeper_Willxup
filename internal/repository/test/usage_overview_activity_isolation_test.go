@@ -22,7 +22,7 @@ func TestBuildUsageOverviewDoesNotDependOnActivityTable(t *testing.T) {
 		InputTokens: 10,
 		TotalTokens: 10,
 	}
-	if _, _, err := repository.InsertUsageEvents(db, []entities.UsageEvent{event}); err != nil {
+	if _, _, err := repository.InsertUsageEvents(db, priceOverviewFixtureEvents(t, db, []entities.UsageEvent{event})); err != nil {
 		t.Fatalf("insert overview event: %v", err)
 	}
 	if err := repository.AggregateUsageOverviewStats(context.Background(), db, end); err != nil {

@@ -101,10 +101,10 @@ func TestProcessRedisUsageInboxEmptyBatchKeepsLegacyCatchUpWithoutNotifier(t *te
 	if err := db.Create(&identity).Error; err != nil {
 		t.Fatalf("insert compatibility identity: %v", err)
 	}
-	events := []entities.UsageEvent{{
+	events := []entities.UsageEvent{storedUsageEventFee(entities.UsageEvent{
 		EventKey: "empty-no-catchup", APIGroupKey: "provider-a", Model: "model-a", AuthType: "oauth", AuthIndex: identity.Identity,
 		Timestamp: now.Add(-time.Minute), InputTokens: 10, TotalTokens: 10,
-	}}
+	}, 0, false)}
 	if _, _, err := repository.InsertUsageEvents(db, events); err != nil {
 		t.Fatalf("insert pending raw event: %v", err)
 	}
@@ -164,4 +164,11 @@ func assertUsageAggregationFlowOverviewCheckpointMissing(t *testing.T, db *gorm.
 	if count != 0 {
 		t.Fatalf("expected overview checkpoint to remain missing, got %d rows", count)
 	}
+}
+
+// storedUsageEventFee 为直插测试事件明确写入当时的费用事实；不替迁移中的 NULL 行补默认值。
+func storedUsageEventFee(event entities.UsageEvent, costUSD float64, available bool) entities.UsageEvent {
+	event.CostUSD = &costUSD
+	event.CostAvailable = &available
+	return event
 }

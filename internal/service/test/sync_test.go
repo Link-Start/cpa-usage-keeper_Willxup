@@ -543,9 +543,9 @@ func TestProcessRedisUsageInboxSkipsAggregationWhenInboxAndEventsAreEmpty(t *tes
 func TestProcessRedisUsageInboxLeavesOverviewCatchUpToRunnerWhenInboxIsEmpty(t *testing.T) {
 	// 准备：插入尚未聚合的 raw event，并显式注入生产 aggregation notifier。
 	db := openSyncTestDatabase(t)
-	if _, _, err := repository.InsertUsageEvents(db, []entities.UsageEvent{{
+	if _, _, err := repository.InsertUsageEvents(db, []entities.UsageEvent{storedUsageEventFee(entities.UsageEvent{
 		EventKey: "stale-event", APIGroupKey: "provider-a", Model: "claude-sonnet", Timestamp: time.Date(2026, 4, 27, 8, 0, 0, 0, time.UTC), TotalTokens: 10,
-	}}); err != nil {
+	}, 0, true)}); err != nil {
 		t.Fatalf("InsertUsageEvents returned error: %v", err)
 	}
 	notifier := &recordingUsageHeaderQuotaAppender{allowed: true}
@@ -999,12 +999,12 @@ func TestProcessRedisUsageInboxLogsErrorAndMarksDecodeFailedWhenRequestIDMissing
 
 func TestProcessRedisUsageInboxDoesNotWatermarkFilterRedisInboxEvents(t *testing.T) {
 	db := openSyncTestDatabase(t)
-	if _, _, err := repository.InsertUsageEvents(db, []entities.UsageEvent{{
+	if _, _, err := repository.InsertUsageEvents(db, []entities.UsageEvent{storedUsageEventFee(entities.UsageEvent{
 		EventKey:    "future-watermark",
 		APIGroupKey: "claude",
 		Model:       "sonnet",
 		Timestamp:   time.Date(2026, 4, 28, 8, 0, 0, 0, time.UTC),
-	}}); err != nil {
+	}, 0, true)}); err != nil {
 		t.Fatalf("seed future event: %v", err)
 	}
 	seedRedisInboxMessagesForTest(t, db, `{"timestamp":"2026-04-26T07:00:00Z","provider":"claude","model":"sonnet","request_id":"old-but-unique","tokens":{"input_tokens":1,"output_tokens":2}}`)

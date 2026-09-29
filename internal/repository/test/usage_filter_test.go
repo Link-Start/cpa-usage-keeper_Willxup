@@ -86,7 +86,7 @@ func TestBuildUsageOverviewWithFilterDoesNotRunAggregationCatchup(t *testing.T) 
 	events := []entities.UsageEvent{
 		{EventKey: "event-1", APIGroupKey: "provider-a", Model: "claude-sonnet", Timestamp: time.Date(2026, 4, 16, 10, 10, 0, 0, time.UTC), InputTokens: 100, OutputTokens: 50, TotalTokens: 150},
 	}
-	if _, _, err := InsertUsageEvents(db, events); err != nil {
+	if _, _, err := InsertUsageEvents(db, priceOverviewFixtureEvents(t, db, events)); err != nil {
 		t.Fatalf("InsertUsageEvents returned error: %v", err)
 	}
 
@@ -264,7 +264,7 @@ func TestBuildUsageOverviewWithFilterUsesStatsForFullHoursAndRawEventsForBoundar
 		{EventKey: "end-boundary", APIGroupKey: "provider-a", Model: "claude-sonnet", Timestamp: time.Date(2026, 4, 16, 12, 35, 0, 0, time.UTC), InputTokens: 400, OutputTokens: 200, ReasoningTokens: 20, CachedTokens: 40, CacheReadTokens: 40, TotalTokens: 660},
 		{EventKey: "outside-after", APIGroupKey: "provider-a", Model: "claude-sonnet", Timestamp: time.Date(2026, 4, 16, 12, 45, 0, 0, time.UTC), InputTokens: 88, OutputTokens: 88, TotalTokens: 176},
 	}
-	if _, _, err := InsertUsageEvents(db, events); err != nil {
+	if _, _, err := InsertUsageEvents(db, priceOverviewFixtureEvents(t, db, events)); err != nil {
 		t.Fatalf("InsertUsageEvents returned error: %v", err)
 	}
 	if err := AggregateUsageOverviewStats(context.Background(), db, time.Date(2026, 4, 16, 13, 0, 0, 0, time.UTC)); err != nil {
@@ -306,7 +306,7 @@ func TestBuildUsageOverviewWithFilterKeepsHourlyBucketsWhenShortWindowContainsCo
 		{EventKey: "hour-1", APIGroupKey: "provider-a", Model: "claude-sonnet", Timestamp: time.Date(2026, 4, 16, 2, 0, 0, 0, time.UTC), TotalTokens: 10},
 		{EventKey: "hour-2", APIGroupKey: "provider-a", Model: "claude-sonnet", Timestamp: time.Date(2026, 4, 16, 15, 30, 0, 0, time.UTC), TotalTokens: 20},
 	}
-	if _, _, err := InsertUsageEvents(db, events); err != nil {
+	if _, _, err := InsertUsageEvents(db, priceOverviewFixtureEvents(t, db, events)); err != nil {
 		t.Fatalf("InsertUsageEvents returned error: %v", err)
 	}
 	if err := AggregateUsageOverviewStats(context.Background(), db, time.Date(2026, 4, 17, 0, 0, 0, 0, time.UTC)); err != nil {
@@ -351,7 +351,7 @@ func TestBuildUsageOverviewWithFilterUsesDailyStatsForCompleteDays(t *testing.T)
 		{EventKey: "full-day-2", APIGroupKey: "provider-b", Model: "claude-sonnet", Timestamp: time.Date(2026, 4, 16, 15, 30, 0, 0, time.UTC), Failed: true, InputTokens: 300, OutputTokens: 150, ReasoningTokens: 40, TotalTokens: 490},
 		{EventKey: "end-boundary", APIGroupKey: "provider-a", Model: "claude-sonnet", Timestamp: time.Date(2026, 4, 24, 16, 30, 0, 0, time.UTC), InputTokens: 400, OutputTokens: 200, TotalTokens: 600},
 	}
-	if _, _, err := InsertUsageEvents(db, events); err != nil {
+	if _, _, err := InsertUsageEvents(db, priceOverviewFixtureEvents(t, db, events)); err != nil {
 		t.Fatalf("InsertUsageEvents returned error: %v", err)
 	}
 	if err := AggregateUsageOverviewStats(context.Background(), db, time.Date(2026, 4, 16, 18, 0, 0, 0, time.UTC)); err != nil {
@@ -435,7 +435,7 @@ func TestBuildUsageOverviewWithFilterComputesSummaryAndSeries(t *testing.T) {
 			InputTokens: 500, OutputTokens: 250, ReasoningTokens: 25, CachedTokens: 50, CacheReadTokens: 50, TotalTokens: 825,
 		},
 	}
-	if _, _, err := InsertUsageEvents(db, events); err != nil {
+	if _, _, err := InsertUsageEvents(db, priceOverviewFixtureEvents(t, db, events)); err != nil {
 		t.Fatalf("InsertUsageEvents returned error: %v", err)
 	}
 	if err := AggregateUsageOverviewStats(context.Background(), db, time.Date(2026, 4, 17, 12, 0, 0, 0, time.UTC)); err != nil {
@@ -689,7 +689,7 @@ func TestBuildUsageOverviewWithFilterCostAvailabilityForUnpricedModels(t *testin
 					InputTokens: tc.tokens,
 				},
 			}
-			if _, _, err := InsertUsageEvents(db, events); err != nil {
+			if _, _, err := InsertUsageEvents(db, priceOverviewFixtureEvents(t, db, events)); err != nil {
 				t.Fatalf("InsertUsageEvents returned error: %v", err)
 			}
 			if err := AggregateUsageOverviewStats(context.Background(), db, time.Date(2026, 4, 17, 0, 0, 0, 0, time.UTC)); err != nil {
@@ -721,7 +721,7 @@ func TestBuildUsageOverviewWithFilterReturnsUnavailableCostWithoutPricing(t *tes
 		Timestamp: time.Date(2026, 4, 16, 9, 15, 0, 0, time.UTC), TotalTokens: 1800,
 		InputTokens: 1000, OutputTokens: 500, CachedTokens: 200, CacheReadTokens: 200,
 	}}
-	if _, _, err := InsertUsageEvents(db, events); err != nil {
+	if _, _, err := InsertUsageEvents(db, priceOverviewFixtureEvents(t, db, events)); err != nil {
 		t.Fatalf("InsertUsageEvents returned error: %v", err)
 	}
 	if err := AggregateUsageOverviewStats(context.Background(), db, time.Date(2026, 4, 17, 0, 0, 0, 0, time.UTC)); err != nil {
@@ -785,7 +785,7 @@ func TestBuildUsageOverviewWithFilterUsesExactPresetWindowMinutes(t *testing.T) 
 				OutputTokens:    15,
 				ReasoningTokens: 0,
 			}
-			if _, _, err := InsertUsageEvents(db, []entities.UsageEvent{event}); err != nil {
+			if _, _, err := InsertUsageEvents(db, priceOverviewFixtureEvents(t, db, []entities.UsageEvent{event})); err != nil {
 				t.Fatalf("InsertUsageEvents returned error: %v", err)
 			}
 			if err := AggregateUsageOverviewStats(context.Background(), db, tc.end); err != nil {
@@ -889,7 +889,7 @@ func TestBuildUsageOverviewWithFilterUsesDailyBucketsForLongCustomRanges(t *test
 		{EventKey: "event-1", APIGroupKey: "provider-a", Model: "claude-sonnet", Timestamp: time.Date(2026, 4, 20, 8, 0, 0, 0, time.UTC), TotalTokens: 10},
 		{EventKey: "event-2", APIGroupKey: "provider-a", Model: "claude-sonnet", Timestamp: time.Date(2026, 4, 26, 18, 0, 0, 0, time.UTC), TotalTokens: 20},
 	}
-	if _, _, err := InsertUsageEvents(db, events); err != nil {
+	if _, _, err := InsertUsageEvents(db, priceOverviewFixtureEvents(t, db, events)); err != nil {
 		t.Fatalf("InsertUsageEvents returned error: %v", err)
 	}
 	if err := AggregateUsageOverviewStats(context.Background(), db, time.Date(2026, 4, 27, 0, 0, 0, 0, time.UTC)); err != nil {

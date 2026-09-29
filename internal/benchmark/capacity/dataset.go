@@ -731,7 +731,10 @@ func buildDerivedDataset(ctx context.Context, db *gorm.DB, options GenerateOptio
 			nextCursor := events[len(events)-1].ID
 			switch kind {
 			case entities.UsageAggregationCheckpointOverview:
-				hourly, daily, _ := overview.BuildRows(events)
+				hourly, daily, _, buildErr := overview.BuildRows(events)
+				if buildErr != nil {
+					return fmt.Errorf("build overview benchmark aggregation: %w", buildErr)
+				}
 				if err := repository.ApplyUsageOverviewAggregationPage(ctx, db, cursor, nextCursor, hourly, daily, options.Now); err != nil {
 					return fmt.Errorf("apply overview benchmark aggregation: %w", err)
 				}

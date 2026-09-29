@@ -24,6 +24,7 @@ func TestOverviewComparisonsShareRollupsAndExactBoundaries(t *testing.T) {
 		{EventKey: "failure", Timestamp: start.Add(2 * time.Hour), APIGroupKey: "key-b", Model: "model-b", Failed: true},
 		{EventKey: "right", Timestamp: end.Add(-time.Minute), APIGroupKey: "key-a", Model: "model-b", InputTokens: 50, CacheCreationTokens: 10, OutputTokens: 40, TotalTokens: 90},
 	}
+	events = priceOverviewFixtureEvents(t, db, events)
 	if err := db.Create(&events).Error; err != nil {
 		t.Fatal(err)
 	}
@@ -109,6 +110,7 @@ func TestOverviewComparisonCostUsesTheSamePricingRules(t *testing.T) {
 		{EventKey: "priced-left", Timestamp: start, APIGroupKey: "key-a", Model: "model-a", InputTokens: 1000000, TotalTokens: 1000000},
 		{EventKey: "priced-middle", Timestamp: start.Add(time.Hour), APIGroupKey: "key-b", Model: "model-a", InputTokens: 1000000, CacheReadTokens: 100000, CacheCreationTokens: 50000, TotalTokens: 1000000},
 	}
+	events = priceOverviewFixtureEvents(t, db, events)
 	if err := db.Create(&events).Error; err != nil {
 		t.Fatal(err)
 	}

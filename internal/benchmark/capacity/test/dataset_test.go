@@ -99,6 +99,31 @@ func TestGenerateDatasetBuildsValidatedSteadyState(t *testing.T) {
 	}
 	assertGeneratedEventMatchesStoredPrice(t, db, "usage_events")
 	assertGeneratedEventMatchesStoredPrice(t, db, "usage_events_archive")
+	assertGeneratedOverviewMatchesStoredEventFees(t, db)
+}
+
+// assertGeneratedOverviewMatchesStoredEventFees 验证合成桶已写明细费用，而非仅填请求数与 Token。
+func assertGeneratedOverviewMatchesStoredEventFees(t *testing.T, db *gorm.DB) {
+	t.Helper()
+	var eventCost float64
+	if err := db.Raw(`SELECT SUM(cost_usd) FROM (SELECT cost_usd FROM usage_events UNION ALL SELECT cost_usd FROM usage_events_archive)`).Scan(&eventCost).Error; err != nil {
+		t.Fatal(err)
+	}
+	for _, table := range []string{"usage_overview_hourly_stats", "usage_overview_daily_stats"} {
+		var result struct {
+			Cost        float64
+			Unavailable int64
+			NullRows    int64
+		}
+		query := `SELECT SUM(cost_usd) AS cost, SUM(unavailable_cost_count) AS unavailable,
+			SUM(CASE WHEN cost_usd IS NULL OR unavailable_cost_count IS NULL THEN 1 ELSE 0 END) AS null_rows FROM ` + table
+		if err := db.Raw(query).Scan(&result).Error; err != nil {
+			t.Fatalf("read %s generated fees: %v", table, err)
+		}
+		if result.NullRows != 0 || result.Unavailable != 0 || math.IsNaN(result.Cost) || math.IsInf(result.Cost, 0) || math.Abs(result.Cost-eventCost) > 1e-7 {
+			t.Fatalf("%s fees differ from stored events: %+v event_cost=%v", table, result, eventCost)
+		}
+	}
 }
 
 func assertGeneratedEventMatchesStoredPrice(t *testing.T, db *gorm.DB, table string) {

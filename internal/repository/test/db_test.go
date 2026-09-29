@@ -629,12 +629,12 @@ func TestCleanupStorageRetainsNinetyLocalDays(t *testing.T) {
 	now := time.Date(2026, 6, 16, 15, 0, 0, 0, time.Local)
 	cutoff := time.Date(2026, 3, 18, 0, 0, 0, 0, time.Local)
 
-	if _, _, err := repository.InsertUsageEvents(db, []entities.UsageEvent{
+	if _, _, err := repository.InsertUsageEvents(db, priceOverviewFixtureEvents(t, db, []entities.UsageEvent{
 		{EventKey: "before-cutoff", Model: "claude-sonnet", Timestamp: cutoff.Add(-time.Nanosecond), TotalTokens: 1},
 		{EventKey: "at-cutoff", Model: "claude-sonnet", Timestamp: cutoff, TotalTokens: 2},
 		{EventKey: "after-cutoff", Model: "claude-sonnet", Timestamp: cutoff.Add(time.Nanosecond), TotalTokens: 3},
 		{EventKey: "current-day", Model: "claude-sonnet", Timestamp: time.Date(2026, 6, 16, 9, 0, 0, 0, time.Local), TotalTokens: 4},
-	}); err != nil {
+	})); err != nil {
 		t.Fatalf("InsertUsageEvents returned error: %v", err)
 	}
 	// 准备：只有 Overview 与 Activity 都追平后，旧 raw events 才具备归档安全水位。
@@ -682,11 +682,11 @@ func TestCleanupStorageUsesLocalCalendarDaysAcrossDST(t *testing.T) {
 		t.Fatalf("expected fixture to cross spring DST in 2159 hours, got %s", elapsed)
 	}
 
-	if _, _, err := repository.InsertUsageEvents(db, []entities.UsageEvent{
+	if _, _, err := repository.InsertUsageEvents(db, priceOverviewFixtureEvents(t, db, []entities.UsageEvent{
 		{EventKey: "before-dst-cutoff", Model: "claude-sonnet", Timestamp: cutoff.Add(-time.Nanosecond), TotalTokens: 1},
 		{EventKey: "at-dst-cutoff", Model: "claude-sonnet", Timestamp: cutoff, TotalTokens: 2},
 		{EventKey: "after-dst-cutoff", Model: "claude-sonnet", Timestamp: cutoff.Add(time.Nanosecond), TotalTokens: 3},
-	}); err != nil {
+	})); err != nil {
 		t.Fatalf("InsertUsageEvents returned error: %v", err)
 	}
 	if err := repository.AggregateUsageOverviewStats(context.Background(), db, now); err != nil {
@@ -755,10 +755,10 @@ func TestCleanupStorageDefersUsageEventsUntilLatencyCatchUp(t *testing.T) {
 	db := openTestDatabase(t)
 	now := time.Date(2026, 6, 16, 9, 0, 0, 0, time.Local)
 
-	if _, _, err := repository.InsertUsageEvents(db, []entities.UsageEvent{
+	if _, _, err := repository.InsertUsageEvents(db, priceOverviewFixtureEvents(t, db, []entities.UsageEvent{
 		{EventKey: "latency-aggregated-old", Model: "claude-sonnet", Timestamp: now.AddDate(0, 0, -92), TotalTokens: 1},
 		{EventKey: "latency-pending-old", Model: "claude-sonnet", Timestamp: now.AddDate(0, 0, -91), TotalTokens: 2},
-	}); err != nil {
+	})); err != nil {
 		t.Fatalf("InsertUsageEvents returned error: %v", err)
 	}
 	if err := repository.AggregateUsageOverviewStats(context.Background(), db, now); err != nil {

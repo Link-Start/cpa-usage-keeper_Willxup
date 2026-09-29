@@ -30,8 +30,8 @@ func TestUsageServiceGetUsageOverviewDelegatesToFilteredOverview(t *testing.T) {
 		t.Fatalf("UpsertModelPriceSetting returned error: %v", err)
 	}
 	if _, _, err := repository.InsertUsageEvents(db, []entities.UsageEvent{
-		{EventKey: "event-1", APIGroupKey: "provider-a", Model: "claude-sonnet", Timestamp: time.Date(2026, 4, 16, 9, 0, 0, 0, time.UTC), InputTokens: 1000, OutputTokens: 500, CachedTokens: 100, CacheReadTokens: 100, ReasoningTokens: 50, TotalTokens: 1650},
-		{EventKey: "event-2", APIGroupKey: "provider-a", Model: "claude-sonnet", Timestamp: time.Date(2026, 4, 16, 10, 0, 0, 0, time.UTC), InputTokens: 500, OutputTokens: 250, CachedTokens: 0, ReasoningTokens: 25, TotalTokens: 775},
+		storedUsageEventFee(entities.UsageEvent{EventKey: "event-1", APIGroupKey: "provider-a", Model: "claude-sonnet", Timestamp: time.Date(2026, 4, 16, 9, 0, 0, 0, time.UTC), InputTokens: 1000, OutputTokens: 500, CachedTokens: 100, CacheReadTokens: 100, ReasoningTokens: 50, TotalTokens: 1650}, 0.01023, true),
+		storedUsageEventFee(entities.UsageEvent{EventKey: "event-2", APIGroupKey: "provider-a", Model: "claude-sonnet", Timestamp: time.Date(2026, 4, 16, 10, 0, 0, 0, time.UTC), InputTokens: 500, OutputTokens: 250, CachedTokens: 0, ReasoningTokens: 25, TotalTokens: 775}, 0.00525, true),
 	}); err != nil {
 		t.Fatalf("InsertUsageEvents returned error: %v", err)
 	}
@@ -73,7 +73,7 @@ func TestUsageServiceGetUsageOverviewUsesRecentCacheForBoundaries(t *testing.T) 
 	now := time.Date(2026, 6, 10, 12, 30, 0, 0, time.UTC)
 	start := time.Date(2026, 6, 10, 12, 0, 0, 0, time.UTC)
 	end := time.Date(2026, 6, 10, 12, 20, 0, 0, time.UTC)
-	cache := newServiceRecentCacheFromEvents(t, db, now, []entities.UsageEvent{{
+	cache := newServiceRecentCacheFromEvents(t, db, now, []entities.UsageEvent{storedUsageEventFee(entities.UsageEvent{
 		APIGroupKey:  "provider-a",
 		Model:        "gpt-5",
 		AuthType:     "oauth",
@@ -83,7 +83,7 @@ func TestUsageServiceGetUsageOverviewUsesRecentCacheForBoundaries(t *testing.T) 
 		InputTokens:  40,
 		OutputTokens: 60,
 		TotalTokens:  100,
-	}})
+	}, 0, false)})
 
 	provider := service.NewUsageServiceWithRecentCache(db, cache, emptyPricingCatalogForTest())
 	overview, err := provider.GetUsageOverview(context.Background(), servicedto.UsageFilter{Range: "custom", StartTime: &start, EndTime: &end, QueryNow: &now})
@@ -99,7 +99,7 @@ func TestUsageServiceGetUsageOverviewRealtimeUsesRecentCache(t *testing.T) {
 	db := openUsageServiceTestDatabase(t)
 
 	now := time.Date(2026, 6, 10, 12, 0, 0, 0, time.UTC)
-	cache := newServiceRecentCacheFromEvents(t, db, now, []entities.UsageEvent{{
+	cache := newServiceRecentCacheFromEvents(t, db, now, []entities.UsageEvent{storedUsageEventFee(entities.UsageEvent{
 		APIGroupKey: "provider-a",
 		Model:       "gpt-5",
 		AuthType:    "oauth",
@@ -108,7 +108,7 @@ func TestUsageServiceGetUsageOverviewRealtimeUsesRecentCache(t *testing.T) {
 		Timestamp:   now.Add(-2 * time.Minute),
 		InputTokens: 40,
 		TotalTokens: 100,
-	}})
+	}, 0, false)})
 	if err := db.Migrator().DropTable(&entities.UsageEvent{}); err != nil {
 		t.Fatalf("drop usage_events returned error: %v", err)
 	}
@@ -134,8 +134,8 @@ func TestUsageServiceGetUsageOverviewRealtimeResolvesAPIKeyIDForRecentCache(t *t
 
 	now := time.Date(2026, 6, 10, 12, 0, 0, 0, time.UTC)
 	cache := newServiceRecentCacheFromEvents(t, db, now, []entities.UsageEvent{
-		{APIGroupKey: "sk-target-key", Model: "gpt-5", AuthType: "oauth", Source: "target@example.com", AuthIndex: "target-auth", Timestamp: now.Add(-2 * time.Minute), InputTokens: 10, TotalTokens: 30},
-		{APIGroupKey: "sk-other-key", Model: "gpt-5", AuthType: "oauth", Source: "other@example.com", AuthIndex: "other-auth", Timestamp: now.Add(-1 * time.Minute), InputTokens: 100, TotalTokens: 300},
+		storedUsageEventFee(entities.UsageEvent{APIGroupKey: "sk-target-key", Model: "gpt-5", AuthType: "oauth", Source: "target@example.com", AuthIndex: "target-auth", Timestamp: now.Add(-2 * time.Minute), InputTokens: 10, TotalTokens: 30}, 0, false),
+		storedUsageEventFee(entities.UsageEvent{APIGroupKey: "sk-other-key", Model: "gpt-5", AuthType: "oauth", Source: "other@example.com", AuthIndex: "other-auth", Timestamp: now.Add(-1 * time.Minute), InputTokens: 100, TotalTokens: 300}, 0, false),
 	})
 
 	provider := service.NewUsageServiceWithRecentCache(db, cache, emptyPricingCatalogForTest())
@@ -158,9 +158,9 @@ func TestUsageServiceResolvesAPIKeyIDForUsageQueries(t *testing.T) {
 	db := openUsageServiceTestDatabase(t)
 	targetID := seedUsageFilterAPIKeys(t, db)
 	if _, _, err := repository.InsertUsageEvents(db, []entities.UsageEvent{
-		{EventKey: "target-1", APIGroupKey: "sk-target-key", Model: "claude-sonnet", Timestamp: time.Date(2026, 4, 16, 9, 0, 0, 0, time.UTC), TotalTokens: 10},
-		{EventKey: "target-2", APIGroupKey: "sk-target-key", Model: "claude-opus", Timestamp: time.Date(2026, 4, 16, 10, 0, 0, 0, time.UTC), TotalTokens: 20},
-		{EventKey: "other-1", APIGroupKey: "sk-other-key", Model: "claude-other", Timestamp: time.Date(2026, 4, 16, 10, 30, 0, 0, time.UTC), TotalTokens: 300},
+		storedUsageEventFee(entities.UsageEvent{EventKey: "target-1", APIGroupKey: "sk-target-key", Model: "claude-sonnet", Timestamp: time.Date(2026, 4, 16, 9, 0, 0, 0, time.UTC), TotalTokens: 10}, 0, true),
+		storedUsageEventFee(entities.UsageEvent{EventKey: "target-2", APIGroupKey: "sk-target-key", Model: "claude-opus", Timestamp: time.Date(2026, 4, 16, 10, 0, 0, 0, time.UTC), TotalTokens: 20}, 0, true),
+		storedUsageEventFee(entities.UsageEvent{EventKey: "other-1", APIGroupKey: "sk-other-key", Model: "claude-other", Timestamp: time.Date(2026, 4, 16, 10, 30, 0, 0, time.UTC), TotalTokens: 300}, 0, true),
 	}); err != nil {
 		t.Fatalf("InsertUsageEvents returned error: %v", err)
 	}
