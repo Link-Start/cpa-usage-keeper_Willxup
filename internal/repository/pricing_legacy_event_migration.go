@@ -29,9 +29,16 @@ var pricingMigrationEventColumns = []string{
 	"input_tokens", "output_tokens", "cache_read_tokens", "cache_creation_tokens",
 }
 
-// PricingMigrationEventCursors 只保存两张事件表已提交的最后 ID；ID 空洞不作数量解释。
+// PricingMigrationEventCursors 保存冷热明细及后续汇总费用已提交的最后 ID；ID 空洞不作数量解释。
 type PricingMigrationEventCursors struct {
-	SchemaVersion  int   `json:"schema_version"`
+	SchemaVersion  int                              `json:"schema_version"`
+	HotAfterID     int64                            `json:"hot_after_id"`
+	ArchiveAfterID int64                            `json:"archive_after_id"`
+	Overview       *PricingMigrationOverviewCursors `json:"overview,omitempty"`
+}
+
+// PricingMigrationOverviewCursors 仅在 M5 持久进入回填阶段后存在，区分旧 NULL 初态和已提交的部分金额。
+type PricingMigrationOverviewCursors struct {
 	HotAfterID     int64 `json:"hot_after_id"`
 	ArchiveAfterID int64 `json:"archive_after_id"`
 }
