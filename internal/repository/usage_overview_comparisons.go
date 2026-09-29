@@ -64,8 +64,9 @@ func calculateUsageOverviewComparisonProjectionCost(costResolver pricing.Resolve
 
 // comparison-only 使用无时间桶的独立 rollup projection。
 // 比较查询复用范围规划，边界事件由调用方读取一次并补入比较结果。
-func loadAndApplyUsageOverviewStats(overview *dto.UsageOverviewRecord, db *gorm.DB, filter dto.UsageQueryFilter, start, end time.Time, grain string, bucketByDay bool, resolver pricing.Resolver) error {
+func loadAndApplyUsageOverviewStats(overview *dto.UsageOverviewRecord, db *gorm.DB, filter dto.UsageQueryFilter, start, end time.Time, grain string, bucketByDay bool, comparisonResolver *pricing.Resolver) error {
 	if filter.ComparisonOnly {
+		resolver := *comparisonResolver
 		rows, err := loadUsageOverviewComparisonProjection(db, filter, start, end, grain, resolver.ActiveFields())
 		if err != nil {
 			return err
@@ -97,12 +98,14 @@ func loadAndApplyUsageOverviewStats(overview *dto.UsageOverviewRecord, db *gorm.
 	if grain == "daily" {
 		model = &entities.UsageOverviewDailyStat{}
 	}
-	rows, err := loadUsageOverviewStatProjection(db.Model(model), filter, start, end, grain, resolver.ActiveFields())
+	rows, err := loadUsageOverviewStatProjection(db.Model(model), filter, start, end, grain)
 	if err != nil {
 		return err
 	}
 	for _, row := range rows {
-		applyUsageOverviewStatToOverview(overview, row, bucketByDay, resolver)
+		if err := applyUsageOverviewStatToOverview(overview, row, bucketByDay); err != nil {
+			return err
+		}
 	}
 	return nil
 }

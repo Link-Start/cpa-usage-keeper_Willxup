@@ -32,9 +32,9 @@ func TestBuildUsageOverviewDoesNotDependOnActivityTable(t *testing.T) {
 		t.Fatalf("drop Activity table: %v", err)
 	}
 
-	overview, err := repository.BuildUsageOverviewWithFilter(db, repositorydto.UsageQueryFilter{
+	overview, err := repository.BuildUsageOverviewWithFilterAndRecentCache(db, repositorydto.UsageQueryFilter{
 		Range: "2h", StartTime: &start, EndTime: &end, QueryNow: &end,
-	}, emptyPricingResolverForTest())
+	}, nil)
 
 	if err != nil {
 		t.Fatalf("BuildUsageOverviewWithFilter should not query Activity: %v", err)

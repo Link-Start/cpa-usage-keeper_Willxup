@@ -92,7 +92,7 @@ func TestUsageQueriesFilterByAPIGroupKey(t *testing.T) {
 	}
 	start := time.Date(2026, 4, 20, 9, 0, 0, 0, time.UTC)
 	end := time.Date(2026, 4, 20, 11, 0, 0, 0, time.UTC)
-	overview, err := BuildUsageOverviewWithFilter(db, repodto.UsageQueryFilter{APIGroupKey: "sk-target-key", Range: "custom", StartTime: &start, EndTime: &end}, emptyPricingResolverForTest())
+	overview, err := BuildUsageOverviewWithFilterAndRecentCache(db, repodto.UsageQueryFilter{APIGroupKey: "sk-target-key", Range: "custom", StartTime: &start, EndTime: &end}, nil)
 	if err != nil {
 		t.Fatalf("BuildUsageOverviewWithFilter returned error: %v", err)
 	}

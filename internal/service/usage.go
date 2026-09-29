@@ -67,7 +67,7 @@ func (s *usageService) resolveAPIGroupKey(ctx context.Context, apiKeyID string) 
 	return apiKey.APIKey, nil
 }
 
-// Usage 页面里的 Overview tab 下传时间窗口和全局 API-Key，仓储层负责构建 overview 聚合。
+// GetUsageOverview 解析请求的 Key 范围后读取完整汇总桶与窄边界事件的已存费用，不重新计价。
 func (s *usageService) GetUsageOverview(ctx context.Context, filter servicedto.UsageFilter) (*servicedto.UsageOverviewSnapshot, error) {
 	ctx = usageServiceContext(ctx)
 	apiGroupKey, err := s.resolveAPIGroupKey(ctx, filter.APIKeyID)
@@ -82,7 +82,7 @@ func (s *usageService) GetUsageOverview(ctx context.Context, filter servicedto.U
 		EndExclusive: filter.EndExclusive,
 		QueryNow:     filter.QueryNow,
 		APIGroupKey:  apiGroupKey,
-	}, s.recentUsage, s.pricing.NewResolver())
+	}, s.recentUsage)
 	if err != nil {
 		return nil, err
 	}
@@ -114,7 +114,7 @@ func (s *usageService) GetUsageOverviewComparisons(ctx context.Context, filter s
 	if err != nil {
 		return nil, err
 	}
-	overview, err := repository.BuildUsageOverviewWithFilterAndRecentCache(s.db.WithContext(ctx), repodto.UsageQueryFilter{
+	overview, err := repository.BuildUsageOverviewComparisonsWithFilterAndRecentCache(s.db.WithContext(ctx), repodto.UsageQueryFilter{
 		Range:          filter.Range,
 		ComparisonOnly: true,
 		CustomUnit:     filter.CustomUnit,
@@ -262,6 +262,7 @@ func usageActivityGrain(window servicedto.UsageActivityWindow) (entities.UsageAc
 	}
 }
 
+// GetUsageOverviewRealtime 从近期缓存或窄窗事件读取已存费用，并保留实时请求与 Token 的原筛选口径。
 func (s *usageService) GetUsageOverviewRealtime(ctx context.Context, filter servicedto.UsageFilter) (*servicedto.UsageOverviewRealtime, error) {
 	ctx = usageServiceContext(ctx)
 	apiGroupKey, err := s.resolveAPIGroupKey(ctx, filter.APIKeyID)
@@ -272,7 +273,7 @@ func (s *usageService) GetUsageOverviewRealtime(ctx context.Context, filter serv
 		RealtimeWindow:  filter.RealtimeWindow,
 		RealtimeEndTime: filter.RealtimeEndTime,
 		APIGroupKey:     apiGroupKey,
-	}, s.recentUsage, s.pricing.NewResolver())
+	}, s.recentUsage)
 	if err != nil {
 		return nil, err
 	}

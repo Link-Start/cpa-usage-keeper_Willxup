@@ -33,7 +33,7 @@ func TestOverviewComparisonsShareRollupsAndExactBoundaries(t *testing.T) {
 	}
 	filter := repodto.UsageQueryFilter{Range: "4h", StartTime: &start, EndTime: &end, EndExclusive: true, QueryNow: &end, ComparisonOnly: true}
 	queries := captureOverviewDataQueries(t, db, "comparisons")
-	overview, err := repository.BuildUsageOverviewWithFilter(db, filter, emptyPricingResolverForTest())
+	overview, err := repository.BuildUsageOverviewComparisonsWithFilterAndRecentCache(db, filter, nil, emptyPricingResolverForTest())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -54,7 +54,7 @@ func TestOverviewComparisonsShareRollupsAndExactBoundaries(t *testing.T) {
 		t.Fatalf("expected two boundary reads and one rollup read, got %d", len(*queries))
 	}
 	filter.APIGroupKey = "key-a"
-	filtered, err := repository.BuildUsageOverviewWithFilter(db, filter, emptyPricingResolverForTest())
+	filtered, err := repository.BuildUsageOverviewComparisonsWithFilterAndRecentCache(db, filter, nil, emptyPricingResolverForTest())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -67,16 +67,17 @@ func TestOverviewComparisonsCustomDayNeverReadsRawEvents(t *testing.T) {
 	db := openTestDatabase(t)
 	start := time.Date(2026, 1, 1, 0, 0, 0, 0, time.Local)
 	end := start.AddDate(0, 0, 365)
+	zeroCost, unavailable := 0.0, int64(0)
 	rows := []entities.UsageOverviewDailyStat{
-		{BucketStart: start, APIGroupKey: "key-a", Model: "model-a", RequestCount: 5, SuccessCount: 4, FailureCount: 1, TotalTokens: 100},
-		{BucketStart: end.AddDate(0, 0, -1), APIGroupKey: "key-b", Model: "model-a", RequestCount: 3, SuccessCount: 3, TotalTokens: 300},
+		{BucketStart: start, APIGroupKey: "key-a", Model: "model-a", RequestCount: 5, SuccessCount: 4, FailureCount: 1, TotalTokens: 100, CostUSD: &zeroCost, UnavailableCostCount: &unavailable},
+		{BucketStart: end.AddDate(0, 0, -1), APIGroupKey: "key-b", Model: "model-a", RequestCount: 3, SuccessCount: 3, TotalTokens: 300, CostUSD: &zeroCost, UnavailableCostCount: &unavailable},
 	}
 	if err := db.Create(&rows).Error; err != nil {
 		t.Fatal(err)
 	}
 	queries := captureOverviewDataQueries(t, db, "comparisons_long")
 	filter := repodto.UsageQueryFilter{Range: "custom", CustomUnit: "day", StartTime: &start, EndTime: &end, EndExclusive: true, QueryNow: &end, ComparisonOnly: true}
-	overview, err := repository.BuildUsageOverviewWithFilter(db, filter, emptyPricingResolverForTest())
+	overview, err := repository.BuildUsageOverviewComparisonsWithFilterAndRecentCache(db, filter, nil, emptyPricingResolverForTest())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -93,7 +94,7 @@ func TestOverviewComparisonsCustomDayNeverReadsRawEvents(t *testing.T) {
 	if len(overview.Series.Requests) != 0 || overview.Usage.TotalRequests != 0 {
 		t.Fatal("comparison-only projection must preserve comparisons without building the main series")
 	}
-	plain, err := repository.BuildUsageOverviewWithFilter(db, repodto.UsageQueryFilter{Range: "custom", CustomUnit: "day", StartTime: &start, EndTime: &end, EndExclusive: true, QueryNow: &end}, emptyPricingResolverForTest())
+	plain, err := repository.BuildUsageOverviewWithFilterAndRecentCache(db, repodto.UsageQueryFilter{Range: "custom", CustomUnit: "day", StartTime: &start, EndTime: &end, EndExclusive: true, QueryNow: &end}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -119,7 +120,7 @@ func TestOverviewComparisonCostUsesTheSamePricingRules(t *testing.T) {
 	}
 	resolver := repositoryPricingResolver(t, []pricing.RuleConfig{{Key: "api_group_key", Value: "key-b", Multiplier: 2}})
 	comparisonOnlyFilter := repodto.UsageQueryFilter{Range: "4h", StartTime: &start, EndTime: &end, QueryNow: &end, ComparisonOnly: true}
-	comparisonOnly, err := repository.BuildUsageOverviewWithFilter(db, comparisonOnlyFilter, resolver)
+	comparisonOnly, err := repository.BuildUsageOverviewComparisonsWithFilterAndRecentCache(db, comparisonOnlyFilter, nil, resolver)
 	if err != nil {
 		t.Fatal(err)
 	}

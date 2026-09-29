@@ -42,7 +42,7 @@ func BenchmarkOverviewComparisons(b *testing.B) {
 				b.ReportAllocs()
 				b.ResetTimer()
 				for i := 0; i < b.N; i++ {
-					result, err := repository.BuildUsageOverviewWithFilter(db, filter, resolver)
+					result, err := repository.BuildUsageOverviewComparisonsWithFilterAndRecentCache(db, filter, nil, resolver)
 					if err != nil {
 						b.Fatal(err)
 					}
