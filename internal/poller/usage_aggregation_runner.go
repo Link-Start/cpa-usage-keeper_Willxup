@@ -63,6 +63,8 @@ type UsageAggregationRunner struct {
 	db               *gorm.DB
 	now              func() time.Time
 	debounceInterval time.Duration
+	// workGate 保护普通 turn 的完整 Reader 预读、计算、事务提交和内存状态更新。
+	workGate aggregationWorkGate
 
 	// mu 只保护轻量内存目标和 Identity 分页状态，锁内不执行数据库操作。
 	mu sync.Mutex
@@ -332,6 +334,11 @@ func (r *UsageAggregationRunner) identityWorkPendingLocked() bool {
 }
 
 func (r *UsageAggregationRunner) runPreparedOnce(ctx context.Context) (UsageAggregationRunResult, error) {
+	leave, err := r.workGate.enter(ctx)
+	if err != nil {
+		return UsageAggregationRunResult{}, err
+	}
+	defer leave()
 	r.mu.Lock()
 	// 只有两类工作都存在时才遵循公平轮转；其中一类已经追平时直接执行另一类，避免空 turn 查询数据库。
 	kind, runnable := r.nextRunnableKindLocked()

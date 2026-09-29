@@ -70,6 +70,7 @@ type App struct {
 	QuotaAutoRefresh  QuotaRunner
 	BackupMaintenance *DatabaseBackupRunner
 	RecentUsageCache  *repository.UsageRecentEventCache
+	CostReadGate      *service.CostReadGate
 	PricingCatalog    *pricing.Catalog
 	LogCloser         io.Closer
 
@@ -196,6 +197,8 @@ func NewWithConfig(cfg config.Config) (*App, error) {
 		return nil, failInitialization(logCloser, fmt.Errorf("load pricing snapshot: %w", err))
 	}
 	pricingCatalog := pricing.NewCatalog(pricingSnapshot)
+	// 单个 App 共享一把费用读取许可，供 HTTP 费用请求和后续手动重算协调。
+	costReadGate := service.NewCostReadGate()
 
 	cpaClient := cpa.NewClient(cfg.CPABaseURL, cfg.CPAManagementKey, cfg.RequestTimeout, cfg.TLSSkipVerify)
 	quotaService := quota.NewServiceWithOptions(db, cpaClient, quota.ServiceOptions{
@@ -317,6 +320,7 @@ func NewWithConfig(cfg config.Config) (*App, error) {
 		QuotaAutoRefresh:  quotaService,
 		BackupMaintenance: backupMaintenance,
 		RecentUsageCache:  recentUsageCache,
+		CostReadGate:      costReadGate,
 		PricingCatalog:    pricingCatalog,
 		LogCloser:         logCloser,
 		Router: api.NewRouter(
@@ -329,6 +333,7 @@ func NewWithConfig(cfg config.Config) (*App, error) {
 			cfg.AppBasePath,
 			api.OptionalProviders{
 				UsageIdentity: usageIdentityService,
+				CostReadGate:  costReadGate,
 				ErrorEvents:   errorEventService,
 				Quota:         quotaService,
 				CPAAPIKeys:    cpaAPIKeyService,

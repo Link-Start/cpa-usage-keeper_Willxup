@@ -52,6 +52,7 @@ type StatusRouteConfig struct {
 
 type OptionalProviders struct {
 	UsageIdentity    service.UsageIdentityProvider
+	CostReadGate     *service.CostReadGate
 	ErrorEvents      service.ErrorEventProvider
 	Quota            QuotaProvider
 	CPAAPIKeys       service.CPAAPIKeyProvider
@@ -104,6 +105,7 @@ func NewRouter(
 	authHandler.registerRoutes(authGroup)
 
 	var usageIdentityProvider service.UsageIdentityProvider
+	var costReadGate *service.CostReadGate
 	var errorEventProvider service.ErrorEventProvider
 	var quotaProvider QuotaProvider
 	var cpaAPIKeyProvider service.CPAAPIKeyProvider
@@ -115,6 +117,7 @@ func NewRouter(
 	var statusConfig StatusRouteConfig
 	if len(optionalProviders) > 0 {
 		usageIdentityProvider = optionalProviders[0].UsageIdentity
+		costReadGate = optionalProviders[0].CostReadGate
 		errorEventProvider = optionalProviders[0].ErrorEvents
 		quotaProvider = optionalProviders[0].Quota
 		cpaAPIKeyProvider = optionalProviders[0].CPAAPIKeys
@@ -136,6 +139,7 @@ func NewRouter(
 
 	adminProtected := apiV1.Group("")
 	adminProtected.Use(authHandler.adminMiddleware())
+	adminProtected.Use(costReadMiddleware(costReadGate, basePath))
 	registerStatusRoutes(adminProtected, statusProvider, statusConfig)
 	registerUpdateRoutes(adminProtected, nil)
 	registerUsageOverviewRoute(adminProtected, usageProvider, cpaAPIKeyProvider)
@@ -160,6 +164,7 @@ func NewRouter(
 	keyViewerProtected := apiV1.Group("")
 	keyViewerProtected.Use(authHandler.apiKeyViewerMiddleware())
 	keyViewerProtected.Use(authHandler.activeAPIKeyViewerMiddleware())
+	keyViewerProtected.Use(costReadMiddleware(costReadGate, basePath))
 	registerKeyOverviewRoute(keyViewerProtected, usageProvider)
 	registerKeyActivityRoute(keyViewerProtected, usageProvider)
 	registerKeyUsageAnalysisRoute(keyViewerProtected, usageProvider)
