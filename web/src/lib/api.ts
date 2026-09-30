@@ -1,5 +1,5 @@
 import { type AnalysisLatencyDiagnostics, type AnalysisResponse, type AuthFilesManagementResponse, type AuthManagedSessionsResponse, type AuthSessionResponse, type CodexQuotaHistoryResponse, type CpaApiKeyDisplayItem, type CpaApiKeyOptionsResponse, type CpaApiKeySettingsResponse, type CpaApiKeysResponse, type ErrorEventsResponse, type OverviewRealtimeBlock, type OverviewRealtimeWindow, type PricingEntry, type PricingResponse, type PricingRulesResponse, type PricingSyncPreviewResponse, type PricingSyncSource, type QuotaAutoRefreshSettings, type ReplacePricingRulesRequest, type StatusResponse, type UpdateCheckResponse, type UsageActivityRequest, type UsageActivityResponse, type UsageEventModelFilterOptionsResponse, type UsageEventRequestLogResponse, type UsageEventSourceFilterOptionsResponse, type UsageRangeRequest, type UsedModelsResponse, type UsageIdentitiesPageResponse, type UsageIdentitiesResponse, type UsageEventsResponse, type UsageIdentity, type UsageIdentityAuthType, type UsageOverviewComparisons, type UsageOverviewResponse, type UsageQuotaCacheResponse, type UsageQuotaInspectionStatusResponse, type UsageQuotaRefreshResponse, type UsageQuotaRefreshTaskResponse, type UsageQuotaResetCreditsResponse, type UsageQuotaResetResponse, type VersionResponse } from './types'
-import type { DeletePricingModelResponse, ModelPricingConfig, PricingErrorResponse, PricingFieldError, PricingModelOptionsResponse, PricingModelsResponse, PricingSyncApplyRequest, PricingSyncApplyResponse, PricingSyncFetchResponse, SavePricingModelResponse } from './types'
+import type { DeletePricingModelResponse, ModelPricingConfig, PricingErrorResponse, PricingFieldError, PricingModelOptionsResponse, PricingModelsResponse, PricingRecalculationOptions, PricingRecalculationTask, PricingSyncApplyRequest, PricingSyncApplyResponse, PricingSyncFetchResponse, SavePricingModelResponse, StartPricingRecalculationRequest, StartPricingRecalculationResponse } from './types'
 import { isCPAMCEmbed } from '@/embed/cpamcEmbed'
 import { resolveUsageRequestRange } from '@/utils/usage/rangeQuery'
 
@@ -1049,6 +1049,38 @@ export async function deletePricingModel(model: string, signal?: AbortSignal): P
   })
   if (!response.ok) {
     await parseApiError(response, `Failed to delete pricing model: ${response.status}`)
+  }
+  return response.json()
+}
+
+// 重算弹框读取部署时区、合法小时边界及本次需要确认的配置修订。
+export async function fetchPricingRecalculationOptions(signal?: AbortSignal): Promise<PricingRecalculationOptions> {
+  const response = await apiFetch(apiPath('/pricing/recalculations/options'), { signal, cache: 'no-store' })
+  if (!response.ok) {
+    await parseApiError(response, `Failed to load pricing recalculation options: ${response.status}`)
+  }
+  return response.json()
+}
+
+// 启动只提交用户确认的起点与修订；运行中服务端会返回现有任务而不另行排队。
+export async function startPricingRecalculation(request: StartPricingRecalculationRequest, signal?: AbortSignal): Promise<StartPricingRecalculationResponse> {
+  const response = await apiFetch(apiPath('/pricing/recalculations'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(request),
+    signal,
+  })
+  if (!response.ok) {
+    await parseApiError(response, `Failed to start pricing recalculation: ${response.status}`)
+  }
+  return response.json()
+}
+
+// 当前任务是唯一进度入口；进程重启或从未启动时返回 null。
+export async function fetchCurrentPricingRecalculation(signal?: AbortSignal): Promise<PricingRecalculationTask | null> {
+  const response = await apiFetch(apiPath('/pricing/recalculations/current'), { signal, cache: 'no-store' })
+  if (!response.ok) {
+    await parseApiError(response, `Failed to load current pricing recalculation: ${response.status}`)
   }
   return response.json()
 }

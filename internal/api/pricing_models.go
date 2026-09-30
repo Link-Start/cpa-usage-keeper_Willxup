@@ -103,8 +103,12 @@ func writeCompletePricingDecodeError(c *gin.Context, err error) {
 	writeCompletePricingError(c, http.StatusBadRequest, "invalid_request", "Invalid model configuration", nil)
 }
 
-// writeCompletePricingServiceError 对可预期的配置错误保留字段路径，内部失败只返回公共摘要。
+// writeCompletePricingServiceError 对重算期间配置写忙和字段错误返回稳定业务码，内部失败只返回公共摘要。
 func writeCompletePricingServiceError(c *gin.Context, err error) {
+	if errors.Is(err, service.ErrPricingBusy) {
+		writeCompletePricingError(c, http.StatusConflict, "pricing_busy", "Pricing recalculation is running", nil)
+		return
+	}
 	var conflict *pricing.BranchConflictError
 	if errors.As(err, &conflict) {
 		fields := make([]servicedto.PricingFieldError, 0, len(conflict.FieldPaths))

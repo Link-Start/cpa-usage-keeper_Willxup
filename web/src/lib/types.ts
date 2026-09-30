@@ -926,6 +926,42 @@ export interface PricingErrorResponse {
   fields?: PricingFieldError[]
 }
 
+export type PricingRecalculationStatus = 'running' | 'completed' | 'failed'
+export type PricingRecalculationStage = 'preparing' | 'events' | 'updating_stats' | 'finalizing'
+
+export interface PricingRecalculationTask {
+  task_id: string
+  status: PricingRecalculationStatus
+  stage: PricingRecalculationStage
+  start_at: string
+  end_at: string
+  config_revision: number
+  processed_count: number
+  total_count: number | null
+  updated_at: string
+  error: { code: string; message: string } | null
+}
+
+// 后端按部署时区给出可选小时边界；前端不自行按浏览器时区重算。
+export interface PricingRecalculationOptions {
+  timezone: string
+  earliest_start: string | null
+  latest_start: string | null
+  step_seconds: number
+  max_days: number
+  config_revision: number
+}
+
+export interface StartPricingRecalculationRequest {
+  start_at: string
+  config_revision: number
+}
+
+export interface StartPricingRecalculationResponse {
+  started: boolean
+  task: PricingRecalculationTask
+}
+
 export interface ModelPrice {
 	style: PricingStyle
 	prompt: number

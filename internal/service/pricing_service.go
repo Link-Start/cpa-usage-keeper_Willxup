@@ -23,6 +23,14 @@ import (
 var ErrInvalidPricingInput = errors.New("invalid pricing input")
 
 type PricingProvider interface {
+	// GetPricingRecalculationOptions 返回按部署时区和当前热表计算的可选小时及配置修订。
+	GetPricingRecalculationOptions(context.Context) (servicedto.RecalculationOptions, error)
+	// StartPricingRecalculation 原子受理唯一内存任务；运行中重复请求返回现行任务。
+	StartPricingRecalculation(context.Context, servicedto.StartRecalculationRequest) (servicedto.StartRecalculationResponse, error)
+	// CurrentPricingRecalculation 返回当前进程唯一任务状态，进程重启后为空。
+	CurrentPricingRecalculation(context.Context) (*servicedto.RecalculationTask, error)
+	// WaitPricingRecalculation 在 App 取消生命周期后等后台重算退出，再关闭数据库。
+	WaitPricingRecalculation()
 	// ListPricingModels 同一配置临界区返回已发布完整配置与对应修订号。
 	ListPricingModels(context.Context) (servicedto.PricingModelsResponse, error)
 	// SavePricingModel 同事务替换一个模型的基础价、分支和规则；不等待已取得旧快照的事件批次。
@@ -48,14 +56,24 @@ type ModelsFetcher interface {
 }
 
 type pricingService struct {
-	db             *gorm.DB
-	modelsFetcher  ModelsFetcher
-	catalog        *pricing.Catalog
-	mutationMu     sync.Mutex
-	metadataClient *pricingmetadata.Client
+	db                   *gorm.DB
+	modelsFetcher        ModelsFetcher
+	catalog              *pricing.Catalog
+	mutationMu           sync.Mutex
+	metadataClient       *pricingmetadata.Client
+	recalculation        *PricingRecalculationDependencies
+	recalculationRunning bool
+	recalculationTask    *servicedto.RecalculationTask
+	recalculationWG      sync.WaitGroup
 }
 
+// NewPricingService 构造仅管理当前价格配置的服务；未接入后台重算时仍可完成正常读写。
 func NewPricingService(db *gorm.DB, catalog *pricing.Catalog, modelsFetcher ...ModelsFetcher) PricingProvider {
+	return newPricingService(db, catalog, modelsFetcher...)
+}
+
+// newPricingService 让普通配置服务与显式装配重算的服务共用同一价格目录和事务锁。
+func newPricingService(db *gorm.DB, catalog *pricing.Catalog, modelsFetcher ...ModelsFetcher) *pricingService {
 	service := &pricingService{db: db, catalog: requirePricingCatalog(catalog), metadataClient: pricingmetadata.NewClient(nil)}
 	if len(modelsFetcher) > 0 {
 		service.modelsFetcher = modelsFetcher[0]

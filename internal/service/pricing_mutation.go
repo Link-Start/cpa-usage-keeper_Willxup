@@ -27,6 +27,9 @@ func (s *pricingService) mutatePricingRevision(ctx context.Context, callback fun
 	}
 	s.mutationMu.Lock()
 	defer s.mutationMu.Unlock()
+	if s.recalculationRunning {
+		return nil, 0, ErrPricingBusy
+	}
 
 	var candidate *pricing.Snapshot
 	var revision int64

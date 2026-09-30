@@ -29,6 +29,11 @@ type pricingStub struct {
 	lastRules     *servicedto.ReplacePricingRulesInput
 	deleted       string
 	err           error
+	recalcOptions servicedto.RecalculationOptions
+	recalcStart   *servicedto.StartRecalculationRequest
+	recalcReply   servicedto.StartRecalculationResponse
+	recalcCurrent *servicedto.RecalculationTask
+	recalcErr     error
 }
 
 type pricingTimeoutError struct{}
@@ -52,6 +57,21 @@ func (s *pricingStub) FetchPricingSync(context.Context, string) (servicedto.Pric
 func (s *pricingStub) ApplyPricingSync(context.Context, servicedto.PricingSyncApplyRequest) (servicedto.PricingSyncApplyResponse, error) {
 	return servicedto.PricingSyncApplyResponse{}, s.err
 }
+
+func (s *pricingStub) GetPricingRecalculationOptions(context.Context) (servicedto.RecalculationOptions, error) {
+	return s.recalcOptions, s.recalcErr
+}
+
+func (s *pricingStub) StartPricingRecalculation(_ context.Context, input servicedto.StartRecalculationRequest) (servicedto.StartRecalculationResponse, error) {
+	s.recalcStart = &input
+	return s.recalcReply, s.recalcErr
+}
+
+func (s *pricingStub) CurrentPricingRecalculation(context.Context) (*servicedto.RecalculationTask, error) {
+	return s.recalcCurrent, s.recalcErr
+}
+
+func (s *pricingStub) WaitPricingRecalculation() {}
 
 func (pricingTimeoutError) Error() string   { return "net/http: TLS handshake timeout" }
 func (pricingTimeoutError) Timeout() bool   { return true }
