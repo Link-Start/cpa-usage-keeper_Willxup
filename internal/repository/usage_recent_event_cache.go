@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"fmt"
+	"math"
 	"strings"
 	"sync"
 	"time"
@@ -90,6 +91,8 @@ type UsageRecentEventCache struct {
 	mu sync.RWMutex
 	// events 按追加顺序保存最近 usage event 的瘦身投影。
 	events []RecentUsageEvent
+	// eventReadsValid 为 false 时费用事件读路径回退 DB，健康桶和追加仍照常工作。
+	eventReadsValid bool
 	// pool 复用重复的 model/api/auth 字符串，降低 10w 级事件缓存内存。
 	pool recentUsageStringPool
 	// credentialHealth 保存 Auth Files / AI Provider 最近 5h 的成功/失败 10 分钟桶。
@@ -172,7 +175,7 @@ func NewUsageRecentEventCache(db *gorm.DB, opts UsageRecentEventCacheOptions) (*
 	// start 是初始化查询左边界，窗口之外的历史事件不进入纯内存缓存。
 	start := now.Add(-cache.window)
 	// 只读取 Overview/realtime 需要的列，避免 event_key/request_id 等无关字段占内存。
-	rows, err := loadUsageRecentEventCacheRows(db, start)
+	rows, err := loadUsageRecentEventCacheRows(context.Background(), db, start)
 	if err != nil {
 		// 初始化失败表示缓存对象不可用，必须关闭 worker 并把错误交给调用方。
 		cache.Close()
@@ -221,8 +224,9 @@ func newEmptyUsageRecentEventCache(opts UsageRecentEventCacheOptions) *UsageRece
 	}
 	// 初始化空事件切片和字符串池，避免首次 append/read 遇到 nil map。
 	cache := &UsageRecentEventCache{
-		events: []RecentUsageEvent{},
-		pool:   recentUsageStringPool{values: map[string]*recentUsageInternedString{}},
+		events:          []RecentUsageEvent{},
+		eventReadsValid: true,
+		pool:            recentUsageStringPool{values: map[string]*recentUsageInternedString{}},
 		credentialHealth: credentialHealthCache{
 			bucketsByCredential: map[credentialHealthKey]map[int64]credentialHealthBucketCounts{},
 		},
@@ -355,6 +359,61 @@ func (c *UsageRecentEventCache) DrainAcceptedAppends(ctx context.Context) error 
 	}
 }
 
+// ReloadStoredCostEvents 在处理和聚合停稳、已接受追加排空后，从 DB 重载最近窗口的已存费用事件。
+// 成功时只原子替换事件投影并保留健康桶、字符串池及追加 worker；失败时禁用事件缓存读供调用方回退 DB，后续成功可恢复。
+func (c *UsageRecentEventCache) ReloadStoredCostEvents(ctx context.Context, db *gorm.DB) error {
+	if c == nil {
+		return fmt.Errorf("recent event cache is nil")
+	}
+	if db == nil {
+		c.invalidateEventReads()
+		return fmt.Errorf("database is nil")
+	}
+	if err := ctx.Err(); err != nil {
+		c.invalidateEventReads()
+		return err
+	}
+	now := timeutil.NormalizeStorageTime(c.now())
+	rows, err := loadUsageRecentEventCacheRows(ctx, db, now.Add(-c.window))
+	if err != nil {
+		c.invalidateEventReads()
+		return err
+	}
+	for _, row := range rows {
+		if row.CostUSD == nil || row.CostAvailable == nil || math.IsNaN(*row.CostUSD) || math.IsInf(*row.CostUSD, 0) {
+			c.invalidateEventReads()
+			return fmt.Errorf("recent event stored cost is incomplete or non-finite")
+		}
+	}
+	if err := ctx.Err(); err != nil {
+		c.invalidateEventReads()
+		return err
+	}
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if err := ctx.Err(); err != nil {
+		c.eventReadsValid = false
+		return err
+	}
+	for index, event := range c.events {
+		c.releaseEventStringsLocked(event)
+		c.events[index] = RecentUsageEvent{}
+	}
+	c.events = c.events[:0]
+	c.appendRecentEventsLocked(rows)
+	c.pruneLocked(timeutil.NormalizeStorageTime(c.now()))
+	c.eventReadsValid = true
+	return nil
+}
+
+// invalidateEventReads 让事件读者走数据库回退，不影响健康桶或已接受的异步追加。
+func (c *UsageRecentEventCache) invalidateEventReads() {
+	c.mu.Lock()
+	c.eventReadsValid = false
+	c.mu.Unlock()
+}
+
 func (c *UsageRecentEventCache) acquireAppendSlot() bool {
 	// 先检查停止信号，避免关闭后的投递继续占用槽位。
 	select {
@@ -442,13 +501,16 @@ func (c *UsageRecentEventCache) Events(start, end time.Time, includeEnd bool, ap
 	// 查询边界先归一化到项目存储时区，避免 time.Location 差异影响比较。
 	start = timeutil.NormalizeStorageTime(start)
 	end = timeutil.NormalizeStorageTime(end)
+	// 读锁覆盖 events 遍历，允许多个 Overview/realtime 请求并发读取。
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if !c.eventReadsValid {
+		return nil, false
+	}
 	// 空半开窗口没有事件，但 cache 本身仍然可用。
 	if end.Before(start) || (!includeEnd && end.Equal(start)) {
 		return nil, true
 	}
-	// 读锁覆盖 events 遍历，允许多个 Overview/realtime 请求并发读取。
-	c.mu.RLock()
-	defer c.mu.RUnlock()
 	// API Group 过滤在缓存内完成，KeyOverview 和 Overview 共用同一份缓存。
 	apiGroupKey = strings.TrimSpace(apiGroupKey)
 	result := make([]RecentUsageEvent, 0)
@@ -488,6 +550,9 @@ func (c *UsageRecentEventCache) EventsSince(start time.Time, apiGroupKey string)
 	// Open-ended 读取仍然只遍历内存缓存，不访问数据库。
 	c.mu.RLock()
 	defer c.mu.RUnlock()
+	if !c.eventReadsValid {
+		return nil, false
+	}
 	// API Group 过滤在缓存层完成。
 	apiGroupKey = strings.TrimSpace(apiGroupKey)
 	result := make([]RecentUsageEvent, 0)
@@ -517,10 +582,10 @@ func (c *UsageRecentEventCache) Window() time.Duration {
 	return c.window
 }
 
-func loadUsageRecentEventCacheRows(db *gorm.DB, start time.Time) ([]recentUsageEventLoadRow, error) {
+func loadUsageRecentEventCacheRows(ctx context.Context, db *gorm.DB, start time.Time) ([]recentUsageEventLoadRow, error) {
 	var rows []recentUsageEventLoadRow
 	// 只 select 最近缓存和 realtime 必需字段，避免大字段进入 70 分钟内存窗口。
-	if err := db.Model(&entities.UsageEvent{}).
+	if err := db.WithContext(ctx).Model(&entities.UsageEvent{}).
 		Select("api_group_key, provider, auth_type, model, model_alias, timestamp, source, auth_index, service_tier, response_service_tier, reasoning_effort, endpoint, executor_type, failed, generate, latency_ms, ttft_ms, input_tokens, output_tokens, reasoning_tokens, cached_tokens, cache_read_tokens, cache_creation_tokens, total_tokens, cost_usd, cost_available").
 		// 启动加载只取 retention 左边界之后的数据。
 		Where("timestamp >= ?", timeutil.FormatStorageTime(start)).

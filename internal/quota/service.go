@@ -36,6 +36,8 @@ type Service struct {
 
 	refreshMu    sync.Mutex
 	refreshTasks map[string]*RefreshTaskRecord
+	// cacheGeneration 与 refreshTasks 共用 refreshMu；清理前启动的任务和 Header 不得发布结果。
+	cacheGeneration uint64
 	// nextRefreshTaskCleanupAt 由 refreshMu 保护，只限制读取接口的全量清理频率。
 	nextRefreshTaskCleanupAt time.Time
 	// resetInFlight 按 auth_index 记录正在消费的 reset credit，避免并发重复扣减官方次数。
