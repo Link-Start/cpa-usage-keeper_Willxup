@@ -501,6 +501,7 @@ func mapRealtimeCacheLevel(points []repodto.RealtimeCacheLevelPointRecord) []ser
 	return result
 }
 
+// GetAnalysis 在授权 Key 范围内读取已存小时／日费用；映射沿用原自然日、Token和身份视图。
 func (s *usageService) GetAnalysis(ctx context.Context, filter servicedto.UsageFilter) (*servicedto.AnalysisSnapshot, error) {
 	ctx = usageServiceContext(ctx)
 	apiGroupKey, err := s.resolveAPIGroupKey(ctx, filter.APIKeyID)
@@ -514,7 +515,7 @@ func (s *usageService) GetAnalysis(ctx context.Context, filter servicedto.UsageF
 		EndTime:      filter.EndTime,
 		EndExclusive: filter.EndExclusive,
 		APIGroupKey:  apiGroupKey,
-	}, s.pricing.NewResolver())
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -542,6 +543,7 @@ func (s *usageService) GetAnalysisLatency(ctx context.Context, filter servicedto
 	return &result, nil
 }
 
+// mapAnalysisRecord 将仓储的已存总费用及可用性映射到服务快照，不重新读取价格。
 func mapAnalysisRecord(record *repodto.AnalysisRecord) *servicedto.AnalysisSnapshot {
 	if record == nil {
 		return &servicedto.AnalysisSnapshot{}
@@ -631,13 +633,9 @@ func mapAnalysisRecord(record *repodto.AnalysisRecord) *servicedto.AnalysisSnaps
 		AuthFilesComposition:  authFiles,
 		AIProviderComposition: aiProviders,
 		Heatmap:               heatmap,
-		CostBreakdown: servicedto.AnalysisCostBreakdown{
-			UncachedInputCostUSD: record.CostBreakdown.UncachedInputCostUSD,
-			CacheReadCostUSD:     record.CostBreakdown.CacheReadCostUSD,
-			CacheWriteCostUSD:    record.CostBreakdown.CacheWriteCostUSD,
-			OutputCostUSD:        record.CostBreakdown.OutputCostUSD,
-			TotalCostUSD:         record.CostBreakdown.TotalCostUSD,
-			CostAvailable:        record.CostBreakdown.CostAvailable,
+		CostSummary: servicedto.AnalysisCostSummary{
+			TotalCostUSD:  record.CostSummary.TotalCostUSD,
+			CostAvailable: record.CostSummary.CostAvailable,
 		},
 		ModelEfficiency: modelEfficiency,
 	}

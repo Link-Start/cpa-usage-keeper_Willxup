@@ -760,12 +760,9 @@ export interface AnalysisHeatmapPayload {
   cells: AnalysisHeatmapCell[]
 }
 
-export interface AnalysisCostBreakdown {
-	uncached_input_cost_usd: number
-	cache_read_cost_usd: number
-	cache_write_cost_usd: number
-	output_cost_usd: number
-	total_cost_usd: number
+/** 分析范围内已存总费用（USD）与可用性，不包含按 Token 类别拆分的金额。 */
+export interface AnalysisCostSummary {
+  total_cost_usd: number
   cost_available: boolean
 }
 
@@ -824,7 +821,7 @@ export interface AnalysisResponse {
   auth_files_composition: AnalysisCompositionItem[]
   ai_provider_composition: AnalysisCompositionItem[]
   heatmap: AnalysisHeatmapPayload
-  cost_breakdown: AnalysisCostBreakdown
+  cost_summary: AnalysisCostSummary
   model_efficiency: AnalysisModelEfficiencyItem[]
 }
 

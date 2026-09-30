@@ -395,15 +395,15 @@ func applyUsageEventListQuery(query *gorm.DB, filter dto.UsageQueryFilter) *gorm
 	return query
 }
 
-func BuildAnalysisWithFilter(db *gorm.DB, filter dto.UsageQueryFilter, costResolver pricing.Resolver) (*dto.AnalysisRecord, error) {
+// BuildAnalysisWithFilter 从 active Key 的小时／日汇总生成趋势和四维构成，只累加已存总费用。
+// 调用方先解析时间范围；本查询沿既有自然日和完整小时边界，不读取未聚合原始事件。
+func BuildAnalysisWithFilter(db *gorm.DB, filter dto.UsageQueryFilter) (*dto.AnalysisRecord, error) {
 	if db == nil {
 		return nil, fmt.Errorf("database is nil")
 	}
 	if filter.StartTime == nil || filter.EndTime == nil {
 		return nil, fmt.Errorf("analysis requires start_time and end_time")
 	}
-	// 同一请求内固定一次价格字段快照，确保所选 hourly 或 daily 粒度使用完全相同的查询维度。
-	activeFields := costResolver.ActiveFields()
 	windowMinutes := computeWindowMinutes(filter)
 	bucketByDay := windowMinutes > 24*60
 	if strings.TrimSpace(filter.Range) == "custom" {
@@ -424,7 +424,7 @@ func BuildAnalysisWithFilter(db *gorm.DB, filter dto.UsageQueryFilter, costResol
 		}(),
 		RangeStart: filter.StartTime,
 		RangeEnd:   filter.EndTime,
-		CostBreakdown: dto.AnalysisCostBreakdownRecord{
+		CostSummary: dto.AnalysisCostSummaryRecord{
 			CostAvailable: true,
 		},
 	}
@@ -439,7 +439,7 @@ func BuildAnalysisWithFilter(db *gorm.DB, filter dto.UsageQueryFilter, costResol
 		record.RangeStart = &dailyStart
 		record.RangeEnd = &dailyEnd
 		// Custom + Day 已由解析层对齐自然日；两类日范围都只读取 daily 汇总。
-		dailyRows, err := loadAnalysisOverviewDailyStatsWithFilter(db, filter, dailyStart, dailyEnd, activeFields)
+		dailyRows, err := loadAnalysisOverviewDailyStatsWithFilter(db, filter, dailyStart, dailyEnd)
 		if err != nil {
 			return nil, err
 		}
@@ -447,7 +447,7 @@ func BuildAnalysisWithFilter(db *gorm.DB, filter dto.UsageQueryFilter, costResol
 		if err != nil {
 			return nil, err
 		}
-		applyAnalysisDailyRows(record, dailyRows, dailyIdentityLookup, costResolver)
+		applyAnalysisDailyRows(record, dailyRows, dailyIdentityLookup)
 		return record, nil
 	}
 
@@ -456,7 +456,7 @@ func BuildAnalysisWithFilter(db *gorm.DB, filter dto.UsageQueryFilter, costResol
 	if !fullEnd.After(fullStart) {
 		return record, nil
 	}
-	rows, err := loadAnalysisOverviewHourlyStatsWithFilter(db, filter, fullStart, fullEnd, activeFields)
+	rows, err := loadAnalysisOverviewHourlyStatsWithFilter(db, filter, fullStart, fullEnd)
 	if err != nil {
 		return nil, err
 	}
@@ -464,7 +464,7 @@ func BuildAnalysisWithFilter(db *gorm.DB, filter dto.UsageQueryFilter, costResol
 	if err != nil {
 		return nil, err
 	}
-	applyAnalysisHourlyRows(record, rows, identityLookup, costResolver)
+	applyAnalysisHourlyRows(record, rows, identityLookup)
 	fillAnalysisFullDayHourlyBuckets(record, filter)
 	return record, nil
 }
@@ -567,7 +567,8 @@ func loadAnalysisIdentityLookup(db *gorm.DB, authIndexes []string) (analysisIden
 	return lookup, nil
 }
 
-func applyAnalysisHourlyRows(record *dto.AnalysisRecord, rows []analysisOverviewStatProjection, identityLookup analysisIdentityLookup, costResolver pricing.Resolver) {
+// applyAnalysisHourlyRows 保留趋势、构成和排序输入的原Token／请求口径，金额只取已存小时列。
+func applyAnalysisHourlyRows(record *dto.AnalysisRecord, rows []analysisOverviewStatProjection, identityLookup analysisIdentityLookup) {
 	bucketTotals := map[time.Time]*dto.AnalysisTokenUsageBucketRecord{}
 	modelUsageTotals := map[analysisModelUsageKey]*dto.AnalysisModelUsageRecord{}
 	apiTotals := map[string]*dto.AnalysisCompositionRecord{}
@@ -577,15 +578,15 @@ func applyAnalysisHourlyRows(record *dto.AnalysisRecord, rows []analysisOverview
 	heatmapTotals := map[analysisHeatmapKey]*dto.AnalysisHeatmapRecord{}
 	for _, row := range rows {
 		bucket := timeutil.NormalizeStorageTime(row.BucketStart).Truncate(time.Hour)
-		costResult := calculateAnalysisOverviewProjectionCost(costResolver, row)
-		cost, costAvailable := costResult.Cost, costResult.Available
+		cost, costAvailable := *row.CostUSD, *row.UnavailableCostCount == 0
 		applyAnalysisRow(record, bucketTotals, modelUsageTotals, apiTotals, modelTotals, heatmapTotals, bucket, row.APIGroupKey, row.Model, row.RequestCount, row.InputTokens, row.OutputTokens, row.CacheReadTokens, row.CacheCreationTokens, row.ReasoningTokens, row.TotalTokens, cost, costAvailable)
 		applyAnalysisIdentityComposition(identityLookup, authFileTotals, aiProviderTotals, row.AuthIndex, row.RequestCount, row.InputTokens, row.OutputTokens, row.CacheReadTokens, row.CacheCreationTokens, row.ReasoningTokens, row.TotalTokens, cost, costAvailable)
 	}
 	finalizeAnalysisRecord(record, bucketTotals, modelUsageTotals, apiTotals, modelTotals, authFileTotals, aiProviderTotals, heatmapTotals)
 }
 
-func applyAnalysisDailyRows(record *dto.AnalysisRecord, dailyRows []analysisOverviewStatProjection, dailyIdentityLookup analysisIdentityLookup, costResolver pricing.Resolver) {
+// applyAnalysisDailyRows 沿自然日桶聚合已存费用和原Token，供长范围图表及四维统计复用。
+func applyAnalysisDailyRows(record *dto.AnalysisRecord, dailyRows []analysisOverviewStatProjection, dailyIdentityLookup analysisIdentityLookup) {
 	bucketTotals := map[time.Time]*dto.AnalysisTokenUsageBucketRecord{}
 	modelUsageTotals := map[analysisModelUsageKey]*dto.AnalysisModelUsageRecord{}
 	apiTotals := map[string]*dto.AnalysisCompositionRecord{}
@@ -595,15 +596,15 @@ func applyAnalysisDailyRows(record *dto.AnalysisRecord, dailyRows []analysisOver
 	heatmapTotals := map[analysisHeatmapKey]*dto.AnalysisHeatmapRecord{}
 	for _, row := range dailyRows {
 		bucket := timeutil.NormalizeStorageTime(row.BucketStart)
-		costResult := calculateAnalysisOverviewProjectionCost(costResolver, row)
-		cost, costAvailable := costResult.Cost, costResult.Available
+		cost, costAvailable := *row.CostUSD, *row.UnavailableCostCount == 0
 		applyAnalysisRow(record, bucketTotals, modelUsageTotals, apiTotals, modelTotals, heatmapTotals, bucket, row.APIGroupKey, row.Model, row.RequestCount, row.InputTokens, row.OutputTokens, row.CacheReadTokens, row.CacheCreationTokens, row.ReasoningTokens, row.TotalTokens, cost, costAvailable)
 		applyAnalysisIdentityComposition(dailyIdentityLookup, authFileTotals, aiProviderTotals, row.AuthIndex, row.RequestCount, row.InputTokens, row.OutputTokens, row.CacheReadTokens, row.CacheCreationTokens, row.ReasoningTokens, row.TotalTokens, cost, costAvailable)
 	}
 	finalizeAnalysisRecord(record, bucketTotals, modelUsageTotals, apiTotals, modelTotals, authFileTotals, aiProviderTotals, heatmapTotals)
 }
 
-func applyAnalysisRow(record *dto.AnalysisRecord, bucketTotals map[time.Time]*dto.AnalysisTokenUsageBucketRecord, modelUsageTotals map[analysisModelUsageKey]*dto.AnalysisModelUsageRecord, apiTotals, modelTotals map[string]*dto.AnalysisCompositionRecord, heatmapTotals map[analysisHeatmapKey]*dto.AnalysisHeatmapRecord, bucket time.Time, apiGroupKey, model string, requests, inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens, reasoningTokens, totalTokens int64, cost helper.UsageTokenCostBreakdown, costAvailable bool) {
+// applyAnalysisRow 将同一已存总费用分配给时间、Key、模型和热力图，保留各表原分母。
+func applyAnalysisRow(record *dto.AnalysisRecord, bucketTotals map[time.Time]*dto.AnalysisTokenUsageBucketRecord, modelUsageTotals map[analysisModelUsageKey]*dto.AnalysisModelUsageRecord, apiTotals, modelTotals map[string]*dto.AnalysisCompositionRecord, heatmapTotals map[analysisHeatmapKey]*dto.AnalysisHeatmapRecord, bucket time.Time, apiGroupKey, model string, requests, inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens, reasoningTokens, totalTokens int64, costUSD float64, costAvailable bool) {
 	apiKey := normalizeUsageOverviewDimension(apiGroupKey)
 	modelName := normalizeUsageOverviewDimension(model)
 	bucketTotal := bucketTotals[bucket]
@@ -618,7 +619,7 @@ func applyAnalysisRow(record *dto.AnalysisRecord, bucketTotals map[time.Time]*dt
 	bucketTotal.CacheCreationTokens += cacheCreationTokens
 	bucketTotal.ReasoningTokens += reasoningTokens
 	bucketTotal.TotalTokens += totalTokens
-	bucketTotal.CostUSD += cost.TotalCostUSD
+	bucketTotal.CostUSD += costUSD
 	if !costAvailable {
 		bucketTotal.CostAvailable = false
 	}
@@ -638,14 +639,14 @@ func applyAnalysisRow(record *dto.AnalysisRecord, bucketTotals map[time.Time]*dt
 		apiTotal = &dto.AnalysisCompositionRecord{Key: apiKey, CostAvailable: true}
 		apiTotals[apiKey] = apiTotal
 	}
-	applyAnalysisCompositionTotals(apiTotal, requests, inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens, reasoningTokens, totalTokens, cost.TotalCostUSD, costAvailable)
+	applyAnalysisCompositionTotals(apiTotal, requests, inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens, reasoningTokens, totalTokens, costUSD, costAvailable)
 
 	modelTotal := modelTotals[modelName]
 	if modelTotal == nil {
 		modelTotal = &dto.AnalysisCompositionRecord{Key: modelName, CostAvailable: true}
 		modelTotals[modelName] = modelTotal
 	}
-	applyAnalysisCompositionTotals(modelTotal, requests, inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens, reasoningTokens, totalTokens, cost.TotalCostUSD, costAvailable)
+	applyAnalysisCompositionTotals(modelTotal, requests, inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens, reasoningTokens, totalTokens, costUSD, costAvailable)
 
 	heatmapKey := analysisHeatmapKey{apiKey: apiKey, model: modelName}
 	heatmapTotal := heatmapTotals[heatmapKey]
@@ -660,18 +661,14 @@ func applyAnalysisRow(record *dto.AnalysisRecord, bucketTotals map[time.Time]*dt
 	heatmapTotal.CacheCreationTokens += cacheCreationTokens
 	heatmapTotal.ReasoningTokens += reasoningTokens
 	heatmapTotal.TotalTokens += totalTokens
-	heatmapTotal.CostUSD += cost.TotalCostUSD
+	heatmapTotal.CostUSD += costUSD
 	if !costAvailable {
 		heatmapTotal.CostAvailable = false
 	}
 
-	record.CostBreakdown.UncachedInputCostUSD += cost.UncachedInputCostUSD
-	record.CostBreakdown.CacheReadCostUSD += cost.CacheReadCostUSD
-	record.CostBreakdown.CacheWriteCostUSD += cost.CacheWriteCostUSD
-	record.CostBreakdown.OutputCostUSD += cost.OutputCostUSD
-	record.CostBreakdown.TotalCostUSD += cost.TotalCostUSD
+	record.CostSummary.TotalCostUSD += costUSD
 	if !costAvailable {
-		record.CostBreakdown.CostAvailable = false
+		record.CostSummary.CostAvailable = false
 	}
 }
 
@@ -689,16 +686,17 @@ func applyAnalysisCompositionTotals(item *dto.AnalysisCompositionRecord, request
 	}
 }
 
-func applyAnalysisIdentityComposition(identityLookup analysisIdentityLookup, authFileTotals, aiProviderTotals map[string]*dto.AnalysisCompositionRecord, authIndex string, requests, inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens, reasoningTokens, totalTokens int64, cost helper.UsageTokenCostBreakdown, costAvailable bool) {
+// applyAnalysisIdentityComposition 把已存总费用归到已知认证文件和供应商身份，未知身份不伪造分组。
+func applyAnalysisIdentityComposition(identityLookup analysisIdentityLookup, authFileTotals, aiProviderTotals map[string]*dto.AnalysisCompositionRecord, authIndex string, requests, inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens, reasoningTokens, totalTokens int64, costUSD float64, costAvailable bool) {
 	authIndex = strings.TrimSpace(authIndex)
 	if authIndex == "" {
 		return
 	}
 	if identity, ok := identityLookup.find(entities.UsageIdentityAuthTypeAuthFile, authIndex); ok {
-		applyAnalysisIdentityCompositionTotal(authFileTotals, identity, requests, inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens, reasoningTokens, totalTokens, cost.TotalCostUSD, costAvailable)
+		applyAnalysisIdentityCompositionTotal(authFileTotals, identity, requests, inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens, reasoningTokens, totalTokens, costUSD, costAvailable)
 	}
 	if identity, ok := identityLookup.find(entities.UsageIdentityAuthTypeAIProvider, authIndex); ok {
-		applyAnalysisIdentityCompositionTotal(aiProviderTotals, identity, requests, inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens, reasoningTokens, totalTokens, cost.TotalCostUSD, costAvailable)
+		applyAnalysisIdentityCompositionTotal(aiProviderTotals, identity, requests, inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens, reasoningTokens, totalTokens, costUSD, costAvailable)
 	}
 }
 

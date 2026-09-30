@@ -247,7 +247,7 @@ func TestBuildUsageOverviewWithFilterReadsStoredDailyModelAndAliasCosts(t *testi
 	}
 }
 
-func TestBuildAnalysisWithFilterResolvesHourlyModelAndAliasPrices(t *testing.T) {
+func TestBuildAnalysisWithFilterPreservesHourlyModelAndAliasStoredCosts(t *testing.T) {
 	for _, test := range []struct {
 		model string
 		cost  float64
@@ -263,7 +263,7 @@ func TestBuildAnalysisWithFilterResolvesHourlyModelAndAliasPrices(t *testing.T) 
 			if err := db.Create(&entities.CPAAPIKey{APIKey: "api-key", DisplayKey: "sk-*********alias"}).Error; err != nil {
 				t.Fatalf("seed CPA API key: %v", err)
 			}
-			if err := db.Create(&entities.UsageOverviewHourlyStat{
+			if err := db.Create(&entities.UsageOverviewHourlyStat{CostUSD: analysisCostPtr(test.cost), UnavailableCostCount: analysisCountPtr(0),
 				BucketStart:  bucket,
 				APIGroupKey:  "api-key",
 				Model:        test.model,
@@ -279,13 +279,13 @@ func TestBuildAnalysisWithFilterResolvesHourlyModelAndAliasPrices(t *testing.T) 
 
 			start := bucket
 			end := bucket.Add(time.Hour)
-			analysis, err := repository.BuildAnalysisWithFilter(db, repodto.UsageQueryFilter{StartTime: &start, EndTime: &end}, newUsageCostResolverForTest(t, db))
+			analysis, err := repository.BuildAnalysisWithFilter(db, repodto.UsageQueryFilter{StartTime: &start, EndTime: &end})
 			if err != nil {
 				t.Fatalf("BuildAnalysisWithFilter returned error: %v", err)
 			}
-			assertUsageCostClose(t, analysis.CostBreakdown.TotalCostUSD, test.cost)
-			if !analysis.CostBreakdown.CostAvailable {
-				t.Fatalf("expected analysis model cost to be available, got %+v", analysis.CostBreakdown)
+			assertUsageCostClose(t, analysis.CostSummary.TotalCostUSD, test.cost)
+			if !analysis.CostSummary.CostAvailable {
+				t.Fatalf("expected analysis model cost to be available, got %+v", analysis.CostSummary)
 			}
 			if len(analysis.ModelEfficiency) != 1 {
 				t.Fatalf("expected one model efficiency row, got %+v", analysis.ModelEfficiency)
@@ -298,7 +298,7 @@ func TestBuildAnalysisWithFilterResolvesHourlyModelAndAliasPrices(t *testing.T) 
 	}
 }
 
-func TestBuildAnalysisWithFilterResolvesDailyModelAndAliasPrices(t *testing.T) {
+func TestBuildAnalysisWithFilterPreservesDailyModelAndAliasStoredCosts(t *testing.T) {
 	for _, test := range []struct {
 		model string
 		cost  float64
@@ -314,7 +314,7 @@ func TestBuildAnalysisWithFilterResolvesDailyModelAndAliasPrices(t *testing.T) {
 			if err := db.Create(&entities.CPAAPIKey{APIKey: "api-key", DisplayKey: "sk-*********alias"}).Error; err != nil {
 				t.Fatalf("seed CPA API key: %v", err)
 			}
-			if err := db.Create(&entities.UsageOverviewDailyStat{
+			if err := db.Create(&entities.UsageOverviewDailyStat{CostUSD: analysisCostPtr(test.cost), UnavailableCostCount: analysisCountPtr(0),
 				BucketStart:  bucket,
 				APIGroupKey:  "api-key",
 				Model:        test.model,
@@ -330,13 +330,13 @@ func TestBuildAnalysisWithFilterResolvesDailyModelAndAliasPrices(t *testing.T) {
 
 			start := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
 			end := time.Date(2026, 6, 9, 0, 0, 0, 0, time.UTC)
-			analysis, err := repository.BuildAnalysisWithFilter(db, repodto.UsageQueryFilter{Range: "custom", StartTime: &start, EndTime: &end}, newUsageCostResolverForTest(t, db))
+			analysis, err := repository.BuildAnalysisWithFilter(db, repodto.UsageQueryFilter{Range: "custom", StartTime: &start, EndTime: &end})
 			if err != nil {
 				t.Fatalf("BuildAnalysisWithFilter returned error: %v", err)
 			}
-			assertUsageCostClose(t, analysis.CostBreakdown.TotalCostUSD, test.cost)
-			if !analysis.CostBreakdown.CostAvailable {
-				t.Fatalf("expected analysis daily model cost to be available, got %+v", analysis.CostBreakdown)
+			assertUsageCostClose(t, analysis.CostSummary.TotalCostUSD, test.cost)
+			if !analysis.CostSummary.CostAvailable {
+				t.Fatalf("expected analysis daily model cost to be available, got %+v", analysis.CostSummary)
 			}
 			if len(analysis.ModelEfficiency) != 1 {
 				t.Fatalf("expected one model efficiency row, got %+v", analysis.ModelEfficiency)
