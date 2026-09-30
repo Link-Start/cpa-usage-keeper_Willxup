@@ -96,11 +96,13 @@ const resources = {
         tabs_aria_label: 'API Key viewer sections',
         identity_unknown: 'Current API Key',
         logout: 'Sign out',
-        load_failed: 'Unable to load API Key overview'
+        load_failed: 'Unable to load API Key overview',
+        costs_busy: 'Cost statistics are being updated. Please refresh shortly.'
       },
       key_analysis: {
         load_failed: 'Unable to load API Key analysis',
-        latency_load_failed: 'Unable to load API Key latency diagnostics'
+        latency_load_failed: 'Unable to load API Key latency diagnostics',
+        costs_busy: 'Cost statistics are being updated. Please refresh shortly.'
       },
       usage_stats: {
         title: 'Usage',
@@ -1031,11 +1033,13 @@ const resources = {
         tabs_aria_label: 'API Key 查看页面分区',
         identity_unknown: '当前 API Key',
         logout: '退出登录',
-        load_failed: '无法加载 API Key 概览'
+        load_failed: '无法加载 API Key 概览',
+        costs_busy: '费用统计正在更新，请稍后刷新。'
       },
       key_analysis: {
         load_failed: '无法加载 API Key 分析',
-        latency_load_failed: '无法加载 API Key 延迟诊断'
+        latency_load_failed: '无法加载 API Key 延迟诊断',
+        costs_busy: '费用统计正在更新，请稍后刷新。'
       },
       usage_stats: {
         title: '用量',
@@ -1966,11 +1970,13 @@ const resources = {
         tabs_aria_label: 'API Key 查看頁面分區',
         identity_unknown: '目前 API Key',
         logout: '登出',
-        load_failed: '無法載入 API Key 總覽'
+        load_failed: '無法載入 API Key 總覽',
+        costs_busy: '費用統計正在更新，請稍後重新整理。'
       },
       key_analysis: {
         load_failed: '無法載入 API Key 分析',
-        latency_load_failed: '無法載入 API Key 延遲診斷'
+        latency_load_failed: '無法載入 API Key 延遲診斷',
+        costs_busy: '費用統計正在更新，請稍後重新整理。'
       },
       usage_stats: {
         title: '用量',

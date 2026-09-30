@@ -29,6 +29,11 @@ export const isUsageRangeBoundsConflict = (error: unknown): error is ApiError =>
   error instanceof ApiError && error.status === 409
 )
 
+// 手工费用重算期间的普通暂缓响应不改变登录态，也不进入启动迁移门禁。
+export const isCostsBusy = (error: unknown): error is ApiError => (
+  error instanceof ApiError && error.status === 503 && error.code === 'costs_busy'
+)
+
 const APP_BASE_PATH_PLACEHOLDER = '__APP_BASE_PATH__'
 const EMBED_SESSION_STORAGE_KEY = 'cpa_usage_keeper_embed_session'
 const EMBED_SESSION_HEADER = 'X-CPA-Usage-Keeper-Embed-Session'
