@@ -107,7 +107,7 @@ func (s *usageService) GetUsageOverview(ctx context.Context, filter servicedto.U
 	}, nil
 }
 
-// GetUsageOverviewComparisons 为 Overview 比较图单独构建维度汇总，不拖慢基础 Overview 查询。
+// GetUsageOverviewComparisons 按请求 Key 范围读取已存四维费用，比较与普通总览共用时间边界。
 func (s *usageService) GetUsageOverviewComparisons(ctx context.Context, filter servicedto.UsageFilter) (*servicedto.UsageOverviewSnapshot, error) {
 	ctx = usageServiceContext(ctx)
 	apiGroupKey, err := s.resolveAPIGroupKey(ctx, filter.APIKeyID)
@@ -123,7 +123,7 @@ func (s *usageService) GetUsageOverviewComparisons(ctx context.Context, filter s
 		EndExclusive:   filter.EndExclusive,
 		QueryNow:       filter.QueryNow,
 		APIGroupKey:    apiGroupKey,
-	}, s.recentUsage, s.pricing.NewResolver())
+	}, s.recentUsage)
 	if err != nil {
 		return nil, err
 	}

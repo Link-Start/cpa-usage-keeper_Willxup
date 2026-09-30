@@ -831,18 +831,17 @@ func BuildUsageOverviewWithFilterAndRecentCache(db *gorm.DB, filter dto.UsageQue
 	if filter.ComparisonOnly {
 		return nil, fmt.Errorf("comparison-only overview requires comparison query")
 	}
-	return buildUsageOverviewWithFilterAndRecentCache(db, filter, recentCache, nil)
+	return buildUsageOverviewWithFilterAndRecentCache(db, filter, recentCache)
 }
 
-// BuildUsageOverviewComparisonsWithFilterAndRecentCache 与普通总览共用范围规划，仍使用比较专属投影。
-func BuildUsageOverviewComparisonsWithFilterAndRecentCache(db *gorm.DB, filter dto.UsageQueryFilter, recentCache *UsageRecentEventCache, costResolver pricing.Resolver) (*dto.UsageOverviewRecord, error) {
+// BuildUsageOverviewComparisonsWithFilterAndRecentCache 沿普通总览范围规划与读取事务汇总四维已存费用。
+func BuildUsageOverviewComparisonsWithFilterAndRecentCache(db *gorm.DB, filter dto.UsageQueryFilter, recentCache *UsageRecentEventCache) (*dto.UsageOverviewRecord, error) {
 	filter.ComparisonOnly = true
-	return buildUsageOverviewWithFilterAndRecentCache(db, filter, recentCache, &costResolver)
+	return buildUsageOverviewWithFilterAndRecentCache(db, filter, recentCache)
 }
 
-// buildUsageOverviewWithFilterAndRecentCache 共享范围规划；比较专属 resolver 只在 ComparisonOnly 路径使用。
-// 比较费用切换后可移除该参数，普通总览始终只读已存金额。
-func buildUsageOverviewWithFilterAndRecentCache(db *gorm.DB, filter dto.UsageQueryFilter, recentCache *UsageRecentEventCache, comparisonResolver *pricing.Resolver) (*dto.UsageOverviewRecord, error) {
+// buildUsageOverviewWithFilterAndRecentCache 让普通总览与比较共享完整桶及窄边界规划，只从存储读费用。
+func buildUsageOverviewWithFilterAndRecentCache(db *gorm.DB, filter dto.UsageQueryFilter, recentCache *UsageRecentEventCache) (*dto.UsageOverviewRecord, error) {
 	if db == nil {
 		return nil, fmt.Errorf("database is nil")
 	}
@@ -857,12 +856,12 @@ func buildUsageOverviewWithFilterAndRecentCache(db *gorm.DB, filter dto.UsageQue
 		var overview *dto.UsageOverviewRecord
 		err := db.Clauses(dbresolver.Read).Transaction(func(tx *gorm.DB) error {
 			var err error
-			overview, err = buildUsageOverviewFromStats(tx, filter, comparisonResolver, recentCache)
+			overview, err = buildUsageOverviewFromStats(tx, filter, recentCache)
 			return err
 		})
 		return overview, err
 	}
-	overview, err := buildUsageOverviewFromStats(db, filter, nil, recentCache)
+	overview, err := buildUsageOverviewFromStats(db, filter, recentCache)
 	if err != nil {
 		return nil, err
 	}
@@ -890,7 +889,7 @@ func newUsageOverviewRecord(windowMinutes int64) *dto.UsageOverviewRecord {
 }
 
 // buildUsageOverviewFromStats 用预聚合表覆盖完整 bucket，用原始事件补偿窗口边界。
-func buildUsageOverviewFromStats(db *gorm.DB, filter dto.UsageQueryFilter, comparisonResolver *pricing.Resolver, recentCache *UsageRecentEventCache) (*dto.UsageOverviewRecord, error) {
+func buildUsageOverviewFromStats(db *gorm.DB, filter dto.UsageQueryFilter, recentCache *UsageRecentEventCache) (*dto.UsageOverviewRecord, error) {
 	// queryNow 固定本次仓储查询的“当前时刻”，避免不同步骤各自 time.Now() 造成边界漂移。
 	queryNow := usageOverviewQueryNow(filter)
 	// currentRight 只描述范围语义：滚动范围和今天类范围要读取最新缓存，不用 end 截断。
@@ -912,14 +911,14 @@ func buildUsageOverviewFromStats(db *gorm.DB, filter dto.UsageQueryFilter, compa
 		switch strings.TrimSpace(filter.CustomUnit) {
 		case "hour":
 			// Custom 小时的边界已由 API 对齐，包含当前小时也只读取增量 hourly 桶。
-			if err := loadAndApplyUsageOverviewStats(overview, db, filter, *filter.StartTime, *filter.EndTime, "hourly", false, comparisonResolver); err != nil {
+			if err := loadAndApplyUsageOverviewStats(overview, db, filter, *filter.StartTime, *filter.EndTime, "hourly", false); err != nil {
 				return nil, err
 			}
 			finalizeUsageOverview(overview)
 			return overview, nil
 		case "day":
 			// Custom 天始终读取完整 daily 桶，当前日由后台增量汇总持续刷新。
-			if err := loadAndApplyUsageOverviewStats(overview, db, filter, *filter.StartTime, *filter.EndTime, "daily", true, comparisonResolver); err != nil {
+			if err := loadAndApplyUsageOverviewStats(overview, db, filter, *filter.StartTime, *filter.EndTime, "daily", true); err != nil {
 				return nil, err
 			}
 			finalizeUsageOverview(overview)
@@ -933,11 +932,7 @@ func buildUsageOverviewFromStats(db *gorm.DB, filter dto.UsageQueryFilter, compa
 	rawEventWindows := usageOverviewRawEventWindows(effectiveFilter, fullStart, fullEnd, currentRight)
 
 	// 非整点窗口的头尾不能用小时 stats，否则会把窗口外事件算进去。
-	var activeFields pricing.ActiveFields
-	if comparisonResolver != nil {
-		activeFields = comparisonResolver.ActiveFields()
-	}
-	boundaryEvents, err := loadUsageOverviewRawEventWindowsWithFilter(db, effectiveFilter, rawEventWindows, recentCache, activeFields)
+	boundaryEvents, err := loadUsageOverviewRawEventWindowsWithFilter(db, effectiveFilter, rawEventWindows, recentCache)
 	if err != nil {
 		return nil, err
 	}
@@ -963,7 +958,9 @@ func buildUsageOverviewFromStats(db *gorm.DB, filter dto.UsageQueryFilter, compa
 			continue
 		}
 		if filter.ComparisonOnly {
-			applyUsageEventToComparisonOnly(overview.Comparisons, event, *comparisonResolver, boundaryIdentityLookup)
+			if err := applyUsageEventToComparisonOnly(overview.Comparisons, event, boundaryIdentityLookup); err != nil {
+				return nil, err
+			}
 		} else {
 			cost, available, err := usageOverviewStoredEventCost(event)
 			if err != nil {
@@ -978,12 +975,12 @@ func buildUsageOverviewFromStats(db *gorm.DB, filter dto.UsageQueryFilter, compa
 		// 短窗口的主序列和 snapshot 小时图必须保持小时粒度，不能因为内部包含完整天就压成 daily bucket。
 		fullDayStart, fullDayEnd := usageOverviewFullDayWindow(fullStart, fullEnd)
 		if !bucketByDay || !fullDayEnd.After(fullDayStart) {
-			if err := loadAndApplyUsageOverviewStats(overview, db, effectiveFilter, fullStart, fullEnd, "hourly", bucketByDay, comparisonResolver); err != nil {
+			if err := loadAndApplyUsageOverviewStats(overview, db, effectiveFilter, fullStart, fullEnd, "hourly", bucketByDay); err != nil {
 				return nil, err
 			}
 		} else {
 			// 长窗口中间的完整本地天用 daily stats，减少大量小时 row 累加。
-			if err := loadAndApplyUsageOverviewStats(overview, db, effectiveFilter, fullDayStart, fullDayEnd, "daily", bucketByDay, comparisonResolver); err != nil {
+			if err := loadAndApplyUsageOverviewStats(overview, db, effectiveFilter, fullDayStart, fullDayEnd, "daily", bucketByDay); err != nil {
 				return nil, err
 			}
 
@@ -992,7 +989,7 @@ func buildUsageOverviewFromStats(db *gorm.DB, filter dto.UsageQueryFilter, compa
 				if !window.end.After(window.start) {
 					continue
 				}
-				if err := loadAndApplyUsageOverviewStats(overview, db, effectiveFilter, window.start, window.end, "hourly", bucketByDay, comparisonResolver); err != nil {
+				if err := loadAndApplyUsageOverviewStats(overview, db, effectiveFilter, window.start, window.end, "hourly", bucketByDay); err != nil {
 					return nil, err
 				}
 			}
@@ -1206,7 +1203,9 @@ func usageOverviewEventInsideWindow(event entities.UsageEvent, start, end time.T
 	return !timestamp.Before(start) && timestamp.Before(end)
 }
 
-func loadUsageOverviewRawEventWindowsWithFilter(db *gorm.DB, filter dto.UsageQueryFilter, windows []usageOverviewRawEventWindow, recentCache *UsageRecentEventCache, activeFields pricing.ActiveFields) ([]entities.UsageEvent, error) {
+// loadUsageOverviewRawEventWindowsWithFilter 只读取完整汇总桶之外的窄窗口；近期缓存完整覆盖（默认70分钟）时承接，其余回退数据库。
+// 两种来源均保留窗口右端是否包含及 API Key 筛选，费用列原样读取而不计价。
+func loadUsageOverviewRawEventWindowsWithFilter(db *gorm.DB, filter dto.UsageQueryFilter, windows []usageOverviewRawEventWindow, recentCache *UsageRecentEventCache) ([]entities.UsageEvent, error) {
 	// 所有边界事件先汇总到一个切片，后续统一补入 Overview 的 usage、summary 和 series。
 	events := make([]entities.UsageEvent, 0)
 	// queryNow 来自 filter.QueryNow 或当前项目时区时间，覆盖判断只用这个稳定时刻。
@@ -1234,7 +1233,7 @@ func loadUsageOverviewRawEventWindowsWithFilter(db *gorm.DB, filter dto.UsageQue
 			}
 		}
 		// 缓存不存在或窗口早于 70 分钟覆盖范围时，回到原来的窄边界 DB 查询。
-		windowEvents, err := loadUsageOverviewBoundaryEventRangeWithFilter(db, filter, window.start, window.end, window.includeEnd, activeFields)
+		windowEvents, err := loadUsageOverviewBoundaryEventRangeWithFilter(db, filter, window.start, window.end, window.includeEnd)
 		if err != nil {
 			return nil, err
 		}
@@ -1260,32 +1259,17 @@ func usageOverviewRecentCacheCoversWindow(recentCache *UsageRecentEventCache, wi
 	return !timeutil.NormalizeStorageTime(window.start).Before(coveredStart)
 }
 
-func loadUsageOverviewBoundaryEventRangeWithFilter(db *gorm.DB, filter dto.UsageQueryFilter, start, end time.Time, includeEnd bool, activeFields pricing.ActiveFields) ([]entities.UsageEvent, error) {
+// loadUsageOverviewBoundaryEventRangeWithFilter 按单段时间及 Key 查库中已存边界费用，比较查询额外取身份键。
+func loadUsageOverviewBoundaryEventRangeWithFilter(db *gorm.DB, filter dto.UsageQueryFilter, start, end time.Time, includeEnd bool) ([]entities.UsageEvent, error) {
 	projection := usageOverviewBoundaryEventProjectionColumns
 	if filter.ComparisonOnly {
-		projection = usagePricingProjectionColumns(projection+", auth_index", activeFields)
+		projection += ", auth_index"
 	}
 	return loadUsageOverviewEventRangeWithProjection(db, filter, start, end, includeEnd, projection)
 }
 
 func loadUsageOverviewRealtimeEventRangeWithFilter(db *gorm.DB, filter dto.UsageQueryFilter, start, end time.Time, includeEnd bool) ([]entities.UsageEvent, error) {
 	return loadUsageOverviewEventRangeWithProjection(db, filter, start, end, includeEnd, usageOverviewRealtimeEventProjectionColumns)
-}
-
-func usagePricingProjectionColumns(base string, activeFields pricing.ActiveFields) string {
-	columns := strings.Split(base, ", ")
-	seen := make(map[string]struct{}, len(columns))
-	for _, column := range columns {
-		seen[column] = struct{}{}
-	}
-	for _, column := range UsagePricingDimensionColumns(activeFields) {
-		if _, exists := seen[column]; exists {
-			continue
-		}
-		columns = append(columns, column)
-		seen[column] = struct{}{}
-	}
-	return strings.Join(columns, ", ")
 }
 
 // loadUsageOverviewEventRangeWithProjection 使用单段 timestamp 范围查询，避免 OR 影响 usage_events 时间索引。

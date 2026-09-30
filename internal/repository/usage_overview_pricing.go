@@ -6,7 +6,6 @@ import (
 	"strings"
 	"time"
 
-	"cpa-usage-keeper/internal/pricing"
 	"cpa-usage-keeper/internal/repository/dto"
 	"cpa-usage-keeper/internal/timeutil"
 
@@ -28,30 +27,6 @@ type usageOverviewStatProjection struct {
 	UnavailableCostCount *int64
 	MissingCostCount     int64
 }
-
-// 标准 SQL CASE 先逐行完成计费 Token 的非负与普通输入归一化，再按启用规则所需维度合并。
-const usageOverviewStatProjectionAggregateColumns = `
-	SUM(request_count) AS request_count,
-	SUM(success_count) AS success_count,
-	SUM(failure_count) AS failure_count,
-	SUM(input_tokens) AS input_tokens,
-	SUM(output_tokens) AS output_tokens,
-	SUM(reasoning_tokens) AS reasoning_tokens,
-	SUM(cache_read_tokens) AS cache_read_tokens,
-	SUM(cache_creation_tokens) AS cache_creation_tokens,
-	SUM(total_tokens) AS total_tokens,
-	SUM(CASE
-		WHEN (CASE WHEN input_tokens > 0 THEN input_tokens ELSE 0 END) -
-			(CASE WHEN cache_read_tokens > 0 THEN cache_read_tokens ELSE 0 END) -
-			(CASE WHEN cache_creation_tokens > 0 THEN cache_creation_tokens ELSE 0 END) > 0
-		THEN (CASE WHEN input_tokens > 0 THEN input_tokens ELSE 0 END) -
-			(CASE WHEN cache_read_tokens > 0 THEN cache_read_tokens ELSE 0 END) -
-			(CASE WHEN cache_creation_tokens > 0 THEN cache_creation_tokens ELSE 0 END)
-		ELSE 0
-	END) AS cost_uncached_input_tokens,
-	SUM(CASE WHEN output_tokens > 0 THEN output_tokens ELSE 0 END) AS cost_output_tokens,
-	SUM(CASE WHEN cache_read_tokens > 0 THEN cache_read_tokens ELSE 0 END) AS cost_cache_read_tokens,
-	SUM(CASE WHEN cache_creation_tokens > 0 THEN cache_creation_tokens ELSE 0 END) AS cost_cache_creation_tokens`
 
 // 普通总览按 bucket 汇总已存费用，同时显式暴露任何尚未回填的 NULL 行。
 const usageOverviewStoredStatAggregateColumns = `
@@ -87,64 +62,55 @@ func loadUsageOverviewStatProjection(query *gorm.DB, filter dto.UsageQueryFilter
 }
 
 type usageOverviewComparisonProjection struct {
-	APIGroupKey             string
-	Model                   string
-	AuthIndex               string
-	ModelAlias              string
-	ServiceTier             string
-	ResponseServiceTier     string
-	ReasoningEffort         string
-	Endpoint                string
-	ExecutorType            string
-	RequestCount            int64
-	SuccessCount            int64
-	FailureCount            int64
-	InputTokens             int64
-	OutputTokens            int64
-	ReasoningTokens         int64
-	CacheReadTokens         int64
-	CacheCreationTokens     int64
-	TotalTokens             int64
-	CostUncachedInputTokens int64
-	CostOutputTokens        int64
-	CostCacheReadTokens     int64
-	CostCacheCreationTokens int64
+	APIGroupKey          string
+	Model                string
+	AuthIndex            string
+	RequestCount         int64
+	FailureCount         int64
+	InputTokens          int64
+	OutputTokens         int64
+	ReasoningTokens      int64
+	CacheReadTokens      int64
+	CacheCreationTokens  int64
+	TotalTokens          int64
+	CostUSD              *float64
+	UnavailableCostCount *int64
+	MissingCostCount     int64
 }
 
-func loadUsageOverviewComparisonProjection(query *gorm.DB, filter dto.UsageQueryFilter, start, end time.Time, grain string, activeFields pricing.ActiveFields) ([]usageOverviewComparisonProjection, error) {
+// 比较视图只按四维展示所需的 model／Key／auth_index 聚合，不再依赖启用的价格规则维度。
+const usageOverviewComparisonAggregateColumns = `
+	model, api_group_key, auth_index,
+	SUM(request_count) AS request_count,
+	SUM(failure_count) AS failure_count,
+	SUM(input_tokens) AS input_tokens,
+	SUM(output_tokens) AS output_tokens,
+	SUM(reasoning_tokens) AS reasoning_tokens,
+	SUM(cache_read_tokens) AS cache_read_tokens,
+	SUM(cache_creation_tokens) AS cache_creation_tokens,
+	SUM(total_tokens) AS total_tokens,
+	SUM(cost_usd) AS cost_usd,
+	SUM(unavailable_cost_count) AS unavailable_cost_count,
+	SUM(CASE WHEN cost_usd IS NULL OR unavailable_cost_count IS NULL THEN 1 ELSE 0 END) AS missing_cost_count`
+
+// loadUsageOverviewComparisonProjection 对完整小时／日桶做独立固定维度投影，沿用原 Key 和半开时间过滤。
+func loadUsageOverviewComparisonProjection(query *gorm.DB, filter dto.UsageQueryFilter, start, end time.Time, grain string) ([]usageOverviewComparisonProjection, error) {
 	table := "usage_overview_hourly_stats"
 	if grain == "daily" {
 		table = "usage_overview_daily_stats"
 	}
-	dimensions := UsagePricingDimensionColumns(activeFields)
-	if !containsUsageOverviewDimension(dimensions, "api_group_key") {
-		dimensions = append(dimensions, "api_group_key")
-	}
-	if !containsUsageOverviewDimension(dimensions, "auth_index") {
-		dimensions = append(dimensions, "auth_index")
-	}
-	where := "bucket_start >= ? AND bucket_start < ?"
-	args := []any{timeutil.FormatStorageTime(start), timeutil.FormatStorageTime(end)}
+	query = query.Table(table).
+		Select(usageOverviewComparisonAggregateColumns).
+		Where("bucket_start >= ? AND bucket_start < ?", timeutil.FormatStorageTime(start), timeutil.FormatStorageTime(end))
 	if key := strings.TrimSpace(filter.APIGroupKey); key != "" {
-		where += " AND api_group_key = ?"
-		args = append(args, key)
+		query = query.Where("api_group_key = ?", key)
 	}
-	group := strings.Join(dimensions, ", ")
-	sql := fmt.Sprintf("SELECT %s, %s FROM %s WHERE %s GROUP BY %s ORDER BY model ASC, api_group_key ASC", strings.Join(dimensions, ", "), usageOverviewStatProjectionAggregateColumns, table, where, group)
+	query = query.Group("model, api_group_key, auth_index").Order("model asc, api_group_key asc, auth_index asc")
 	rows := make([]usageOverviewComparisonProjection, 0)
-	if err := query.Raw(sql, args...).Scan(&rows).Error; err != nil {
+	if err := query.Scan(&rows).Error; err != nil {
 		return nil, fmt.Errorf("load usage overview %s comparison projection: %w", grain, err)
 	}
 	return rows, nil
-}
-
-func containsUsageOverviewDimension(columns []string, target string) bool {
-	for _, column := range columns {
-		if column == target {
-			return true
-		}
-	}
-	return false
 }
 
 // applyUsageOverviewStatToOverview 保留原请求／Token 汇总，只把费用来源换成已存桶金额。

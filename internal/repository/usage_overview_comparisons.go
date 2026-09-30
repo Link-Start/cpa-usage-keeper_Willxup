@@ -1,26 +1,33 @@
 package repository
 
 import (
-	"cpa-usage-keeper/internal/entities"
-	"cpa-usage-keeper/internal/pricing"
-	"cpa-usage-keeper/internal/repository/dto"
-	"gorm.io/gorm"
+	"fmt"
+	"math"
 	"strings"
 	"time"
+
+	"cpa-usage-keeper/internal/entities"
+	"cpa-usage-keeper/internal/repository/dto"
+	"gorm.io/gorm"
 )
 
-func applyUsageEventToComparisonOnly(comparisons *dto.UsageOverviewComparisonsRecord, event entities.UsageEvent, resolver pricing.Resolver, identityLookup analysisIdentityLookup) {
+// applyUsageEventToComparisonOnly 把窄边界事件的已存费用同时归到模型、Key 与已知身份。
+func applyUsageEventToComparisonOnly(comparisons *dto.UsageOverviewComparisonsRecord, event entities.UsageEvent, identityLookup analysisIdentityLookup) error {
+	cost, available, err := usageOverviewStoredEventCost(event)
+	if err != nil {
+		return err
+	}
 	failed := int64(0)
 	if event.Failed {
 		failed = 1
 	}
-	result := resolver.Calculate(UsageEventCostSubject(event))
-	row := dto.UsageComparisonItemRecord{Requests: 1, Failures: failed, InputTokens: event.InputTokens, OutputTokens: event.OutputTokens, CacheReadTokens: event.CacheReadTokens, CacheCreationTokens: event.CacheCreationTokens, ReasoningTokens: event.ReasoningTokens, TotalTokens: event.TotalTokens, CostUSD: result.Cost.TotalCostUSD, CostAvailable: result.Available}
+	row := dto.UsageComparisonItemRecord{Requests: 1, Failures: failed, InputTokens: event.InputTokens, OutputTokens: event.OutputTokens, CacheReadTokens: event.CacheReadTokens, CacheCreationTokens: event.CacheCreationTokens, ReasoningTokens: event.ReasoningTokens, TotalTokens: event.TotalTokens, CostUSD: cost, CostAvailable: available}
 	applyUsageOverviewComparison(comparisons, event.Model, event.APIGroupKey, row)
 	applyUsageOverviewIdentityComparison(comparisons, identityLookup, event.AuthIndex, row)
+	return nil
 }
 
-// 同一比较行的费用只计算一次，再累计到模型和 API Key 两个维度。
+// 同一比较行的已存费用同时归入模型和 API Key 两个维度。
 func applyUsageOverviewComparison(comparisons *dto.UsageOverviewComparisonsRecord, model, apiKey string, row dto.UsageComparisonItemRecord) {
 	addUsageOverviewComparison(comparisons.Models, normalizeUsageOverviewDimension(model), row)
 	addUsageOverviewComparison(comparisons.APIKeys, normalizeUsageOverviewDimension(apiKey), row)
@@ -58,16 +65,11 @@ func addUsageOverviewComparison(items map[string]*dto.UsageComparisonItemRecord,
 	item.CostAvailable = item.CostAvailable && row.CostAvailable
 }
 
-func calculateUsageOverviewComparisonProjectionCost(costResolver pricing.Resolver, row usageOverviewComparisonProjection) pricing.CostResult {
-	return costResolver.Calculate(newUsagePricingCostSubject(row.APIGroupKey, row.Model, row.AuthIndex, row.ModelAlias, row.ServiceTier, row.ResponseServiceTier, row.ReasoningEffort, row.Endpoint, row.ExecutorType, row.CostUncachedInputTokens+row.CostCacheReadTokens+row.CostCacheCreationTokens, row.CostOutputTokens, row.CostCacheReadTokens, row.CostCacheCreationTokens))
-}
-
 // comparison-only 使用无时间桶的独立 rollup projection。
 // 比较查询复用范围规划，边界事件由调用方读取一次并补入比较结果。
-func loadAndApplyUsageOverviewStats(overview *dto.UsageOverviewRecord, db *gorm.DB, filter dto.UsageQueryFilter, start, end time.Time, grain string, bucketByDay bool, comparisonResolver *pricing.Resolver) error {
+func loadAndApplyUsageOverviewStats(overview *dto.UsageOverviewRecord, db *gorm.DB, filter dto.UsageQueryFilter, start, end time.Time, grain string, bucketByDay bool) error {
 	if filter.ComparisonOnly {
-		resolver := *comparisonResolver
-		rows, err := loadUsageOverviewComparisonProjection(db, filter, start, end, grain, resolver.ActiveFields())
+		rows, err := loadUsageOverviewComparisonProjection(db, filter, start, end, grain)
 		if err != nil {
 			return err
 		}
@@ -87,8 +89,13 @@ func loadAndApplyUsageOverviewStats(overview *dto.UsageOverviewRecord, db *gorm.
 			return err
 		}
 		for _, row := range rows {
-			result := calculateUsageOverviewComparisonProjectionCost(resolver, row)
-			comparison := dto.UsageComparisonItemRecord{Requests: row.RequestCount, Failures: row.FailureCount, InputTokens: row.InputTokens, OutputTokens: row.OutputTokens, CacheReadTokens: row.CacheReadTokens, CacheCreationTokens: row.CacheCreationTokens, ReasoningTokens: row.ReasoningTokens, TotalTokens: row.TotalTokens, CostUSD: result.Cost.TotalCostUSD, CostAvailable: result.Available}
+			if row.MissingCostCount != 0 || row.CostUSD == nil || row.UnavailableCostCount == nil {
+				return fmt.Errorf("usage overview %s comparison has unbackfilled cost", grain)
+			}
+			if math.IsNaN(*row.CostUSD) || math.IsInf(*row.CostUSD, 0) {
+				return fmt.Errorf("usage overview %s comparison has non-finite cost", grain)
+			}
+			comparison := dto.UsageComparisonItemRecord{Requests: row.RequestCount, Failures: row.FailureCount, InputTokens: row.InputTokens, OutputTokens: row.OutputTokens, CacheReadTokens: row.CacheReadTokens, CacheCreationTokens: row.CacheCreationTokens, ReasoningTokens: row.ReasoningTokens, TotalTokens: row.TotalTokens, CostUSD: *row.CostUSD, CostAvailable: *row.UnavailableCostCount == 0}
 			applyUsageOverviewComparison(overview.Comparisons, row.Model, row.APIGroupKey, comparison)
 			applyUsageOverviewIdentityComparison(overview.Comparisons, identityLookup, row.AuthIndex, comparison)
 		}

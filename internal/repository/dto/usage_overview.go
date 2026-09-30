@@ -136,7 +136,7 @@ type UsageOverviewRecord struct {
 	Series      UsageOverviewSeriesRecord
 }
 
-// UsageComparisonItemRecord 与顶部 Overview 共用请求、Token 和动态计费口径。
+// UsageComparisonItemRecord 汇总同一模型、Key 或身份的请求、Token 与已存费用。
 type UsageComparisonItemRecord struct {
 	Key                 string
 	Label               string
