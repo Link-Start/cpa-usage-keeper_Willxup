@@ -78,10 +78,6 @@ func TestResolverWithoutRulesMatchesLegacyHelperForEveryTokenSegmentAndModelMult
 				PriceMultiplier:      testCase.multiplier,
 			}
 			resolver := compileResolver(t, pricing.ModelConfig{Pricing: setting})
-			if resolver.ActiveFields() != 0 {
-				t.Fatalf("no Rules must not activate extra grouping fields: %v", resolver.ActiveFields())
-			}
-
 			result := resolver.Calculate(pricing.NewCostSubject(testCase.dimensions, tokens))
 			if !result.Available || result.MatchedBy != testCase.matchedBy || result.RuleMultiplier != 1 {
 				t.Fatalf("unexpected no-Rules match result: %+v", result)
@@ -172,12 +168,6 @@ func TestResolverTreatsZeroAsAvailableAndOneAsInactive(t *testing.T) {
 			{Key: "service_tier", Value: "priority", Multiplier: 0},
 		},
 	})
-	if resolver.ActiveFields().Has(pricing.RuleFieldReasoningEffort) {
-		t.Fatal("expected multiplier-1 field to be inactive")
-	}
-	if !resolver.ActiveFields().Has(pricing.RuleFieldServiceTier) {
-		t.Fatal("expected multiplier-0 field to be active")
-	}
 	result := resolver.Calculate(pricing.NewCostSubject(pricing.UsageDimensions{Model: "model-a", ServiceTier: "priority", ReasoningEffort: "xhigh"}, helper.UsageTokenCostInput{InputTokens: 1_000_000}))
 	if !result.Available || result.RuleMultiplier != 0 || result.Cost.TotalCostUSD != 0 {
 		t.Fatalf("expected matched zero rule to return available zero cost, got %+v", result)

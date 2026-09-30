@@ -30,16 +30,9 @@ type CostResult struct {
 	RuleMultiplier float64
 }
 
-// Resolver 在创建时固定绑定一个 Snapshot，确保单个响应不会混用新旧价格。
+// Resolver 在创建时固定绑定一个 Snapshot，确保同一事件批次不会混用新旧价格。
 type Resolver struct {
 	snapshot *Snapshot
-}
-
-func (r Resolver) ActiveFields() ActiveFields {
-	if r.snapshot == nil {
-		return 0
-	}
-	return r.snapshot.activeFields
 }
 
 func (r Resolver) Calculate(subject CostSubject) CostResult {
@@ -80,7 +73,7 @@ func (r Resolver) Calculate(subject CostSubject) CostResult {
 }
 
 // CalculateFee 供事件入库和显式重算写回使用，只暴露总额及缺价可用性。
-// 它与旧读取调用共用 Calculate 的模型、分支、倍率和四类 Token 公式。
+// 它复用 Calculate 的模型、分支、倍率和四类 Token 公式，供事件入库及显式重算使用。
 func (r Resolver) CalculateFee(subject CostSubject) FeeResult {
 	result := r.Calculate(subject)
 	return FeeResult{TotalCostUSD: result.Cost.TotalCostUSD, Available: result.Available}

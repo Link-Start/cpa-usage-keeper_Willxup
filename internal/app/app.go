@@ -204,7 +204,6 @@ func NewWithConfig(cfg config.Config) (*App, error) {
 	quotaService := quota.NewServiceWithOptions(db, cpaClient, quota.ServiceOptions{
 		RefreshWorkerLimit:            cfg.QuotaRefreshWorkerLimit,
 		QuotaUpstreamResponsesEnabled: cfg.QuotaUpstreamResponsesEnabled,
-		PricingCatalog:                pricingCatalog,
 	})
 	// 单 writer aggregation runner 只维护 rollups/Identity，并在 App.Run 时主动追平。
 	usageAggregationRunner := poller.NewUsageAggregationRunner(db)

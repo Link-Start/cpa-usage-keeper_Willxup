@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"cpa-usage-keeper/internal/entities"
-	"cpa-usage-keeper/internal/pricing"
 	. "cpa-usage-keeper/internal/quota"
 	"cpa-usage-keeper/internal/repository"
 	"cpa-usage-keeper/internal/repository/dto"
@@ -74,7 +73,7 @@ func TestQuotaRowUsageWindowRejectsNegativeResetAfterSeconds(t *testing.T) {
 
 func TestAttachWindowUsageStatsOnlyBackfillsMissingKnownWindowScopeRows(t *testing.T) {
 	db := openQuotaTestDB(t)
-	service := NewServiceWithRegistry(db, NewProviderRegistry(nil), emptyPricingCatalogForTest())
+	service := NewServiceWithRegistry(db, NewProviderRegistry(nil))
 	defer service.StopRefreshTasks()
 	windowSeconds := int64(5 * 60 * 60)
 	weeklySeconds := int64(7 * 24 * 60 * 60)
@@ -172,7 +171,7 @@ func TestAttachWindowUsageStatsOnlyBackfillsMissingKnownWindowScopeRows(t *testi
 
 func TestAttachWindowUsageStatsBackfillsBothFieldsWhenProviderWindowUsageIncomplete(t *testing.T) {
 	db := openQuotaTestDB(t)
-	service := NewServiceWithRegistry(db, NewProviderRegistry(nil), emptyPricingCatalogForTest())
+	service := NewServiceWithRegistry(db, NewProviderRegistry(nil))
 	defer service.StopRefreshTasks()
 	windowSeconds := int64(5 * 60 * 60)
 	resetAt := time.Date(2026, 6, 2, 5, 0, 0, 0, time.UTC)
@@ -215,7 +214,7 @@ func TestAttachWindowUsageStatsBackfillsBothFieldsWhenProviderWindowUsageIncompl
 
 func TestAttachWindowUsageStatsDropsIncompleteProviderWindowUsageWhenFallbackUnavailable(t *testing.T) {
 	db := openQuotaTestDB(t)
-	service := NewServiceWithRegistry(db, NewProviderRegistry(nil), emptyPricingCatalogForTest())
+	service := NewServiceWithRegistry(db, NewProviderRegistry(nil))
 	defer service.StopRefreshTasks()
 	windowSeconds := int64(5 * 60 * 60)
 
@@ -235,7 +234,7 @@ func TestAttachWindowUsageStatsDropsIncompleteProviderWindowUsageWhenFallbackUna
 
 func TestAttachWindowUsageStatsDoesNotBackfillPartialAdditionalOrCodeReviewRows(t *testing.T) {
 	db := openQuotaTestDB(t)
-	service := NewServiceWithRegistry(db, NewProviderRegistry(nil), emptyPricingCatalogForTest())
+	service := NewServiceWithRegistry(db, NewProviderRegistry(nil))
 	defer service.StopRefreshTasks()
 	windowSeconds := int64(5 * 60 * 60)
 	resetAt := time.Date(2026, 6, 2, 5, 0, 0, 0, time.UTC)
@@ -282,7 +281,7 @@ func TestAttachWindowUsageStatsDoesNotBackfillPartialAdditionalOrCodeReviewRows(
 
 func TestAttachWindowUsageStatsPreservesProviderZeroWindowUsage(t *testing.T) {
 	db := openQuotaTestDB(t)
-	service := NewServiceWithRegistry(db, NewProviderRegistry(nil), emptyPricingCatalogForTest())
+	service := NewServiceWithRegistry(db, NewProviderRegistry(nil))
 	defer service.StopRefreshTasks()
 	windowSeconds := int64(5 * 60 * 60)
 	resetAt := time.Date(2026, 6, 2, 5, 0, 0, 0, time.UTC)
@@ -344,7 +343,7 @@ func TestAttachWindowUsageStatsBackfillsAntigravityGroupsFromOneSharedWindowQuer
 	}
 
 	counter := &quotaUsageQueryCounter{}
-	service := NewServiceWithRegistry(db.Session(&gorm.Session{Logger: counter}), NewProviderRegistry(nil), quotaUsagePricingCatalog(t, db))
+	service := NewServiceWithRegistry(db.Session(&gorm.Session{Logger: counter}), NewProviderRegistry(nil))
 	defer service.StopRefreshTasks()
 	remaining := 0.5
 	response := CheckResponse{
@@ -409,7 +408,7 @@ func TestAttachWindowUsageStatsSkipsIncompleteAntigravityGroupResults(t *testing
 			}).Error; err != nil {
 				t.Fatalf("seed incomplete Antigravity usage: %v", err)
 			}
-			service := NewServiceWithRegistry(db, NewProviderRegistry(nil), quotaUsagePricingCatalog(t, db))
+			service := NewServiceWithRegistry(db, NewProviderRegistry(nil))
 			defer service.StopRefreshTasks()
 			remaining := 0.5
 			response := CheckResponse{ID: "antigravity-auth", Quota: NormalizeQuotaRows(ProviderOutput{Provider: "antigravity", Result: AntigravityResult{Quota: &AntigravityQuotaPayload{Groups: []AntigravityQuotaGroup{{
@@ -499,13 +498,4 @@ func (counter *quotaUsageQueryCounter) UsageWindowQueries() int {
 	counter.mu.Lock()
 	defer counter.mu.Unlock()
 	return counter.count
-}
-
-func quotaUsagePricingCatalog(t *testing.T, db *gorm.DB) *pricing.Catalog {
-	t.Helper()
-	snapshot, err := repository.LoadPricingSnapshot(context.Background(), db)
-	if err != nil {
-		t.Fatalf("LoadPricingSnapshot: %v", err)
-	}
-	return pricing.NewCatalog(snapshot)
 }

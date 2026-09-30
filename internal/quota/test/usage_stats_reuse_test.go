@@ -7,12 +7,13 @@ import (
 	"time"
 
 	"cpa-usage-keeper/internal/entities"
-	"cpa-usage-keeper/internal/pricing"
 	. "cpa-usage-keeper/internal/quota"
+	"cpa-usage-keeper/internal/repository"
+	repositorydto "cpa-usage-keeper/internal/repository/dto"
 )
 
 func TestHeaderManualAndScheduledRefreshReuseSameWindowUsageStats(t *testing.T) {
-	// 三个真实入口使用相同事件、价格和固定窗口，结果差异会直接暴露重复查询或计价实现。
+	// 三个真实入口使用相同已存事件、当前配置和固定窗口，结果差异会直接暴露窗口统计口径不一致。
 	for _, entry := range []string{"header", "manual", "scheduled"} {
 		t.Run(entry, func(t *testing.T) {
 			db := openQuotaTestDatabase(t)
@@ -25,19 +26,18 @@ func TestHeaderManualAndScheduledRefreshReuseSameWindowUsageStats(t *testing.T) 
 				Timestamp: resetAt.Add(-2 * time.Hour), InputTokens: 1_000_000, OutputTokens: 500_000, TotalTokens: 1_500_000,
 				CostUSD: floatPtr(4.25), CostAvailable: boolPtr(true),
 			})
-
 			// 当前价格故意不同于已存金额，三个刷新入口必须返回同一历史事实。
-			snapshot, err := pricing.CompileSnapshot([]pricing.ModelConfig{{Pricing: entities.ModelPriceSetting{
+			if _, err := repository.UpsertModelPriceSetting(db, repositorydto.ModelPriceSettingInput{
 				Model: "priced-model", PromptPricePer1M: 3, CompletionPricePer1M: 15,
-			}}})
-			if err != nil {
-				t.Fatalf("compile quota pricing snapshot: %v", err)
+			}); err != nil {
+				t.Fatalf("seed current model price: %v", err)
 			}
+
 			providerOutput := ProviderOutput{Provider: "codex", Result: CodexResult{Usage: &CodexUsagePayload{RateLimit: &CodexRateLimitInfo{
 				PrimaryWindow: &CodexUsageWindow{UsedPercent: 4, LimitWindowSeconds: int64(5 * time.Hour / time.Second), ResetAt: resetAt.Unix()},
 			}}}}
 			handler := &refreshHandlerStub{output: providerOutput}
-			service := NewServiceWithRegistry(db, NewProviderRegistry(map[string]ProviderHandler{"codex": handler}), pricing.NewCatalog(snapshot))
+			service := NewServiceWithRegistry(db, NewProviderRegistry(map[string]ProviderHandler{"codex": handler}))
 			t.Cleanup(service.StopRefreshTasks)
 			setRefreshCooldown(service, func(time.Duration) {})
 

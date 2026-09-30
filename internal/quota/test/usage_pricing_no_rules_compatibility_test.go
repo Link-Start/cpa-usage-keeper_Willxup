@@ -25,7 +25,7 @@ func TestQuotaWindowWithoutRulesReadsPersistedCost(t *testing.T) {
 	if err != nil {
 		t.Fatalf("UpsertModelPriceSetting: %v", err)
 	}
-	service := NewServiceWithRegistry(db, NewProviderRegistry(nil), quotaUsagePricingCatalog(t, db))
+	service := NewServiceWithRegistry(db, NewProviderRegistry(nil))
 	defer service.StopRefreshTasks()
 
 	now := time.Date(2026, 7, 23, 12, 0, 0, 0, time.UTC)

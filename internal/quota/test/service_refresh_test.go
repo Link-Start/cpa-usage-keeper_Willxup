@@ -407,7 +407,7 @@ func TestRefreshTaskStoresUsageIdentityDisplayName(t *testing.T) {
 }
 
 func TestUpdateUsageIdentityDisplayNameSnapshotUpdatesExistingRefreshTask(t *testing.T) {
-	service := NewServiceWithRegistry(openQuotaTestDatabase(t), NewProviderRegistry(nil), emptyPricingCatalogForTest())
+	service := NewServiceWithRegistry(openQuotaTestDatabase(t), NewProviderRegistry(nil))
 	defer service.StopRefreshTasks()
 	setRefreshTasks(service, map[string]*RefreshTaskRecord{
 		"auth-1": {AuthIndex: "auth-1", Name: "Original Name", Status: RefreshTaskStatusCompleted},

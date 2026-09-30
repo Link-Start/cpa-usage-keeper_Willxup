@@ -33,7 +33,7 @@ func TestSnapshotPricingStyleForModelUsesCurrentModelThenAlias(t *testing.T) {
 	}
 }
 
-func TestCompileSnapshotNormalizesRulesAndExcludesIdentityRulesFromActiveFields(t *testing.T) {
+func TestCompileSnapshotNormalizesRulesAndKeepsVisibleIdentityRules(t *testing.T) {
 	t.Parallel()
 
 	snapshot := compileSnapshot(t, pricing.ModelConfig{
@@ -46,13 +46,6 @@ func TestCompileSnapshotNormalizesRulesAndExcludesIdentityRulesFromActiveFields(
 		Pricing: testPricing("model-a", 1),
 	})
 
-	active := snapshot.ActiveFields()
-	if !active.Has(pricing.RuleFieldServiceTier) {
-		t.Fatal("expected service_tier to be active")
-	}
-	if active.Has(pricing.RuleFieldReasoningEffort) {
-		t.Fatal("expected multiplier-1 reasoning_effort rule to stay inactive")
-	}
 	configs := snapshot.ModelConfigs()
 	if len(configs) != 2 || configs[0].Pricing.Model != "model-a" || configs[1].Pricing.Model != "model-b" {
 		t.Fatalf("expected stable model-sorted configs, got %+v", configs)

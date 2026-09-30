@@ -57,7 +57,6 @@ type Snapshot struct {
 	modelsByName   map[string]compiledModel
 	modelConfigs   []ModelConfig
 	pricingConfigs []ModelPricingConfig
-	activeFields   ActiveFields
 	location       *time.Location
 }
 
@@ -68,7 +67,7 @@ func CompileSnapshot(configs []ModelConfig) (*Snapshot, error) {
 		modelConfigs: make([]ModelConfig, 0, len(configs)),
 	}
 	for index := range configs {
-		compiled, normalized, activeFields, err := compileModelConfig(configs[index])
+		compiled, normalized, err := compileModelConfig(configs[index])
 		if err != nil {
 			return nil, fmt.Errorf("compile model price at index %d: %w", index, err)
 		}
@@ -78,7 +77,6 @@ func CompileSnapshot(configs []ModelConfig) (*Snapshot, error) {
 		}
 		snapshot.modelsByName[model] = compiled
 		snapshot.modelConfigs = append(snapshot.modelConfigs, normalized)
-		snapshot.activeFields |= activeFields
 	}
 	sort.Slice(snapshot.modelConfigs, func(i, j int) bool {
 		return snapshot.modelConfigs[i].Pricing.Model < snapshot.modelConfigs[j].Pricing.Model
@@ -86,28 +84,28 @@ func CompileSnapshot(configs []ModelConfig) (*Snapshot, error) {
 	return snapshot, nil
 }
 
-func compileModelConfig(config ModelConfig) (compiledModel, ModelConfig, ActiveFields, error) {
+// compileModelConfig 校验并冻结单个模型价格和规则，保留规范化配置供显式读取与写回。
+func compileModelConfig(config ModelConfig) (compiledModel, ModelConfig, error) {
 	pricing := cloneModelPriceSetting(config.Pricing)
 	pricing.Model = strings.TrimSpace(pricing.Model)
 	if pricing.Model == "" {
-		return compiledModel{}, ModelConfig{}, 0, fmt.Errorf("model is required")
+		return compiledModel{}, ModelConfig{}, fmt.Errorf("model is required")
 	}
 	if err := validatePricingNumbers(pricing); err != nil {
-		return compiledModel{}, ModelConfig{}, 0, err
+		return compiledModel{}, ModelConfig{}, err
 	}
 
 	normalizedRules := make([]RuleConfig, 0, len(config.Rules))
 	compiledRules := make([]compiledRule, 0, len(config.Rules))
 	seen := make(map[ruleIdentity]struct{}, len(config.Rules))
-	var activeFields ActiveFields
 	for index := range config.Rules {
 		rule, compiledRuleValue, err := compileRule(config.Rules[index])
 		if err != nil {
-			return compiledModel{}, ModelConfig{}, 0, fmt.Errorf("rule at index %d: %w", index, err)
+			return compiledModel{}, ModelConfig{}, fmt.Errorf("rule at index %d: %w", index, err)
 		}
 		identity := ruleIdentity{key: rule.Key, value: rule.Value}
 		if _, exists := seen[identity]; exists {
-			return compiledModel{}, ModelConfig{}, 0, fmt.Errorf("duplicate rule %s=%q", rule.Key, rule.Value)
+			return compiledModel{}, ModelConfig{}, fmt.Errorf("duplicate rule %s=%q", rule.Key, rule.Value)
 		}
 		seen[identity] = struct{}{}
 		normalizedRules = append(normalizedRules, rule)
@@ -115,14 +113,13 @@ func compileModelConfig(config ModelConfig) (compiledModel, ModelConfig, ActiveF
 			continue
 		}
 		compiledRules = append(compiledRules, compiledRuleValue)
-		activeFields = activeFields.with(compiledRuleValue.field)
 	}
 
 	if err := validateWorstCaseCost(pricing, compiledRules); err != nil {
-		return compiledModel{}, ModelConfig{}, 0, err
+		return compiledModel{}, ModelConfig{}, err
 	}
 	normalized := ModelConfig{Pricing: cloneModelPriceSetting(pricing), Rules: cloneRules(normalizedRules)}
-	return compiledModel{pricing: pricing, rules: compiledRules}, normalized, activeFields, nil
+	return compiledModel{pricing: pricing, rules: compiledRules}, normalized, nil
 }
 
 type ruleIdentity struct {
@@ -305,11 +302,4 @@ func (s *Snapshot) PricingStyleForModel(model, alias string) string {
 		return config.pricing.PricingStyle
 	}
 	return ""
-}
-
-func (s *Snapshot) ActiveFields() ActiveFields {
-	if s == nil {
-		return 0
-	}
-	return s.activeFields
 }

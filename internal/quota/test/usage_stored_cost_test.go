@@ -25,8 +25,7 @@ func TestAttachWindowUsageStatsKeepsStoredCostAcrossPricingChanges(t *testing.T)
 	}).Error; err != nil {
 		t.Fatal(err)
 	}
-	catalog := quotaUsagePricingCatalog(t, db)
-	service := NewServiceWithRegistry(db, NewProviderRegistry(nil), catalog)
+	service := NewServiceWithRegistry(db, NewProviderRegistry(nil))
 	t.Cleanup(service.StopRefreshTasks)
 	windowSeconds := int64(5 * time.Hour / time.Second)
 	rows := func() []QuotaRow {
@@ -51,19 +50,9 @@ func TestAttachWindowUsageStatsKeepsStoredCostAcrossPricingChanges(t *testing.T)
 	if _, err := repository.UpsertModelPriceSetting(db, repositorydto.ModelPriceSettingInput{Model: "priced-model", PromptPricePer1M: 90}); err != nil {
 		t.Fatal(err)
 	}
-	snapshot, err := repository.LoadPricingSnapshot(context.Background(), db)
-	if err != nil {
-		t.Fatal(err)
-	}
-	catalog.Replace(snapshot)
 	assertStored()
 	if err := repository.DeleteModelPriceSetting(db, "priced-model"); err != nil {
 		t.Fatal(err)
 	}
-	snapshot, err = repository.LoadPricingSnapshot(context.Background(), db)
-	if err != nil {
-		t.Fatal(err)
-	}
-	catalog.Replace(snapshot)
 	assertStored()
 }
