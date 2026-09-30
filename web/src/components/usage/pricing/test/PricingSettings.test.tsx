@@ -200,7 +200,7 @@ describe('PricingSettings', () => {
   ])('maps a backend %s group error to relevant numeric fields instead of only a banner', async (groupPath, expectedField, anotherField) => {
     await renderSettings()
     await act(async () => button('common.edit').click())
-    const details = document.querySelector<HTMLDetailsElement>('details')!
+    const details = document.querySelector<HTMLDetailsElement>('[data-pricing-conditions]')!
     await act(async () => details.querySelector('summary')!.click())
     expect(details.open).toBe(false)
     vi.mocked(globalThis.fetch).mockImplementationOnce(async () => Response.json({
@@ -220,7 +220,7 @@ describe('PricingSettings', () => {
   it('collapses conditions without discarding their draft values', async () => {
     await renderSettings()
     await act(async () => button('common.edit').click())
-    const details = document.querySelector<HTMLDetailsElement>('details')!
+    let details = document.querySelector<HTMLDetailsElement>('[data-pricing-conditions]')!
     const value = details.querySelector<HTMLInputElement>('[data-pricing-field="conditional_multipliers[0].value"]')!
     await setInput(value, 'new-free-text')
     await act(async () => details.querySelector('summary')!.click())
@@ -228,7 +228,149 @@ describe('PricingSettings', () => {
     await act(async () => details.querySelector('summary')!.click())
     expect(details.open).toBe(true)
     expect(value.value).toBe('new-free-text')
+    await act(async () => details.querySelector('summary')!.click())
+    await act(async () => document.querySelector<HTMLButtonElement>('[data-branch-action="edit"]')!.click())
+    await act(async () => button('common.cancel').click())
+    details = document.querySelector<HTMLDetailsElement>('[data-pricing-conditions]')!
+    expect(details.open).toBe(false)
+    expect(details.querySelector<HTMLInputElement>('[data-pricing-field="conditional_multipliers[0].value"]')?.value).toBe('new-free-text')
     expect(writes).toHaveLength(0)
+  })
+
+  it('previews only draft prices times the model multiplier and lists conditions separately', async () => {
+    await renderSettings()
+    await act(async () => button('common.edit').click())
+    const preview = document.querySelector<HTMLElement>('[data-pricing-preview]')!
+    expect(preview).not.toBeNull()
+    expect(preview.querySelector('[data-preview-plan="default"] [data-preview-price="input"]')?.textContent).toContain('$4.2')
+    expect(preview.querySelector('[data-preview-plan="saved-branch"] [data-preview-price="input"]')?.textContent).toContain('$3.5')
+    expect(preview.textContent).toContain('reasoning_effort = xhigh')
+    expect(preview.textContent).toContain('×1.2')
+    await setInput(document.querySelector<HTMLInputElement>('[data-pricing-field="base_prices.input"]')!, '4')
+    expect(preview.querySelector('[data-preview-plan="default"] [data-preview-price="input"]')?.textContent).toContain('$5.6')
+    expect(preview.querySelector('[data-preview-plan="saved-branch"] [data-preview-price="input"]')?.textContent).toContain('$3.5')
+    expect(writes).toHaveLength(0)
+  })
+
+  it('shows an explicit zero multiplier as free and leaves incomplete prices unavailable in preview', async () => {
+    await renderSettings()
+    await act(async () => button('common.edit').click())
+    const multiplier = document.querySelector<HTMLInputElement>('[data-pricing-field="model_multiplier"]')!
+    const defaultInput = document.querySelector<HTMLOutputElement>('[data-preview-plan="default"] [data-preview-price="input"]')!
+    await setInput(multiplier, '0')
+    expect(defaultInput.textContent).toBe('$0')
+    await setInput(multiplier, '')
+    expect(defaultInput.textContent).toBe('—')
+    await setInput(multiplier, '1')
+    await setInput(document.querySelector<HTMLInputElement>('[data-pricing-field="base_prices.input"]')!, '')
+    expect(defaultInput.textContent).toBe('—')
+  })
+
+  it('keeps a branch subdraft isolated until saved, and rejects a copied overlapping branch', async () => {
+    await renderSettings()
+    await act(async () => button('common.edit').click())
+    await act(async () => document.querySelector<HTMLButtonElement>('[data-branch-action="edit"]')!.click())
+    await setInput(document.querySelector<HTMLInputElement>('[data-pricing-field="name"]')!, 'Unsaved name')
+    await act(async () => button('common.cancel').click())
+    expect(document.body.textContent).toContain('Long context')
+    expect(document.body.textContent).not.toContain('Unsaved name')
+
+    await act(async () => document.querySelector<HTMLButtonElement>('[data-branch-action="copy"]')!.click())
+    expect(document.querySelector<HTMLInputElement>('[data-pricing-field="prices.input"]')?.value).toBe('2.5')
+    await act(async () => button('usage_stats.pricing_settings_save_branch').click())
+    expect(document.querySelector<HTMLInputElement>('[data-pricing-field="context.threshold"]')?.getAttribute('aria-invalid')).toBe('true')
+    expect(writes).toHaveLength(0)
+    const contextSelect = document.querySelector<HTMLSelectElement>('[data-pricing-field="context.type"]')!
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')!.set!.call(contextSelect, 'lte')
+      contextSelect.dispatchEvent(new Event('change', { bubbles: true }))
+    })
+    await act(async () => button('usage_stats.pricing_settings_save_branch').click())
+    expect(document.querySelector('[data-pricing-branch-editor]')).toBeNull()
+    expect(writes).toHaveLength(0)
+    await act(async () => button('common.save').click())
+    expect(writes).toHaveLength(1)
+    expect(writes[0].body?.branches).toHaveLength(2)
+    expect(writes[0].body?.branches[0]).toEqual(existing.branches[0])
+    expect(writes[0].body?.branches[1].id).not.toBe(existing.branches[0].id)
+    expect(writes[0].body?.branches[1].context).toEqual({ type: 'lte', threshold: 200_000 })
+  })
+
+  it('adds a range and overnight branch with four independent prices in the same model save', async () => {
+    await renderSettings()
+    await act(async () => button('common.edit').click())
+    await act(async () => button('usage_stats.pricing_settings_add_branch').click())
+    await setInput(document.querySelector<HTMLInputElement>('[data-pricing-field="name"]')!, 'Short night')
+    for (const [path, value] of [['context.type', 'range'], ['period.type', 'window']]) {
+      const select = document.querySelector<HTMLSelectElement>(`[data-pricing-field="${path}"]`)!
+      await act(async () => {
+        Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')!.set!.call(select, value)
+        select.dispatchEvent(new Event('change', { bubbles: true }))
+      })
+    }
+    await setInput(document.querySelector<HTMLInputElement>('[data-pricing-field="context.min"]')!, '0')
+    await setInput(document.querySelector<HTMLInputElement>('[data-pricing-field="context.max"]')!, '200000')
+    await setInput(document.querySelector<HTMLInputElement>('[data-pricing-field="period.start"]')!, '20:00')
+    await setInput(document.querySelector<HTMLInputElement>('[data-pricing-field="period.end"]')!, '08:00')
+    await setInput(document.querySelector<HTMLInputElement>('[data-pricing-field="prices.input"]')!, '0')
+    await act(async () => button('usage_stats.pricing_settings_save_branch').click())
+    expect(document.querySelector('[data-pricing-branch-editor]')).toBeNull()
+    await act(async () => button('common.save').click())
+    expect(writes).toHaveLength(1)
+    expect(writes[0].body?.branches[1]).toMatchObject({
+      name: 'Short night', context: { type: 'range', min: 0, max: 200_000 },
+      period: { type: 'window', start: '20:00', end: '08:00' },
+      prices: { input: 0, output: 15, cache_read: 0.3, cache_write: 3.75 },
+    })
+  })
+
+  it.each([
+    ['branches[0].prices.input', false],
+    ['branches[0].prices', true],
+  ])('opens the affected branch when the complete save receives %s', async (path, group) => {
+    await renderSettings()
+    await act(async () => button('common.edit').click())
+    vi.mocked(globalThis.fetch).mockImplementationOnce(async () => Response.json({
+      code: 'invalid_pricing', message: 'Invalid branch price',
+      fields: [{ path, code: 'invalid' }],
+    }, { status: 400 }))
+    await act(async () => button('common.save').click())
+    const field = document.querySelector<HTMLInputElement>('[data-pricing-field="prices.input"]')!
+    expect(field).not.toBeNull()
+    expect(field.getAttribute('aria-invalid')).toBe('true')
+    expect(document.activeElement).toBe(field)
+    expect(document.querySelector<HTMLInputElement>('[data-pricing-field="prices.output"]')?.getAttribute('aria-invalid')).toBe(group ? 'true' : 'false')
+    expect(writes).toHaveLength(0)
+  })
+
+  it('keeps a saved branch when model edits are cancelled, and deletes it only with the model save', async () => {
+    await renderSettings()
+    await act(async () => button('common.edit').click())
+    await act(async () => document.querySelector<HTMLButtonElement>('[data-branch-action="delete"]')!.click())
+    expect(document.querySelector('[data-pricing-branch-id="saved-branch"]')).toBeNull()
+    expect(writes).toHaveLength(0)
+    await act(async () => button('common.cancel').click())
+
+    await act(async () => button('common.edit').click())
+    expect(document.querySelector('[data-pricing-branch-id="saved-branch"]')).not.toBeNull()
+    await act(async () => document.querySelector<HTMLButtonElement>('[data-branch-action="delete"]')!.click())
+    await act(async () => button('common.save').click())
+    expect(writes).toHaveLength(1)
+    expect(writes[0].body?.branches).toEqual([])
+  })
+
+  it('initializes desktop preview from mounted form width and preserves manual collapse through branch editing', async () => {
+    vi.spyOn(HTMLFormElement.prototype, 'clientWidth', 'get').mockReturnValue(1100)
+    await renderSettings()
+    await act(async () => button('common.edit').click())
+    const preview = document.querySelector<HTMLDetailsElement>('[data-pricing-preview]')!
+    expect(preview.open).toBe(true)
+    expect(document.querySelector<HTMLDetailsElement>('[data-pricing-branches]')?.open).toBe(true)
+    await act(async () => preview.querySelector('summary')!.click())
+    expect(preview.open).toBe(false)
+    await act(async () => document.querySelector<HTMLButtonElement>('[data-branch-action="edit"]')!.click())
+    await act(async () => button('common.cancel').click())
+    expect(document.querySelector<HTMLDetailsElement>('[data-pricing-preview]')?.open).toBe(false)
   })
 
   it('requires confirmation before deleting configuration and keeps the model query intact', async () => {

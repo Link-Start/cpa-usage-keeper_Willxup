@@ -1,9 +1,12 @@
-import { useEffect, useId, useRef, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useId, useRef, useState, type FormEvent } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/Button'
 import { Modal } from '@/components/ui/Modal'
 import { ApiError } from '@/lib/api'
-import type { ModelPricingConfig, PricingBasePrices, PricingConditionalMultiplier, PricingStyle } from '@/lib/types'
+import type { ModelPricingConfig, PricingBasePrices, PricingConditionalMultiplier, PricingPriceBranch, PricingStyle } from '@/lib/types'
+import { ModelPricingBranchEditor } from './ModelPricingBranchEditor'
+import { PricingBranchMatch, PricingDraftPreview } from './PricingDraftPreview'
+import { findPricingBranchConflicts, makePricingBranchDraft, validatePricingBranchDraft, type PricingBranchDraft } from './pricingBranchDraft'
 import styles from './PricingSettings.module.scss'
 
 type PriceKey = keyof PricingBasePrices
@@ -16,17 +19,31 @@ interface EditorDraft {
   prices: Record<PriceKey, string>
   modelMultiplier: string
   rules: DraftRule[]
+  branches: PricingBranchDraft[]
 }
+
+type BranchSession = { draft: PricingBranchDraft; originalId: string | null; mode: 'add' | 'edit' | 'copy'; errors?: FieldErrors; conflictIds?: string[] }
 
 export interface ModelPricingEditorProps {
   open: boolean
   initialConfig: ModelPricingConfig | null
   modelOptions: string[]
+  timezone?: string
   onClose: () => void
   onSave: (config: ModelPricingConfig) => Promise<unknown>
 }
 
 const priceKeys: PriceKey[] = ['input', 'output', 'cache_read', 'cache_write']
+let nextBranchSerial = 0
+
+// 分支 id 只需在配置内稳定唯一，局域网 HTTP 页面也能创建草稿。
+const newBranchId = (branches: PricingBranchDraft[]): string => {
+  let id: string
+  do {
+    id = `branch-${Date.now().toString(36)}-${(++nextBranchSerial).toString(36)}`
+  } while (branches.some((branch) => branch.id === id))
+  return id
+}
 
 // 将已保存数值转为编辑字符串，空白与合法零价分开；已有配置不被草稿修改。
 const makeDraft = (config: ModelPricingConfig | null, options: string[]): EditorDraft => ({
@@ -42,6 +59,10 @@ const makeDraft = (config: ModelPricingConfig | null, options: string[]): Editor
   rules: config?.conditional_multipliers.map((rule, id) => ({
     id, key: rule.key, value: rule.value, multiplier: rule.multiplier.toString(),
   })) ?? [],
+  branches: config?.branches.map((branch) => makePricingBranchDraft(branch, {
+    input: branch.prices.input.toString(), output: branch.prices.output.toString(),
+    cache_read: branch.prices.cache_read.toString(), cache_write: branch.prices.cache_write.toString(),
+  }, branch.id)) ?? [],
 })
 
 // 表单接受有限非负数，空串不按 Number 的隐式规则转成免费。
@@ -63,7 +84,7 @@ const editableErrorPaths = (path: string, ruleCount: number): string[] => {
 }
 
 // 校验本地必填与数值后生成完整保存体；权威字段支持及组合费用校验由后端执行。
-function validatedConfig(draft: EditorDraft, existing: ModelPricingConfig | null): { config: ModelPricingConfig | null; errors: FieldErrors } {
+function validatedConfig(draft: EditorDraft): { config: ModelPricingConfig | null; errors: FieldErrors } {
   const errors: FieldErrors = {}
   if (!draft.model.trim()) errors.model = 'required'
   const prices = {} as PricingBasePrices
@@ -93,18 +114,18 @@ function validatedConfig(draft: EditorDraft, existing: ModelPricingConfig | null
     config: {
       model: draft.model.trim(), pricing_style: draft.pricingStyle, base_prices: prices,
       model_multiplier: multiplier, conditional_multipliers: rules,
-      // 完整配置写入时保留已有分支，避免编辑基础价覆盖它们。
-      branches: existing?.branches ?? [],
+      branches: [],
     },
     errors,
   }
 }
 
 // 单窗编辑默认价格、模型倍率与条件倍率，提交失败才展示字段错误；取消不保存。
-export function ModelPricingEditor({ open, initialConfig, modelOptions, onClose, onSave }: ModelPricingEditorProps) {
+export function ModelPricingEditor({ open, initialConfig, modelOptions, timezone, onClose, onSave }: ModelPricingEditorProps) {
   const { t } = useTranslation()
   const formId = useId().replaceAll(':', '')
   const formRef = useRef<HTMLFormElement | null>(null)
+  const previewInitialized = useRef(false)
   const conditionsRef = useRef<HTMLDetailsElement | null>(null)
   const errorRef = useRef<HTMLParagraphElement | null>(null)
   const nextRuleId = useRef(initialConfig?.conditional_multipliers.length ?? 0)
@@ -114,12 +135,31 @@ export function ModelPricingEditor({ open, initialConfig, modelOptions, onClose,
   const [requestError, setRequestError] = useState('')
   const [saving, setSaving] = useState(false)
   const [shakeAttempt, setShakeAttempt] = useState(0)
+  const [branchSession, setBranchSession] = useState<BranchSession | null>(null)
+  const [conditionsOpen, setConditionsOpen] = useState(true)
+  const [branchesOpen, setBranchesOpen] = useState(false)
+  const [previewOpen, setPreviewOpen] = useState(false)
+
+  const attachForm = useCallback((node: HTMLFormElement | null) => {
+    formRef.current = node
+    if (!node || previewInitialized.current) return
+    // Modal 延后挂载内容，因此以实际表单节点首次出现时的宽度初始化。
+    const computed = window.getComputedStyle(node)
+    const availableWidth = node.clientWidth - (parseFloat(computed.paddingLeft) || 0) - (parseFloat(computed.paddingRight) || 0)
+    const wide = availableWidth >= 880
+    setBranchesOpen(wide)
+    setPreviewOpen(wide)
+    previewInitialized.current = true
+  }, [])
 
   useEffect(() => {
     if (!focusPath.current) return
     const path = focusPath.current
     focusPath.current = null
-    if (path.startsWith('conditional_multipliers')) conditionsRef.current!.open = true
+    if (path.startsWith('conditional_multipliers')) {
+      conditionsRef.current!.open = true
+      setConditionsOpen(true)
+    }
     const field = [...(formRef.current?.querySelectorAll<HTMLElement>('[data-pricing-field]') ?? [])]
       .find((element) => element.dataset.pricingField === path)
     const target = field ?? errorRef.current
@@ -150,11 +190,38 @@ export function ModelPricingEditor({ open, initialConfig, modelOptions, onClose,
     if (index >= 0) clearError(`conditional_multipliers[${index}].${field}`)
   }
 
+  // 新增和复制先创建独立子草稿；原分支直到子保存时才被替换。
+  const openBranch = (mode: BranchSession['mode'], branch?: PricingBranchDraft) => {
+    const id = mode === 'edit' ? branch!.id : newBranchId(draft.branches)
+    const source = branch ? { ...branch, context: { ...branch.context }, period: { ...branch.period }, prices: { ...branch.prices } }
+      : makePricingBranchDraft(null, draft.prices, id)
+    const branchDraft = { ...source, id, name: mode === 'copy' ? `${source.name} ${t('usage_stats.pricing_settings_copy_suffix')}` : source.name }
+    setBranchSession({ draft: branchDraft, originalId: mode === 'edit' ? branch!.id : null, mode })
+  }
+
+  const saveBranch = (branchDraft: PricingBranchDraft) => {
+    // 子保存只写模型草稿；离开弹窗前不会向后端提交配置。
+    setDraft((current) => ({
+      ...current,
+      branches: branchSession?.originalId
+        ? current.branches.map((branch) => branch.id === branchSession.originalId ? branchDraft : branch)
+        : [...current.branches, branchDraft],
+    }))
+    setBranchSession(null)
+  }
+
+  // 完整保存发现分支错误时回到对应子编辑，保持其余模型草稿。
+  const openInvalidBranch = (index: number, branchErrors: FieldErrors, conflictIds: string[] = []) => {
+    const branch = draft.branches[index]
+    if (!branch) return
+    setBranchSession({ draft: branch, originalId: branch.id, mode: 'edit', errors: branchErrors, conflictIds })
+  }
+
   // 先定位草稿错误，再提交一次完整配置；服务端字段错误映射回控件，网络错误保留草稿。
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     if (saving) return
-    const validated = validatedConfig(draft, initialConfig)
+    const validated = validatedConfig(draft)
     if (!validated.config) {
       setRequestError('')
       setErrors(validated.errors)
@@ -162,6 +229,22 @@ export function ModelPricingEditor({ open, initialConfig, modelOptions, onClose,
       focusPath.current = Object.keys(validated.errors)[0] ?? null
       return
     }
+    const parsedBranches: PricingPriceBranch[] = []
+    for (const [index, branch] of draft.branches.entries()) {
+      const checked = validatePricingBranchDraft(branch, [])
+      if (!checked.branch) {
+        openInvalidBranch(index, checked.errors, checked.conflictBranchIds)
+        return
+      }
+      parsedBranches.push(checked.branch)
+    }
+    const conflicts = findPricingBranchConflicts(parsedBranches)
+    if (conflicts.length) {
+      const conflict = conflicts[0]
+      openInvalidBranch(conflict.indices[0], { context: 'conflict', period: 'conflict' }, conflict.branchIds)
+      return
+    }
+    validated.config.branches = parsedBranches
     // 保存只提交完整配置；写入成功后的列表刷新失败由 hook 单独报告。
     setSaving(true)
     setRequestError('')
@@ -169,6 +252,18 @@ export function ModelPricingEditor({ open, initialConfig, modelOptions, onClose,
       await onSave(validated.config)
       onClose()
     } catch (failure) {
+      if (failure instanceof ApiError) {
+        const branchField = failure.fields?.find((field) => /^branches\[(\d+)\]/.test(field.path))
+        const match = branchField && /^branches\[(\d+)\](?:\.(.+))?$/.exec(branchField.path)
+        if (match && Number(match[1]) < draft.branches.length) {
+          const path = match[2] ?? 'context'
+          const branchErrors = path === 'prices'
+            ? Object.fromEntries(priceKeys.map((key) => [`prices.${key}`, branchField.code]))
+            : { [path]: branchField.code }
+          openInvalidBranch(Number(match[1]), branchErrors, branchField.branch_ids ?? [])
+          return
+        }
+      }
       const fieldErrors: FieldErrors = {}
       let unmapped = false
       if (failure instanceof ApiError) {
@@ -182,7 +277,7 @@ export function ModelPricingEditor({ open, initialConfig, modelOptions, onClose,
       setShakeAttempt((attempt) => attempt + 1)
       focusPath.current = Object.keys(fieldErrors)[0] ?? null
       const conflict = failure instanceof ApiError ? failure.fields?.find((field) => field.branch_ids?.length) : null
-      const names = conflict?.branch_ids?.map((id) => initialConfig?.branches.find((branch) => branch.id === id)?.name ?? id)
+      const names = conflict?.branch_ids?.map((id) => draft.branches.find((branch) => branch.id === id)?.name ?? id)
       const showSummary = !Object.keys(fieldErrors).length || unmapped || Boolean(names?.length)
       setRequestError(showSummary
         ? `${failure instanceof Error ? failure.message : t('usage_stats.pricing_settings_save_failed')}${names?.length ? ` · ${names.join(' / ')}` : ''}`
@@ -211,7 +306,14 @@ export function ModelPricingEditor({ open, initialConfig, modelOptions, onClose,
 
   return <Modal open={open} title={initialConfig?.model ?? t('usage_stats.pricing_settings_editor_title')}
     width={1120} className={styles.editorModal} closeDisabled={saving} onClose={onClose}>
-    <form ref={formRef} className={styles.editorBody} noValidate onSubmit={(event) => void submit(event)}>
+    {branchSession ? <ModelPricingBranchEditor key={branchSession.draft.id} initialDraft={branchSession.draft}
+      otherBranches={draft.branches.filter((branch) => branch.id !== branchSession.originalId)}
+      mode={branchSession.mode} timezone={timezone} initialErrors={branchSession.errors}
+      initialConflictBranchIds={branchSession.conflictIds}
+      onCancel={() => setBranchSession(null)} onSave={(branchDraft) => saveBranch(branchDraft)} />
+      : <form ref={attachForm} className={styles.editorBody} noValidate onSubmit={(event) => void submit(event)}>
+      <div className={styles.settingsLayout}>
+      <div className={styles.configColumn}>
       {!initialConfig ? <label className={`${styles.modelField} ${errors.model ? styles.invalid : ''}`}
         data-shake={errors.model && shakeAttempt ? shakeAttempt % 2 ? 'odd' : 'even' : undefined}>
         <span>{t('usage_stats.pricing_settings_model')}</span>
@@ -255,7 +357,8 @@ export function ModelPricingEditor({ open, initialConfig, modelOptions, onClose,
         <span>{t('usage_stats.pricing_settings_multiplier_hint')}</span>
       </div>
 
-      <details ref={conditionsRef} className={styles.conditionSection} open>
+      <details ref={conditionsRef} className={styles.conditionSection} data-pricing-conditions open={conditionsOpen}
+        onToggle={(event) => setConditionsOpen(event.currentTarget.open)}>
         <summary className={styles.conditionSummary}>
           <strong>{t('usage_stats.pricing_settings_conditions')}</strong>
           <span>{draft.rules.length}</span>
@@ -281,9 +384,43 @@ export function ModelPricingEditor({ open, initialConfig, modelOptions, onClose,
         </div>
       </details>
 
-      {initialConfig?.branches.length ? <p className={styles.branchSummary}>
-        {t('usage_stats.pricing_settings_existing_branches', { count: initialConfig.branches.length })}
-      </p> : null}
+      <details className={styles.branchSection} data-pricing-branches open={branchesOpen}
+        onToggle={(event) => setBranchesOpen(event.currentTarget.open)}>
+        <summary className={styles.conditionSummary}>
+          <strong>{t('usage_stats.pricing_settings_branches')}</strong><span>{draft.branches.length}</span>
+        </summary>
+        <div className={styles.branchBody}>
+          <p className={styles.hint}>{t('usage_stats.pricing_settings_branches_hint')}</p>
+          {draft.branches.length ? draft.branches.map((branch) => <article key={branch.id} className={styles.branchCard} data-pricing-branch-id={branch.id}>
+            <div className={styles.branchIdentity}>
+              <strong>{branch.name || t('usage_stats.pricing_settings_unnamed_branch')}</strong>
+              <PricingBranchMatch branch={branch} timezone={timezone} />
+            </div>
+            <div className={styles.branchRates}>{priceKeys.map((key) => <span key={key}>
+              {t(`usage_stats.pricing_settings_${key}`)}<strong>${branch.prices[key] || '—'}</strong>
+            </span>)}</div>
+            <div className={styles.branchActions}>
+              <Button type="button" variant="ghost" appearance="action" disabled={saving} data-branch-action="edit"
+                aria-label={t('usage_stats.pricing_settings_edit_branch_named', { name: branch.name })}
+                onClick={() => openBranch('edit', branch)}>{t('common.edit')}</Button>
+              <Button type="button" variant="ghost" appearance="action" disabled={saving} data-branch-action="copy"
+                aria-label={t('usage_stats.pricing_settings_copy_branch_named', { name: branch.name })}
+                onClick={() => openBranch('copy', branch)}>{t('usage_stats.pricing_settings_copy_branch')}</Button>
+              <Button type="button" variant="ghost" appearance="action" disabled={saving} data-branch-action="delete"
+                aria-label={t('usage_stats.pricing_settings_delete_branch_named', { name: branch.name })}
+                onClick={() => { setDraft((current) => ({ ...current, branches: current.branches.filter((item) => item.id !== branch.id) })); setRequestError('') }}>
+                {t('common.delete')}
+              </Button>
+            </div>
+          </article>) : <p className={styles.empty}>{t('usage_stats.pricing_settings_no_branches')}</p>}
+          <Button type="button" variant="secondary" appearance="action" disabled={saving}
+            onClick={() => openBranch('add')}>{t('usage_stats.pricing_settings_add_branch')}</Button>
+        </div>
+      </details>
+      </div>
+      <PricingDraftPreview prices={draft.prices} modelMultiplier={draft.modelMultiplier} branches={draft.branches}
+        conditions={draft.rules} open={previewOpen} onToggle={setPreviewOpen} />
+      </div>
       <p className={styles.historyNotice}>{t('usage_stats.pricing_settings_history_notice')}</p>
       {requestError ? <p ref={errorRef} tabIndex={-1} className={styles.requestError} role="alert" data-pricing-field="request-error">{requestError}</p> : null}
       <div className={styles.editorFooter}>
@@ -291,5 +428,6 @@ export function ModelPricingEditor({ open, initialConfig, modelOptions, onClose,
         <Button type="submit" appearance="action" loading={saving}>{t('common.save')}</Button>
       </div>
     </form>
+    }
   </Modal>
 }

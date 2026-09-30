@@ -143,6 +143,216 @@
   color: var(--text-primary);
 }
 
+.settingsLayout,
+.configColumn,
+.branchBody,
+.previewBody,
+.branchEditorForm {
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+}
+
+.previewColumn {
+  min-width: 0;
+}
+
+.previewDetails,
+.branchSection {
+  padding-top: 12px;
+  border-top: 1px solid var(--border-color);
+}
+
+.previewBody,
+.branchBody {
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.branchBody > :global(.btn) {
+  justify-self: start;
+}
+
+.branchCard {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--border-color);
+  border-radius: 18px;
+  background: color-mix(in srgb, var(--bg-primary) 82%, var(--bg-secondary));
+}
+
+.branchIdentity,
+.branchRates {
+  min-width: 0;
+}
+
+.branchIdentity strong,
+.previewPlan h4 {
+  font-size: 12px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.branchChips,
+.branchActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.branchChips {
+  margin-top: 6px;
+}
+
+.branchChips span {
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--border-color) 48%, transparent);
+  color: var(--text-secondary);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
+.branchRates {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.branchRates span {
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+
+.branchRates strong {
+  display: block;
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+.branchActions {
+  justify-content: flex-end;
+}
+
+.previewIntro,
+.previewCondition {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+
+.previewPlan + .previewPlan {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-color);
+}
+
+.previewPlan h4,
+.previewConditions h4 {
+  margin: 0 0 6px;
+}
+
+.previewTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.previewTable th,
+.previewTable td {
+  padding: 5px 0;
+  text-align: right;
+}
+
+.previewTable th:first-child,
+.previewTable td:first-child {
+  text-align: left;
+}
+
+.previewTable th {
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 400;
+}
+
+.previewTable td:last-child {
+  font-weight: 600;
+}
+
+.previewConditions {
+  display: grid;
+  gap: 8px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border-color);
+}
+
+.previewCondition span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.previewCondition strong {
+  flex-shrink: 0;
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+.branchEditor {
+  container: pricing-editor / inline-size;
+  padding: 20px 24px 0;
+  color: var(--text-primary);
+}
+
+.branchEditorHeading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 18px;
+}
+
+.branchEditorHeading h3 {
+  margin: 0;
+  font-size: 16px;
+}
+
+.branchEditorGrid {
+  display: grid;
+  gap: 18px;
+}
+
+.branchEditorSection {
+  display: grid;
+  align-content: start;
+  gap: 12px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.branchEditorSection legend {
+  margin-bottom: 10px;
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.branchEditorPair,
+.branchPriceGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
 .modelField,
 .styleField,
 .field {
@@ -181,6 +391,7 @@
 }
 
 .field input,
+.field select,
 .modelField select,
 .styleField select {
   box-sizing: border-box;
@@ -203,6 +414,7 @@
 }
 
 .field input:focus-visible,
+.field select:focus-visible,
 .modelField select:focus-visible,
 .styleField select:focus-visible {
   border-color: var(--primary-color);
@@ -210,7 +422,9 @@
 }
 
 .invalid input,
+.invalid select,
 .field input[aria-invalid='true'],
+.field select[aria-invalid='true'],
 .modelField select[aria-invalid='true'],
 .styleField select[aria-invalid='true'] {
   border-color: var(--danger-color);
@@ -236,7 +450,6 @@
 
 .multiplierRow > span,
 .hint,
-.branchSummary,
 .historyNotice {
   margin: 0;
   color: var(--text-secondary);
@@ -296,7 +509,6 @@
   background: color-mix(in srgb, var(--bg-primary) 82%, var(--bg-secondary));
 }
 
-.branchSummary,
 .historyNotice {
   padding: 10px 12px;
   border-radius: 12px;
@@ -368,6 +580,48 @@
   .conditionRow :global(.btn) {
     justify-self: end;
   }
+
+  .branchRates {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@container pricing-editor (min-width: 600px) {
+  .branchEditorGrid {
+    grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
+    gap: 28px;
+  }
+
+  .branchEditorSection + .branchEditorSection {
+    padding-left: 28px;
+    border-left: 1px solid var(--border-color);
+  }
+}
+
+@container pricing-editor (min-width: 880px) {
+  .settingsLayout {
+    grid-template-columns: minmax(0, 1fr) 290px;
+    gap: 24px;
+  }
+
+  .previewColumn {
+    padding-left: 22px;
+    border-left: 1px solid var(--border-color);
+  }
+
+  .previewDetails {
+    padding-top: 0;
+    border-top: 0;
+  }
+
+  .branchCard {
+    grid-template-columns: minmax(130px, 1fr) minmax(210px, 1.5fr) auto;
+    align-items: center;
+  }
+
+  .branchActions {
+    flex-wrap: nowrap;
+  }
 }
 
 @container pricing-editor (max-width: 399px) {
@@ -413,6 +667,10 @@
   }
 
   .editorBody {
+    padding-inline: 16px;
+  }
+
+  .branchEditor {
     padding-inline: 16px;
   }
 

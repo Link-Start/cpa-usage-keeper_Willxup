@@ -13,10 +13,11 @@ const priceKeys: PriceKey[] = ['input', 'output', 'cache_read', 'cache_write']
 export interface PricingSettingsProps {
   enabled?: boolean
   onAuthRequired?: () => void
+  timezone?: string
 }
 
 // 完整模型配置列表负责添加、编辑与删除；写成功后重读配置，不改写历史费用。
-export function PricingSettings({ enabled = true, onAuthRequired }: PricingSettingsProps) {
+export function PricingSettings({ enabled = true, onAuthRequired, timezone }: PricingSettingsProps) {
   const { t } = useTranslation()
   const pricing = useModelPricingData({ enabled, onAuthRequired })
   const [editorConfig, setEditorConfig] = useState<ModelPricingConfig | null>(null)
@@ -106,7 +107,7 @@ export function PricingSettings({ enabled = true, onAuthRequired }: PricingSetti
       </div> : <p className={styles.empty}>{t('usage_stats.model_price_empty')}</p>}
 
     {editorKey > 0 ? <ModelPricingEditor key={editorKey} open={editorOpen} initialConfig={editorConfig}
-      modelOptions={availableModels} onClose={() => setEditorOpen(false)} onSave={saveModel} /> : null}
+      modelOptions={availableModels} timezone={timezone} onClose={() => setEditorOpen(false)} onSave={saveModel} /> : null}
     <Modal open={deleteTarget !== null} title={t('usage_stats.pricing_settings_delete_title')}
       onClose={() => { if (!deleting) setDeleteTarget(null) }} closeDisabled={deleting}
       footer={<div className={styles.deleteFooter}>
