@@ -45,6 +45,14 @@ func (s *pricingStub) DeletePricingModel(context.Context, string) (servicedto.De
 	return servicedto.DeletePricingModelResponse{}, s.err
 }
 
+func (s *pricingStub) FetchPricingSync(context.Context, string) (servicedto.PricingSyncFetchResponse, error) {
+	return servicedto.PricingSyncFetchResponse{}, s.err
+}
+
+func (s *pricingStub) ApplyPricingSync(context.Context, servicedto.PricingSyncApplyRequest) (servicedto.PricingSyncApplyResponse, error) {
+	return servicedto.PricingSyncApplyResponse{}, s.err
+}
+
 func (pricingTimeoutError) Error() string   { return "net/http: TLS handshake timeout" }
 func (pricingTimeoutError) Timeout() bool   { return true }
 func (pricingTimeoutError) Temporary() bool { return true }

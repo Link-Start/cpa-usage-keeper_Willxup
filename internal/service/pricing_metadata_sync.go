@@ -8,23 +8,33 @@ import (
 	"unicode"
 
 	"cpa-usage-keeper/internal/entities"
+	"cpa-usage-keeper/internal/pricing"
 	"cpa-usage-keeper/internal/pricingmetadata"
 	servicedto "cpa-usage-keeper/internal/service/dto"
 )
 
 func (s *pricingService) PreviewPricingSync(ctx context.Context, sourceID string) (servicedto.PricingSyncPreview, error) {
-	if _, err := pricingmetadata.SourceByID(sourceID); err != nil {
-		return servicedto.PricingSyncPreview{}, err
-	}
-	models, err := s.effectiveModels(ctx)
-	if err != nil {
-		return servicedto.PricingSyncPreview{}, err
-	}
-	catalog, err := s.metadataClient.Fetch(ctx, sourceID)
+	models, catalog, err := s.loadPricingSyncCatalog(ctx, sourceID)
 	if err != nil {
 		return servicedto.PricingSyncPreview{}, err
 	}
 	return buildPricingSyncPreviewFromCatalog(models, catalog)
+}
+
+// loadPricingSyncCatalog 让旧预览和新拉取共享来源下载与本地模型列表，避免两套匹配来源。
+func (s *pricingService) loadPricingSyncCatalog(ctx context.Context, sourceID string) ([]string, pricingmetadata.Catalog, error) {
+	if _, err := pricingmetadata.SourceByID(sourceID); err != nil {
+		return nil, pricingmetadata.Catalog{}, err
+	}
+	models, err := s.effectiveModels(ctx)
+	if err != nil {
+		return nil, pricingmetadata.Catalog{}, err
+	}
+	catalog, err := s.metadataClient.Fetch(ctx, sourceID)
+	if err != nil {
+		return nil, pricingmetadata.Catalog{}, err
+	}
+	return models, catalog, nil
 }
 
 func validMetadataPrice(value float64) bool {
@@ -43,13 +53,42 @@ type pricingSyncCandidate struct {
 	idMatchLength int
 }
 
+// pricingSyncMatchedPrice 是来源匹配后的内部事实，两个 API 投影各自选择公开字段。
+type pricingSyncMatchedPrice struct {
+	Model, MatchedModel, MatchType, SourceProviderID, SourceProviderName, PricingStyle string
+	BasePrices                                                                         pricing.BasePrices
+}
+
 func buildPricingSyncPreviewFromCatalog(
 	models []string,
 	catalog pricingmetadata.Catalog,
 ) (servicedto.PricingSyncPreview, error) {
+	matches, unmatched := collectPricingSyncMatches(models, catalog)
+	legacyMatches := make([]servicedto.PricingSyncMatch, 0, len(matches))
+	for _, match := range matches {
+		legacyMatches = append(legacyMatches, servicedto.PricingSyncMatch{
+			Model: match.Model, MatchedModel: match.MatchedModel, MatchType: match.MatchType,
+			SourceProviderID: match.SourceProviderID, SourceProviderName: match.SourceProviderName,
+			PricingStyle:     match.PricingStyle,
+			PromptPricePer1M: match.BasePrices.Input, CompletionPricePer1M: match.BasePrices.Output,
+			CacheReadPricePer1M: match.BasePrices.CacheRead, CacheWritePricePer1M: match.BasePrices.CacheWrite,
+		})
+	}
+	return servicedto.PricingSyncPreview{
+		SourceID:        catalog.Source.ID,
+		Source:          catalog.Source.Name,
+		SourceURL:       catalog.Source.URL,
+		MetadataModels:  len(catalog.Entries),
+		Matches:         legacyMatches,
+		UnmatchedModels: unmatched,
+	}, nil
+}
+
+// collectPricingSyncMatches 保持旧匹配优先级和去重结果，供两个暂时并存的响应投影复用。
+func collectPricingSyncMatches(models []string, catalog pricingmetadata.Catalog) ([]pricingSyncMatchedPrice, []string) {
 	entries := catalog.Entries
 	index := buildPricingCatalogIndex(entries)
-	matches := make([]servicedto.PricingSyncMatch, 0, len(models))
+	matches := make([]pricingSyncMatchedPrice, 0, len(models))
 	unmatched := make([]string, 0)
 	seenModels := make(map[string]struct{}, len(models))
 
@@ -82,17 +121,10 @@ func buildPricingSyncPreviewFromCatalog(
 	})
 	sort.Strings(unmatched)
 
-	return servicedto.PricingSyncPreview{
-		SourceID:        catalog.Source.ID,
-		Source:          catalog.Source.Name,
-		SourceURL:       catalog.Source.URL,
-		MetadataModels:  len(entries),
-		Matches:         matches,
-		UnmatchedModels: unmatched,
-	}, nil
+	return matches, unmatched
 }
 
-func buildPricingSyncMatchFromCandidates(model string, candidates []pricingSyncCandidate) (servicedto.PricingSyncMatch, bool) {
+func buildPricingSyncMatchFromCandidates(model string, candidates []pricingSyncCandidate) (pricingSyncMatchedPrice, bool) {
 	for _, candidate := range candidates {
 		match, ok := buildPricingSyncMatch(
 			model,
@@ -105,7 +137,7 @@ func buildPricingSyncMatchFromCandidates(model string, candidates []pricingSyncC
 			return match, true
 		}
 	}
-	return servicedto.PricingSyncMatch{}, false
+	return pricingSyncMatchedPrice{}, false
 }
 
 func buildPricingCatalogIndex(entries []pricingmetadata.Entry) pricingCatalogIndex {
@@ -446,14 +478,14 @@ func normalizePricingModelKey(value string) string {
 	return builder.String()
 }
 
-func buildPricingSyncMatch(model string, metadataModel pricingmetadata.Model, matchType string, providerID string, providerName string) (servicedto.PricingSyncMatch, bool) {
+func buildPricingSyncMatch(model string, metadataModel pricingmetadata.Model, matchType string, providerID string, providerName string) (pricingSyncMatchedPrice, bool) {
 	if metadataModel.Cost.Input == nil || metadataModel.Cost.Output == nil {
-		return servicedto.PricingSyncMatch{}, false
+		return pricingSyncMatchedPrice{}, false
 	}
 	input := *metadataModel.Cost.Input
 	output := *metadataModel.Cost.Output
 	if !validMetadataPrice(input) || !validMetadataPrice(output) {
-		return servicedto.PricingSyncMatch{}, false
+		return pricingSyncMatchedPrice{}, false
 	}
 
 	pricingStyle := pricingStyleForMetadataModel(metadataModel)
@@ -467,7 +499,7 @@ func buildPricingSyncMatch(model string, metadataModel pricingmetadata.Model, ma
 		cacheWrite = *metadataModel.Cost.CacheWrite
 	}
 	if !validMetadataPrice(cacheRead) || !validMetadataPrice(cacheWrite) {
-		return servicedto.PricingSyncMatch{}, false
+		return pricingSyncMatchedPrice{}, false
 	}
 
 	matchedModel := strings.TrimSpace(metadataModel.ID)
@@ -478,17 +510,10 @@ func buildPricingSyncMatch(model string, metadataModel pricingmetadata.Model, ma
 	if providerName == "" {
 		providerName = strings.TrimSpace(providerID)
 	}
-	return servicedto.PricingSyncMatch{
-		Model:                model,
-		MatchedModel:         matchedModel,
-		MatchType:            matchType,
-		SourceProviderID:     strings.TrimSpace(providerID),
-		SourceProviderName:   providerName,
-		PricingStyle:         pricingStyle,
-		PromptPricePer1M:     input,
-		CompletionPricePer1M: output,
-		CacheReadPricePer1M:  cacheRead,
-		CacheWritePricePer1M: cacheWrite,
+	return pricingSyncMatchedPrice{
+		Model: model, MatchedModel: matchedModel, MatchType: matchType,
+		SourceProviderID: strings.TrimSpace(providerID), SourceProviderName: providerName, PricingStyle: pricingStyle,
+		BasePrices: pricing.BasePrices{Input: input, Output: output, CacheRead: cacheRead, CacheWrite: cacheWrite},
 	}, true
 }
 

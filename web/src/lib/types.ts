@@ -1001,6 +1001,37 @@ export interface PricingSyncMatch {
 
 export type PricingSyncSource = 'models-dev' | 'litellm'
 
+export interface PricingSyncFetchMatch {
+  model: string
+  matched_model: string
+  provider: string
+  pricing_style: PricingStyle
+  base_prices: PricingBasePrices
+}
+
+export interface PricingSyncFetchResponse {
+  source: PricingSyncSource
+  matches: PricingSyncFetchMatch[]
+  unmatched_models: string[]
+}
+
+// 同步只提交四项默认价及来源风格，已存倍率和分支由服务端保留。
+export interface PricingSyncApplyItem {
+  model: string
+  base_prices: PricingBasePrices
+  pricing_style: PricingStyle
+}
+
+export interface PricingSyncApplyRequest {
+  source: PricingSyncSource
+  items: PricingSyncApplyItem[]
+}
+
+export interface PricingSyncApplyResponse {
+  models: ModelPricingConfig[]
+  config_revision: number
+}
+
 export interface PricingSyncPreviewResponse {
   source_id: PricingSyncSource
   source: string

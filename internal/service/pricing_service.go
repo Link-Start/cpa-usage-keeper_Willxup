@@ -29,6 +29,10 @@ type PricingProvider interface {
 	SavePricingModel(context.Context, pricing.ModelPricingConfig) (servicedto.SavePricingModelResponse, error)
 	// DeletePricingModel 只删除当前配置及规则并推进修订，已存事件费用保持不变。
 	DeletePricingModel(context.Context, string) (servicedto.DeletePricingModelResponse, error)
+	// FetchPricingSync 读取选定来源并沿现有匹配规则只返回待审核的基础价。
+	FetchPricingSync(context.Context, string) (servicedto.PricingSyncFetchResponse, error)
+	// ApplyPricingSync 将选中项的默认单价作为一个配置事务提交。
+	ApplyPricingSync(context.Context, servicedto.PricingSyncApplyRequest) (servicedto.PricingSyncApplyResponse, error)
 	ListUsedModels(context.Context) ([]string, error)
 	ListPricing(context.Context) ([]entities.ModelPriceSetting, error)
 	PreviewPricingSync(context.Context, string) (servicedto.PricingSyncPreview, error)
