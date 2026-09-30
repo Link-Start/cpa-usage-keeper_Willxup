@@ -6,7 +6,6 @@ import (
 	"unsafe"
 
 	"cpa-usage-keeper/internal/entities"
-	"cpa-usage-keeper/internal/pricing"
 	. "cpa-usage-keeper/internal/repository"
 	"cpa-usage-keeper/internal/repository/dto"
 	"gorm.io/gorm"
@@ -78,14 +77,14 @@ func hasCachedCredentialHealthKey(cache *UsageRecentEventCache, authType, authIn
 
 // 只传递切片头，不读写、遍历或重新分配元素，避免复制生产私有行结构的内存布局。
 // 窗口行交回原生产聚合函数；健康行仅统计批次长度，字段值经公开健康快照验证。
-type opaqueWindowTokenRows []struct{}
+type opaqueWindowStoredRows []struct{}
 type opaqueCredentialHealthRows []struct{}
 
-//go:linkname sumLongUsageWindowTokenStats cpa-usage-keeper/internal/repository.sumLongUsageWindowTokenStats
-func sumLongUsageWindowTokenStats(db *gorm.DB, authIndex string, start, end time.Time, activeFields pricing.ActiveFields) (opaqueWindowTokenRows, error)
+//go:linkname sumLongUsageWindowStoredStats cpa-usage-keeper/internal/repository.sumLongUsageWindowStoredStats
+func sumLongUsageWindowStoredStats(db *gorm.DB, authIndex string, start, end time.Time) (opaqueWindowStoredRows, error)
 
-//go:linkname usageWindowStatsFromTokenStats cpa-usage-keeper/internal/repository.usageWindowStatsFromTokenStats
-func usageWindowStatsFromTokenStats(rows opaqueWindowTokenRows, costResolver pricing.Resolver) UsageWindowStats
+//go:linkname usageWindowStatsFromStoredRows cpa-usage-keeper/internal/repository.usageWindowStatsFromStoredRows
+func usageWindowStatsFromStoredRows(rows opaqueWindowStoredRows) (UsageWindowStats, error)
 
 //go:linkname loadCredentialHealthCacheRowsBatched cpa-usage-keeper/internal/repository.loadCredentialHealthCacheRowsBatched
 func loadCredentialHealthCacheRowsBatched(db *gorm.DB, start time.Time, batchSize int, handle func(opaqueCredentialHealthRows) error) error

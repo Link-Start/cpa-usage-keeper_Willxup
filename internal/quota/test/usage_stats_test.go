@@ -85,10 +85,12 @@ func TestAttachWindowUsageStatsOnlyBackfillsMissingKnownWindowScopeRows(t *testi
 	now := time.Date(2026, 6, 2, 3, 0, 0, 0, time.UTC)
 
 	if err := db.Create(&entities.UsageEvent{
-		AuthIndex:   "auth-pro",
-		Model:       "gpt-codex",
-		Timestamp:   now.Add(-time.Hour),
-		TotalTokens: 222,
+		AuthIndex:     "auth-pro",
+		Model:         "gpt-codex",
+		Timestamp:     now.Add(-time.Hour),
+		TotalTokens:   222,
+		CostUSD:       floatPtr(0),
+		CostAvailable: boolPtr(true),
 	}).Error; err != nil {
 		t.Fatalf("seed usage event: %v", err)
 	}
@@ -177,10 +179,12 @@ func TestAttachWindowUsageStatsBackfillsBothFieldsWhenProviderWindowUsageIncompl
 	now := time.Date(2026, 6, 2, 3, 0, 0, 0, time.UTC)
 
 	if err := db.Create(&entities.UsageEvent{
-		AuthIndex:   "auth-partial",
-		Model:       "gpt-codex",
-		Timestamp:   now.Add(-time.Hour),
-		TotalTokens: 333,
+		AuthIndex:     "auth-partial",
+		Model:         "gpt-codex",
+		Timestamp:     now.Add(-time.Hour),
+		TotalTokens:   333,
+		CostUSD:       floatPtr(0),
+		CostAvailable: boolPtr(true),
 	}).Error; err != nil {
 		t.Fatalf("seed usage event: %v", err)
 	}
@@ -331,9 +335,10 @@ func TestAttachWindowUsageStatsBackfillsAntigravityGroupsFromOneSharedWindowQuer
 	resetAt := now.Add(2 * time.Hour)
 	alias := "gemini-user-alias"
 	if err := db.Create(&[]entities.UsageEvent{
-		{EventKey: "gemini", AuthIndex: "antigravity-auth", Model: "gemini-3-flash", Timestamp: now.Add(-2 * time.Hour), InputTokens: 1_000_000, TotalTokens: 1_000_000},
-		{EventKey: "claude", AuthIndex: "antigravity-auth", Model: "claude-sonnet-4-6", ModelAlias: &alias, Timestamp: now.Add(-time.Hour), InputTokens: 1_000_000, TotalTokens: 1_000_000},
-		{EventKey: "gpt", AuthIndex: "antigravity-auth", Model: "gpt-oss-120b-medium", Timestamp: now.Add(-30 * time.Minute), InputTokens: 500_000, TotalTokens: 500_000},
+		{EventKey: "gemini", AuthIndex: "antigravity-auth", Model: "gemini-3-flash", Timestamp: now.Add(-2 * time.Hour), InputTokens: 1_000_000, TotalTokens: 1_000_000, CostUSD: floatPtr(0.5), CostAvailable: boolPtr(true)},
+		{EventKey: "gemini-stored-only", AuthIndex: "antigravity-auth", Model: "gemini-unpriced", Timestamp: now.Add(-90 * time.Minute), InputTokens: 500_000, TotalTokens: 500_000, CostUSD: floatPtr(1.5), CostAvailable: boolPtr(true)},
+		{EventKey: "claude", AuthIndex: "antigravity-auth", Model: "claude-sonnet-4-6", ModelAlias: &alias, Timestamp: now.Add(-time.Hour), InputTokens: 1_000_000, TotalTokens: 1_000_000, CostUSD: floatPtr(1.25), CostAvailable: boolPtr(true)},
+		{EventKey: "gpt", AuthIndex: "antigravity-auth", Model: "gpt-oss-120b-medium", Timestamp: now.Add(-30 * time.Minute), InputTokens: 500_000, TotalTokens: 500_000, CostUSD: floatPtr(0.75), CostAvailable: boolPtr(true)},
 	}).Error; err != nil {
 		t.Fatalf("seed Antigravity usage events: %v", err)
 	}
@@ -359,11 +364,17 @@ func TestAttachWindowUsageStatsBackfillsAntigravityGroupsFromOneSharedWindowQuer
 	response = attachWindowUsageStats(service, context.Background(), "antigravity-auth", response, now)
 
 	gemini := findQuotaRow(t, response.Quota, "bucket.antigravity-gemini-models.gemini-5h")
-	if gemini.WindowUsageTokens == nil || *gemini.WindowUsageTokens != 1_000_000 || gemini.WindowUsageCost == nil || !(math.Abs(*gemini.WindowUsageCost-1) <= 0.000000001) {
+	if gemini.RemainingFraction == nil || *gemini.RemainingFraction != remaining {
+		t.Fatalf("Gemini provider quota fraction changed with local cost: %+v", gemini)
+	}
+	if gemini.WindowUsageTokens == nil || *gemini.WindowUsageTokens != 1_500_000 || gemini.WindowUsageCost == nil || !(math.Abs(*gemini.WindowUsageCost-2) <= 0.000000001) {
 		t.Fatalf("unexpected Gemini window usage: tokens=%#v cost=%#v", gemini.WindowUsageTokens, gemini.WindowUsageCost)
 	}
 	claudeGPT := findQuotaRow(t, response.Quota, "bucket.antigravity-claude-and-gpt-models.claude-gpt-5h")
-	if claudeGPT.WindowUsageTokens == nil || *claudeGPT.WindowUsageTokens != 1_500_000 || claudeGPT.WindowUsageCost == nil || !(math.Abs(*claudeGPT.WindowUsageCost-4) <= 0.000000001) {
+	if claudeGPT.RemainingFraction == nil || *claudeGPT.RemainingFraction != remaining {
+		t.Fatalf("Claude/GPT provider quota fraction changed with local cost: %+v", claudeGPT)
+	}
+	if claudeGPT.WindowUsageTokens == nil || *claudeGPT.WindowUsageTokens != 1_500_000 || claudeGPT.WindowUsageCost == nil || !(math.Abs(*claudeGPT.WindowUsageCost-2) <= 0.000000001) {
 		t.Fatalf("expected Claude/GPT usage to ignore the Claude row's Gemini-looking alias, got tokens=%#v cost=%#v", claudeGPT.WindowUsageTokens, claudeGPT.WindowUsageCost)
 	}
 	other := findQuotaRow(t, response.Quota, "other.bucket")
@@ -377,23 +388,28 @@ func TestAttachWindowUsageStatsBackfillsAntigravityGroupsFromOneSharedWindowQuer
 
 func TestAttachWindowUsageStatsSkipsIncompleteAntigravityGroupResults(t *testing.T) {
 	tests := []struct {
-		name  string
-		model string
+		name      string
+		model     string
+		available bool
 	}{
-		{name: "unknown model group", model: "future-model"},
-		{name: "missing model price", model: "gemini-unpriced"},
+		{name: "unknown model group", model: "future-model", available: true},
+		{name: "stored unavailable", model: "gemini-priced", available: false},
 	}
 	for _, testCase := range tests {
 		t.Run(testCase.name, func(t *testing.T) {
 			db := openQuotaTestDB(t)
+			if _, err := repository.UpsertModelPriceSetting(db, dto.ModelPriceSettingInput{Model: "gemini-priced", PromptPricePer1M: 9}); err != nil {
+				t.Fatal(err)
+			}
 			now := time.Date(2026, 9, 2, 12, 0, 0, 0, time.Local)
 			resetAt := now.Add(2 * time.Hour)
 			if err := db.Create(&entities.UsageEvent{
 				EventKey: testCase.name, AuthIndex: "antigravity-auth", Model: testCase.model, Timestamp: now.Add(-time.Hour), InputTokens: 10, TotalTokens: 10,
+				CostUSD: floatPtr(0.25), CostAvailable: boolPtr(testCase.available),
 			}).Error; err != nil {
 				t.Fatalf("seed incomplete Antigravity usage: %v", err)
 			}
-			service := NewServiceWithRegistry(db, NewProviderRegistry(nil), emptyPricingCatalogForTest())
+			service := NewServiceWithRegistry(db, NewProviderRegistry(nil), quotaUsagePricingCatalog(t, db))
 			defer service.StopRefreshTasks()
 			remaining := 0.5
 			response := CheckResponse{ID: "antigravity-auth", Quota: NormalizeQuotaRows(ProviderOutput{Provider: "antigravity", Result: AntigravityResult{Quota: &AntigravityQuotaPayload{Groups: []AntigravityQuotaGroup{{

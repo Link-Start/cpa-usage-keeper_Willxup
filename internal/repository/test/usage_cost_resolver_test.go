@@ -454,7 +454,7 @@ func TestBuildUsageOverviewRealtimeWithRecentCacheReadsStoredModelAndAliasCosts(
 	}
 }
 
-func TestSumUsageWindowStatsByAuthIndexResolvesRawAndHourlyModelAndAliasPrices(t *testing.T) {
+func TestUsageWindowPreservesRawAndHourlyStoredModelCosts(t *testing.T) {
 	for _, test := range []struct {
 		model string
 		cost  float64
@@ -477,12 +477,13 @@ func TestSumUsageWindowStatsByAuthIndexResolvesRawAndHourlyModelAndAliasPrices(t
 				Timestamp:   rawStart.Add(10 * time.Minute),
 				InputTokens: 1_000_000,
 				TotalTokens: 1_000_000,
+				CostUSD:     windowCostPtr(test.cost), CostAvailable: windowAvailablePtr(true),
 			}).Error; err != nil {
 				t.Fatalf("seed raw usage event: %v", err)
 			}
-			rawStats, err := repository.SumUsageWindowStatsByAuthIndex(context.Background(), db, "auth-raw", rawStart, &rawEnd, newUsageCostResolverForTest(t, db))
+			rawStats, err := newUsageWindowCalculatorForTest(t, db).SumByAuthIndex(context.Background(), "auth-raw", rawStart, &rawEnd)
 			if err != nil {
-				t.Fatalf("SumUsageWindowStatsByAuthIndex raw returned error: %v", err)
+				t.Fatalf("SumByAuthIndex raw returned error: %v", err)
 			}
 			assertUsageCostClose(t, rawStats.Cost, test.cost)
 
@@ -496,21 +497,22 @@ func TestSumUsageWindowStatsByAuthIndexResolvesRawAndHourlyModelAndAliasPrices(t
 				ModelAlias:  "alias-model",
 				InputTokens: 1_000_000,
 				TotalTokens: 1_000_000,
-				CreatedAt:   hourlyBucket,
-				UpdatedAt:   hourlyBucket,
+				CostUSD:     windowCostPtr(test.cost), UnavailableCostCount: windowUnavailablePtr(0),
+				CreatedAt: hourlyBucket,
+				UpdatedAt: hourlyBucket,
 			}).Error; err != nil {
 				t.Fatalf("seed hourly stat: %v", err)
 			}
-			hourlyStats, err := repository.SumUsageWindowStatsByAuthIndex(context.Background(), db, "auth-hourly", hourlyStart, &hourlyEnd, newUsageCostResolverForTest(t, db))
+			hourlyStats, err := newUsageWindowCalculatorForTest(t, db).SumByAuthIndex(context.Background(), "auth-hourly", hourlyStart, &hourlyEnd)
 			if err != nil {
-				t.Fatalf("SumUsageWindowStatsByAuthIndex hourly returned error: %v", err)
+				t.Fatalf("SumByAuthIndex hourly returned error: %v", err)
 			}
 			assertUsageCostClose(t, hourlyStats.Cost, test.cost)
 		})
 	}
 }
 
-func TestSumUsageWindowStatsByAuthIndexMergesRawAndHourlyByModelAliasAndModelButPricesByModel(t *testing.T) {
+func TestUsageWindowAddsStoredRawAndHourlyCostsWithoutAliasRepricing(t *testing.T) {
 	db := openTestDatabase(t)
 	upsertUsageCostResolverPrice(t, db, "base-model", 10)
 	upsertUsageCostResolverPrice(t, db, "alias-model", 2)
@@ -520,23 +522,23 @@ func TestSumUsageWindowStatsByAuthIndexMergesRawAndHourlyByModelAliasAndModelBut
 	end := time.Date(2026, 6, 1, 18, 45, 0, 0, time.UTC)
 
 	if _, _, err := repository.InsertUsageEvents(db, []entities.UsageEvent{
-		{EventKey: "left-raw-alias", AuthIndex: authIndex, Model: "base-model", ModelAlias: &alias, Timestamp: time.Date(2026, 6, 1, 10, 30, 0, 0, time.UTC), InputTokens: 1_000_000, TotalTokens: 1_000_000},
-		{EventKey: "left-raw-model", AuthIndex: authIndex, Model: "base-model", Timestamp: time.Date(2026, 6, 1, 10, 35, 0, 0, time.UTC), InputTokens: 500_000, TotalTokens: 500_000},
-		{EventKey: "right-raw-alias", AuthIndex: authIndex, Model: "base-model", ModelAlias: &alias, Timestamp: time.Date(2026, 6, 1, 17, 30, 0, 0, time.UTC), InputTokens: 1_000_000, TotalTokens: 1_000_000},
-		{EventKey: "right-raw-model", AuthIndex: authIndex, Model: "base-model", Timestamp: time.Date(2026, 6, 1, 17, 35, 0, 0, time.UTC), InputTokens: 500_000, TotalTokens: 500_000},
+		{EventKey: "left-raw-alias", AuthIndex: authIndex, Model: "base-model", ModelAlias: &alias, Timestamp: time.Date(2026, 6, 1, 10, 30, 0, 0, time.UTC), InputTokens: 1_000_000, TotalTokens: 1_000_000, CostUSD: windowCostPtr(10), CostAvailable: windowAvailablePtr(true)},
+		{EventKey: "left-raw-model", AuthIndex: authIndex, Model: "base-model", Timestamp: time.Date(2026, 6, 1, 10, 35, 0, 0, time.UTC), InputTokens: 500_000, TotalTokens: 500_000, CostUSD: windowCostPtr(5), CostAvailable: windowAvailablePtr(true)},
+		{EventKey: "right-raw-alias", AuthIndex: authIndex, Model: "base-model", ModelAlias: &alias, Timestamp: time.Date(2026, 6, 1, 17, 30, 0, 0, time.UTC), InputTokens: 1_000_000, TotalTokens: 1_000_000, CostUSD: windowCostPtr(10), CostAvailable: windowAvailablePtr(true)},
+		{EventKey: "right-raw-model", AuthIndex: authIndex, Model: "base-model", Timestamp: time.Date(2026, 6, 1, 17, 35, 0, 0, time.UTC), InputTokens: 500_000, TotalTokens: 500_000, CostUSD: windowCostPtr(5), CostAvailable: windowAvailablePtr(true)},
 	}); err != nil {
 		t.Fatalf("InsertUsageEvents returned error: %v", err)
 	}
 	if err := db.Create(&[]entities.UsageOverviewHourlyStat{
-		{BucketStart: time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC), AuthIndex: authIndex, Model: "base-model", ModelAlias: "alias-model", InputTokens: 1_000_000, TotalTokens: 1_000_000},
-		{BucketStart: time.Date(2026, 6, 1, 13, 0, 0, 0, time.UTC), AuthIndex: authIndex, Model: "base-model", InputTokens: 1_000_000, TotalTokens: 1_000_000},
+		{BucketStart: time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC), AuthIndex: authIndex, Model: "base-model", ModelAlias: "alias-model", InputTokens: 1_000_000, TotalTokens: 1_000_000, CostUSD: windowCostPtr(10), UnavailableCostCount: windowUnavailablePtr(0)},
+		{BucketStart: time.Date(2026, 6, 1, 13, 0, 0, 0, time.UTC), AuthIndex: authIndex, Model: "base-model", InputTokens: 1_000_000, TotalTokens: 1_000_000, CostUSD: windowCostPtr(10), UnavailableCostCount: windowUnavailablePtr(0)},
 	}).Error; err != nil {
 		t.Fatalf("seed hourly stats: %v", err)
 	}
 
-	stats, err := repository.SumUsageWindowStatsByAuthIndex(context.Background(), db, authIndex, start, &end, newUsageCostResolverForTest(t, db))
+	stats, err := newUsageWindowCalculatorForTest(t, db).SumByAuthIndex(context.Background(), authIndex, start, &end)
 	if err != nil {
-		t.Fatalf("SumUsageWindowStatsByAuthIndex returned error: %v", err)
+		t.Fatalf("SumByAuthIndex returned error: %v", err)
 	}
 	if stats.Tokens != 5_000_000 {
 		t.Fatalf("expected raw and hourly tokens to merge by model_alias/model, got %+v", stats)

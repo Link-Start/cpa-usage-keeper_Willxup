@@ -107,10 +107,14 @@ func TestProcessRedisUsageInboxKnownExecutorBypassesIdentityLookup(t *testing.T)
 		t.Fatalf("expected Overview rollup Total=120, got %+v", hourly)
 	}
 
-	// quota window 读取 usage_events 的 corrected Total，但成本仍按 Input=100、Output=20 计算为 0.00014。
+	// quota window 读取 usage_events 的 corrected Total 与同批已存费用 0.00014。
 	windowStart := event.Timestamp.Add(-time.Minute)
 	windowEnd := event.Timestamp.Add(time.Minute)
-	window, err := repository.SumUsageWindowStatsByAuthIndex(context.Background(), db, "missing-but-not-needed", windowStart, &windowEnd, pricingCatalog.NewResolver())
+	calculator, err := repository.NewUsageWindowStatsCalculator(db)
+	if err != nil {
+		t.Fatalf("create usage window calculator: %v", err)
+	}
+	window, err := calculator.SumByAuthIndex(context.Background(), "missing-but-not-needed", windowStart, &windowEnd)
 	if err != nil {
 		t.Fatalf("sum usage window stats: %v", err)
 	}

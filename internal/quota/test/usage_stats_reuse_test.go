@@ -23,9 +23,10 @@ func TestHeaderManualAndScheduledRefreshReuseSameWindowUsageStats(t *testing.T) 
 			seedUsageEvent(t, db, entities.UsageEvent{
 				EventKey: "shared-usage-event", AuthType: "oauth", AuthIndex: "shared-usage-auth", Model: "priced-model",
 				Timestamp: resetAt.Add(-2 * time.Hour), InputTokens: 1_000_000, OutputTokens: 500_000, TotalTokens: 1_500_000,
+				CostUSD: floatPtr(4.25), CostAvailable: boolPtr(true),
 			})
 
-			// 固定价格快照避免测试依赖运行时价格表，同时让 cost 不是无意义的零值。
+			// 当前价格故意不同于已存金额，三个刷新入口必须返回同一历史事实。
 			snapshot, err := pricing.CompileSnapshot([]pricing.ModelConfig{{Pricing: entities.ModelPriceSetting{
 				Model: "priced-model", PromptPricePer1M: 3, CompletionPricePer1M: 15,
 			}}})
@@ -62,7 +63,7 @@ func TestHeaderManualAndScheduledRefreshReuseSameWindowUsageStats(t *testing.T) 
 			if task.Quota == nil || len(task.Quota.Quota) != 1 {
 				t.Fatalf("expected one quota window from %s path, got %+v", entry, task)
 			}
-			assertWindowUsage(t, task.Quota.Quota[0], 1_500_000, 10.5)
+			assertWindowUsage(t, task.Quota.Quota[0], 1_500_000, 4.25)
 
 		})
 	}

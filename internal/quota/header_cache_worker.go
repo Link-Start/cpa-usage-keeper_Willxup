@@ -420,7 +420,7 @@ func (s *Service) applyUsageHeaderSnapshotPointers(ctx context.Context, snapshot
 		return
 	}
 	// header quota 还要补本地窗口 token/cost，因此每批复用一个窗口统计 provider。
-	statsProvider := s.usageHeaderWindowStatsProvider(ctx)
+	statsProvider := s.usageHeaderWindowStatsProvider()
 	if statsProvider == nil {
 		// 批量 header 更新必须与窗口 token/cost 使用同一统计基础；统计器不可用时整批跳过，避免写入半套 cache。
 		return
@@ -547,8 +547,9 @@ func usageHeaderSnapshotAuthIndexes(snapshots []*UsageHeaderSnapshot) []string {
 	return authIndexes
 }
 
-func (s *Service) usageHeaderWindowStatsProvider(ctx context.Context) usageWindowStatsProvider {
-	calculator, err := repository.NewUsageWindowStatsCalculator(ctx, s.db, s.pricing.NewResolver())
+// usageHeaderWindowStatsProvider 给 Header 配额补充入口提供只读已存窗口费用，不查询当前模型价。
+func (s *Service) usageHeaderWindowStatsProvider() usageWindowStatsProvider {
+	calculator, err := repository.NewUsageWindowStatsCalculator(s.db)
 	if err != nil {
 		logrus.WithError(err).Debug("usage header quota window stats calculator unavailable")
 		return nil
