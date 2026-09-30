@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/Button'
 import { Modal } from '@/components/ui/Modal'
 import { useModelPricingData } from '@/components/usage/hooks/useModelPricingData'
 import type { ModelPricingConfig, PricingBasePrices } from '@/lib/types'
+import { CompletePricingSyncModal } from './CompletePricingSyncModal'
 import { ModelPricingEditor } from './ModelPricingEditor'
 import styles from './PricingSettings.module.scss'
 
@@ -27,6 +28,7 @@ export function PricingSettings({ enabled = true, onAuthRequired, timezone }: Pr
   const [deleting, setDeleting] = useState(false)
   const [deleteError, setDeleteError] = useState('')
   const [notice, setNotice] = useState('')
+  const [syncOpen, setSyncOpen] = useState(false)
 
   // 新增入口只列尚未配置的模型；编辑始终保留完整的现有配置。
   const availableModels = useMemo(() => {
@@ -67,8 +69,12 @@ export function PricingSettings({ enabled = true, onAuthRequired, timezone }: Pr
   return <section className={styles.settings} aria-label={t('usage_stats.model_price_settings_title')}>
     <div className={styles.listHeader}>
       <h2>{t('usage_stats.model_price_settings_title')}</h2>
-      <Button type="button" appearance="action" disabled={!availableModels.length || pricing.loading}
-        onClick={() => openEditor(null)}>{t('usage_stats.pricing_settings_add')}</Button>
+      <div className={styles.headerActions}>
+        <Button type="button" variant="secondary" appearance="action" disabled={!enabled || pricing.loading || Boolean(pricing.error)}
+          onClick={() => { setNotice(''); setSyncOpen(true) }}>{t('usage_stats.pricing_settings_sync_title')}</Button>
+        <Button type="button" appearance="action" disabled={!availableModels.length || pricing.loading}
+          onClick={() => openEditor(null)}>{t('usage_stats.pricing_settings_add')}</Button>
+      </div>
     </div>
     <div className={styles.listLabel}>
       <strong>{t('usage_stats.saved_prices')} · {pricing.models.length}</strong>
@@ -108,6 +114,8 @@ export function PricingSettings({ enabled = true, onAuthRequired, timezone }: Pr
 
     {editorKey > 0 ? <ModelPricingEditor key={editorKey} open={editorOpen} initialConfig={editorConfig}
       modelOptions={availableModels} timezone={timezone} onClose={() => setEditorOpen(false)} onSave={saveModel} /> : null}
+    <CompletePricingSyncModal open={syncOpen} models={pricing.models} onClose={() => setSyncOpen(false)}
+      onRefreshPricing={pricing.loadPricing} onNotice={setNotice} onAuthRequired={onAuthRequired} />
     <Modal open={deleteTarget !== null} title={t('usage_stats.pricing_settings_delete_title')}
       onClose={() => { if (!deleting) setDeleteTarget(null) }} closeDisabled={deleting}
       footer={<div className={styles.deleteFooter}>
