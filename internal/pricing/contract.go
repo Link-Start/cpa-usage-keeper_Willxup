@@ -26,7 +26,16 @@ func (p *BasePrices) UnmarshalJSON(data []byte) error {
 		return err
 	}
 	if wire.Input == nil || wire.Output == nil || wire.CacheRead == nil || wire.CacheWrite == nil {
-		return fmt.Errorf("base_prices requires input, output, cache_read and cache_write")
+		switch {
+		case wire.Input == nil:
+			return invalidPricingField("input", "required", "input price is required")
+		case wire.Output == nil:
+			return invalidPricingField("output", "required", "output price is required")
+		case wire.CacheRead == nil:
+			return invalidPricingField("cache_read", "required", "cache read price is required")
+		default:
+			return invalidPricingField("cache_write", "required", "cache write price is required")
+		}
 	}
 	*p = BasePrices{Input: *wire.Input, Output: *wire.Output, CacheRead: *wire.CacheRead, CacheWrite: *wire.CacheWrite}
 	return nil
@@ -45,22 +54,55 @@ type ModelPricingConfig struct {
 // UnmarshalJSON 保证完整保存不会将省略的字段悄悄转换为免费、倍率零或清空规则。
 func (c *ModelPricingConfig) UnmarshalJSON(data []byte) error {
 	var wire struct {
-		Model                  *string        `json:"model"`
-		PricingStyle           *string        `json:"pricing_style"`
-		BasePrices             *BasePrices    `json:"base_prices"`
-		ModelMultiplier        *float64       `json:"model_multiplier"`
-		ConditionalMultipliers *[]RuleConfig  `json:"conditional_multipliers"`
-		Branches               *[]PriceBranch `json:"branches"`
+		Model                  *string         `json:"model"`
+		PricingStyle           *string         `json:"pricing_style"`
+		BasePrices             json.RawMessage `json:"base_prices"`
+		ModelMultiplier        *float64        `json:"model_multiplier"`
+		ConditionalMultipliers json.RawMessage `json:"conditional_multipliers"`
+		Branches               json.RawMessage `json:"branches"`
 	}
 	if err := decodePricingObject(data, &wire); err != nil {
 		return err
 	}
-	if wire.Model == nil || wire.PricingStyle == nil || wire.BasePrices == nil || wire.ModelMultiplier == nil || wire.ConditionalMultipliers == nil || wire.Branches == nil {
-		return fmt.Errorf("model pricing config requires model, pricing_style, base_prices, model_multiplier, conditional_multipliers and branches")
+	for _, field := range []struct {
+		name    string
+		missing bool
+	}{
+		{"model", wire.Model == nil}, {"pricing_style", wire.PricingStyle == nil},
+		{"base_prices", missingPricingJSONField(wire.BasePrices)}, {"model_multiplier", wire.ModelMultiplier == nil},
+		{"conditional_multipliers", missingPricingJSONField(wire.ConditionalMultipliers)}, {"branches", missingPricingJSONField(wire.Branches)},
+	} {
+		if field.missing {
+			return invalidPricingField(field.name, "required", field.name+" is required")
+		}
+	}
+	var basePrices BasePrices
+	if err := json.Unmarshal(wire.BasePrices, &basePrices); err != nil {
+		return prefixPricingValidationError("base_prices", err)
+	}
+	var rawRules []json.RawMessage
+	if err := json.Unmarshal(wire.ConditionalMultipliers, &rawRules); err != nil {
+		return err
+	}
+	rules := make([]RuleConfig, len(rawRules))
+	for index, raw := range rawRules {
+		if err := json.Unmarshal(raw, &rules[index]); err != nil {
+			return prefixPricingValidationError(fmt.Sprintf("conditional_multipliers[%d]", index), err)
+		}
+	}
+	var rawBranches []json.RawMessage
+	if err := json.Unmarshal(wire.Branches, &rawBranches); err != nil {
+		return err
+	}
+	branches := make([]PriceBranch, len(rawBranches))
+	for index, raw := range rawBranches {
+		if err := json.Unmarshal(raw, &branches[index]); err != nil {
+			return prefixPricingValidationError(fmt.Sprintf("branches[%d]", index), err)
+		}
 	}
 	*c = ModelPricingConfig{
-		Model: *wire.Model, PricingStyle: *wire.PricingStyle, BasePrices: *wire.BasePrices,
-		ModelMultiplier: *wire.ModelMultiplier, ConditionalMultipliers: *wire.ConditionalMultipliers, Branches: *wire.Branches,
+		Model: *wire.Model, PricingStyle: *wire.PricingStyle, BasePrices: basePrices,
+		ModelMultiplier: *wire.ModelMultiplier, ConditionalMultipliers: rules, Branches: branches,
 	}
 	return nil
 }
@@ -77,19 +119,39 @@ type PriceBranch struct {
 // UnmarshalJSON 拒绝缺失的分支条件或价格，具体区间与冲突留给配置编译器检查。
 func (b *PriceBranch) UnmarshalJSON(data []byte) error {
 	var wire struct {
-		ID      *string           `json:"id"`
-		Name    *string           `json:"name"`
-		Context *ContextCondition `json:"context"`
-		Period  *PeriodCondition  `json:"period"`
-		Prices  *BasePrices       `json:"prices"`
+		ID      *string         `json:"id"`
+		Name    *string         `json:"name"`
+		Context json.RawMessage `json:"context"`
+		Period  json.RawMessage `json:"period"`
+		Prices  json.RawMessage `json:"prices"`
 	}
 	if err := decodePricingObject(data, &wire); err != nil {
 		return err
 	}
-	if wire.ID == nil || wire.Name == nil || wire.Context == nil || wire.Period == nil || wire.Prices == nil {
-		return fmt.Errorf("price branch requires id, name, context, period and prices")
+	for _, field := range []struct {
+		name    string
+		missing bool
+	}{
+		{"id", wire.ID == nil}, {"name", wire.Name == nil}, {"context", missingPricingJSONField(wire.Context)},
+		{"period", missingPricingJSONField(wire.Period)}, {"prices", missingPricingJSONField(wire.Prices)},
+	} {
+		if field.missing {
+			return invalidPricingField(field.name, "required", field.name+" is required")
+		}
 	}
-	*b = PriceBranch{ID: *wire.ID, Name: *wire.Name, Context: *wire.Context, Period: *wire.Period, Prices: *wire.Prices}
+	var context ContextCondition
+	if err := json.Unmarshal(wire.Context, &context); err != nil {
+		return prefixPricingValidationError("context", err)
+	}
+	var period PeriodCondition
+	if err := json.Unmarshal(wire.Period, &period); err != nil {
+		return prefixPricingValidationError("period", err)
+	}
+	var prices BasePrices
+	if err := json.Unmarshal(wire.Prices, &prices); err != nil {
+		return prefixPricingValidationError("prices", err)
+	}
+	*b = PriceBranch{ID: *wire.ID, Name: *wire.Name, Context: context, Period: period, Prices: prices}
 	return nil
 }
 
@@ -126,23 +188,32 @@ func (c *ContextCondition) UnmarshalJSON(data []byte) error {
 		return err
 	}
 	if wire.Type == nil {
-		return fmt.Errorf("context type is required")
+		return invalidPricingField("type", "required", "context type is required")
 	}
 	switch *wire.Type {
 	case ContextAll:
 		if hasPricingField(present, "threshold", "min", "max") {
-			return fmt.Errorf("all context does not accept thresholds")
+			return invalidPricingField("type", "invalid", "all context does not accept thresholds")
 		}
 	case ContextGT, ContextLTE:
-		if wire.Threshold == nil || hasPricingField(present, "min", "max") {
-			return fmt.Errorf("%s context requires only threshold", *wire.Type)
+		if wire.Threshold == nil {
+			return invalidPricingField("threshold", "required", "context threshold is required")
+		}
+		if hasPricingField(present, "min", "max") {
+			return invalidPricingField("type", "invalid", "context accepts only threshold")
 		}
 	case ContextRange:
-		if hasPricingField(present, "threshold") || wire.Min == nil || wire.Max == nil {
-			return fmt.Errorf("range context requires only min and max")
+		if wire.Min == nil {
+			return invalidPricingField("min", "required", "range min is required")
+		}
+		if wire.Max == nil {
+			return invalidPricingField("max", "required", "range max is required")
+		}
+		if hasPricingField(present, "threshold") {
+			return invalidPricingField("type", "invalid", "range accepts only min and max")
 		}
 	default:
-		return fmt.Errorf("unknown context type %q", *wire.Type)
+		return invalidPricingField("type", "invalid", "unknown context type")
 	}
 	*c = ContextCondition{Type: *wire.Type, Threshold: wire.Threshold, Min: wire.Min, Max: wire.Max}
 	return nil
@@ -177,19 +248,22 @@ func (p *PeriodCondition) UnmarshalJSON(data []byte) error {
 		return err
 	}
 	if wire.Type == nil {
-		return fmt.Errorf("period type is required")
+		return invalidPricingField("type", "required", "period type is required")
 	}
 	switch *wire.Type {
 	case PeriodAll:
 		if hasPricingField(present, "start", "end") {
-			return fmt.Errorf("all period does not accept start or end")
+			return invalidPricingField("type", "invalid", "all period does not accept start or end")
 		}
 	case PeriodWindow:
-		if wire.Start == nil || wire.End == nil {
-			return fmt.Errorf("window period requires start and end")
+		if wire.Start == nil {
+			return invalidPricingField("start", "required", "period start is required")
+		}
+		if wire.End == nil {
+			return invalidPricingField("end", "required", "period end is required")
 		}
 	default:
-		return fmt.Errorf("unknown period type %q", *wire.Type)
+		return invalidPricingField("type", "invalid", "unknown period type")
 	}
 	*p = PeriodCondition{Type: *wire.Type, Start: wire.Start, End: wire.End}
 	return nil
@@ -215,4 +289,8 @@ func hasPricingField(fields map[string]json.RawMessage, names ...string) bool {
 		}
 	}
 	return false
+}
+
+func missingPricingJSONField(raw json.RawMessage) bool {
+	return len(raw) == 0 || bytes.Equal(bytes.TrimSpace(raw), []byte("null"))
 }

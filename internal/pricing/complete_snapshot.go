@@ -43,10 +43,13 @@ func CompilePricingSnapshot(configs []ModelPricingConfig, location *time.Locatio
 	legacy := make([]ModelConfig, len(configs))
 	for index, config := range configs {
 		if config.PricingStyle != entities.ModelPricingStyleOpenAI && config.PricingStyle != entities.ModelPricingStyleClaude {
-			return nil, fmt.Errorf("model %q: pricing_style must be openai or claude", config.Model)
+			return nil, invalidPricingField("pricing_style", "invalid", "pricing_style must be openai or claude")
 		}
-		if config.ConditionalMultipliers == nil || config.Branches == nil {
-			return nil, fmt.Errorf("model %q: conditional_multipliers and branches are required arrays", config.Model)
+		if config.ConditionalMultipliers == nil {
+			return nil, invalidPricingField("conditional_multipliers", "required", "conditional_multipliers is required")
+		}
+		if config.Branches == nil {
+			return nil, invalidPricingField("branches", "required", "branches is required")
 		}
 		multiplier := config.ModelMultiplier
 		legacy[index] = ModelConfig{
@@ -77,10 +80,10 @@ func CompilePricingSnapshot(configs []ModelPricingConfig, location *time.Locatio
 		for branchIndex, input := range config.Branches {
 			candidate, normalized, err := compilePriceBranch(input, compiled.pricing, compiled.rules)
 			if err != nil {
-				return nil, fmt.Errorf("model %q branches[%d]: %w", normalizedModel, branchIndex, err)
+				return nil, prefixPricingValidationError(fmt.Sprintf("branches[%d]", branchIndex), err)
 			}
 			if _, exists := seen[normalized.ID]; exists {
-				return nil, fmt.Errorf("model %q: duplicate branch id %q", normalizedModel, normalized.ID)
+				return nil, invalidPricingField(fmt.Sprintf("branches[%d].id", branchIndex), "invalid", "duplicate branch id")
 			}
 			seen[normalized.ID] = struct{}{}
 			for earlierIndex, earlier := range compiled.branches {
@@ -115,15 +118,18 @@ func compilePriceBranch(input PriceBranch, modelPricing entities.ModelPriceSetti
 	normalized.ID = strings.TrimSpace(normalized.ID)
 	normalized.Name = strings.TrimSpace(normalized.Name)
 	if normalized.ID == "" || normalized.Name == "" {
-		return compiledBranch{}, PriceBranch{}, fmt.Errorf("branch id and name are required")
+		if normalized.ID == "" {
+			return compiledBranch{}, PriceBranch{}, invalidPricingField("id", "required", "branch id is required")
+		}
+		return compiledBranch{}, PriceBranch{}, invalidPricingField("name", "required", "branch name is required")
 	}
 	context, err := compileContext(normalized.Context)
 	if err != nil {
-		return compiledBranch{}, PriceBranch{}, err
+		return compiledBranch{}, PriceBranch{}, prefixPricingValidationError("context", err)
 	}
 	periods, err := compilePeriod(normalized.Period)
 	if err != nil {
-		return compiledBranch{}, PriceBranch{}, err
+		return compiledBranch{}, PriceBranch{}, prefixPricingValidationError("period", err)
 	}
 	pricing := modelPricing
 	pricing.PromptPricePer1M = normalized.Prices.Input
@@ -131,10 +137,10 @@ func compilePriceBranch(input PriceBranch, modelPricing entities.ModelPriceSetti
 	pricing.CacheReadPricePer1M = normalized.Prices.CacheRead
 	pricing.CacheWritePricePer1M = normalized.Prices.CacheWrite
 	if err := validatePricingNumbers(pricing); err != nil {
-		return compiledBranch{}, PriceBranch{}, err
+		return compiledBranch{}, PriceBranch{}, branchPricingValidationError(err)
 	}
 	if err := validateWorstCaseCost(pricing, rules); err != nil {
-		return compiledBranch{}, PriceBranch{}, err
+		return compiledBranch{}, PriceBranch{}, branchPricingValidationError(err)
 	}
 	return compiledBranch{prices: normalized.Prices, context: context, periods: periods, allDay: normalized.Period.Type == PeriodAll}, normalized, nil
 }
@@ -144,27 +150,31 @@ func compileContext(condition ContextCondition) (tokenInterval, error) {
 	switch condition.Type {
 	case ContextAll:
 		if condition.Threshold != nil || condition.Min != nil || condition.Max != nil {
-			return tokenInterval{}, fmt.Errorf("all context does not accept thresholds")
+			return tokenInterval{}, invalidPricingField("type", "invalid", "all context does not accept thresholds")
 		}
 		return tokenInterval{0, math.MaxInt64}, nil
 	case ContextGT, ContextLTE:
 		if condition.Threshold == nil || condition.Min != nil || condition.Max != nil || *condition.Threshold < 0 || *condition.Threshold > maxSafeContextToken {
-			return tokenInterval{}, fmt.Errorf("%s context requires a non-negative safe threshold", condition.Type)
+			return tokenInterval{}, invalidPricingField("threshold", "invalid", "context requires a non-negative safe threshold")
 		}
 		if condition.Type == ContextGT {
 			if *condition.Threshold == maxSafeContextToken {
-				return tokenInterval{}, fmt.Errorf("gt threshold plus one must be a safe integer")
+				return tokenInterval{}, invalidPricingField("threshold", "invalid", "gt threshold plus one must be a safe integer")
 			}
 			return tokenInterval{*condition.Threshold + 1, math.MaxInt64}, nil
 		}
 		return tokenInterval{0, *condition.Threshold}, nil
 	case ContextRange:
 		if condition.Threshold != nil || condition.Min == nil || condition.Max == nil || *condition.Min < 0 || *condition.Max > maxSafeContextToken || *condition.Min > *condition.Max {
-			return tokenInterval{}, fmt.Errorf("range context requires ordered non-negative safe min and max")
+			path := "min"
+			if condition.Max == nil || condition.Max != nil && *condition.Max > maxSafeContextToken {
+				path = "max"
+			}
+			return tokenInterval{}, invalidPricingField(path, "invalid", "range context requires ordered non-negative safe min and max")
 		}
 		return tokenInterval{*condition.Min, *condition.Max}, nil
 	default:
-		return tokenInterval{}, fmt.Errorf("unknown context type %q", condition.Type)
+		return tokenInterval{}, invalidPricingField("type", "invalid", "unknown context type")
 	}
 }
 
@@ -173,23 +183,23 @@ func compilePeriod(condition PeriodCondition) ([]minuteInterval, error) {
 	switch condition.Type {
 	case PeriodAll:
 		if condition.Start != nil || condition.End != nil {
-			return nil, fmt.Errorf("all period does not accept start or end")
+			return nil, invalidPricingField("type", "invalid", "all period does not accept start or end")
 		}
 		return []minuteInterval{{0, 1440}}, nil
 	case PeriodWindow:
 		if condition.Start == nil || condition.End == nil {
-			return nil, fmt.Errorf("window period requires start and end")
+			return nil, invalidPricingField("start", "required", "window period requires start and end")
 		}
 		start, err := parseClockMinute(*condition.Start)
 		if err != nil {
-			return nil, err
+			return nil, prefixPricingValidationError("start", err)
 		}
 		end, err := parseClockMinute(*condition.End)
 		if err != nil {
-			return nil, err
+			return nil, prefixPricingValidationError("end", err)
 		}
 		if start == end {
-			return nil, fmt.Errorf("window start and end must differ")
+			return nil, invalidPricingField("end", "invalid", "window start and end must differ")
 		}
 		if start < end {
 			return []minuteInterval{{start, end}}, nil
@@ -199,18 +209,18 @@ func compilePeriod(condition PeriodCondition) ([]minuteInterval, error) {
 		}
 		return []minuteInterval{{start, 1440}, {0, end}}, nil
 	default:
-		return nil, fmt.Errorf("unknown period type %q", condition.Type)
+		return nil, invalidPricingField("type", "invalid", "unknown period type")
 	}
 }
 
 func parseClockMinute(value string) (int, error) {
 	if len(value) != 5 || value[2] != ':' || value[0] < '0' || value[0] > '9' || value[1] < '0' || value[1] > '9' || value[3] < '0' || value[3] > '9' || value[4] < '0' || value[4] > '9' {
-		return 0, fmt.Errorf("period time %q must be HH:mm", value)
+		return 0, invalidPricingField("", "invalid", "period time must be HH:mm")
 	}
 	hour := int(value[0]-'0')*10 + int(value[1]-'0')
 	minute := int(value[3]-'0')*10 + int(value[4]-'0')
 	if hour > 23 || minute > 59 {
-		return 0, fmt.Errorf("period time %q is outside the day", value)
+		return 0, invalidPricingField("", "invalid", "period time is outside the day")
 	}
 	return hour*60 + minute, nil
 }

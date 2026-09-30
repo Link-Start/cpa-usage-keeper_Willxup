@@ -1,16 +1,20 @@
 import { type AnalysisLatencyDiagnostics, type AnalysisResponse, type AuthFilesManagementResponse, type AuthManagedSessionsResponse, type AuthSessionResponse, type CodexQuotaHistoryResponse, type CpaApiKeyDisplayItem, type CpaApiKeyOptionsResponse, type CpaApiKeySettingsResponse, type CpaApiKeysResponse, type ErrorEventsResponse, type OverviewRealtimeBlock, type OverviewRealtimeWindow, type PricingEntry, type PricingResponse, type PricingRulesResponse, type PricingSyncPreviewResponse, type PricingSyncSource, type QuotaAutoRefreshSettings, type ReplacePricingRulesRequest, type StatusResponse, type UpdateCheckResponse, type UsageActivityRequest, type UsageActivityResponse, type UsageEventModelFilterOptionsResponse, type UsageEventRequestLogResponse, type UsageEventSourceFilterOptionsResponse, type UsageRangeRequest, type UsedModelsResponse, type UsageIdentitiesPageResponse, type UsageIdentitiesResponse, type UsageEventsResponse, type UsageIdentity, type UsageIdentityAuthType, type UsageOverviewComparisons, type UsageOverviewResponse, type UsageQuotaCacheResponse, type UsageQuotaInspectionStatusResponse, type UsageQuotaRefreshResponse, type UsageQuotaRefreshTaskResponse, type UsageQuotaResetCreditsResponse, type UsageQuotaResetResponse, type VersionResponse } from './types'
+import type { DeletePricingModelResponse, ModelPricingConfig, PricingErrorResponse, PricingFieldError, PricingModelOptionsResponse, PricingModelsResponse, SavePricingModelResponse } from './types'
 import { isCPAMCEmbed } from '@/embed/cpamcEmbed'
 import { resolveUsageRequestRange } from '@/utils/usage/rangeQuery'
 
 export class ApiError extends Error {
   status: number
   code?: string
+  // 价格表单按字段路径标红，分支冲突用 branch_ids 指明双方。
+  fields?: PricingFieldError[]
 
-  constructor(message: string, status: number, code?: string) {
+  constructor(message: string, status: number, code?: string, fields?: PricingFieldError[]) {
     super(message)
     this.name = 'ApiError'
     this.status = status
     this.code = code
+    this.fields = fields
   }
 }
 
@@ -135,18 +139,20 @@ export function apiPath(path: string): string {
 async function parseApiError(response: Response, fallback: string): Promise<never> {
   let message = fallback
   let code: string | undefined
+  let fields: PricingFieldError[] | undefined
   try {
-    const payload = await response.json() as { error?: string; message?: string; code?: string }
+    const payload = await response.json() as Partial<PricingErrorResponse> & { error?: string }
     if (payload.error) {
       message = payload.error
     } else if (payload.message) {
       message = payload.message
     }
     code = payload.code
+    fields = Array.isArray(payload.fields) ? payload.fields : undefined
   } catch {
     // ignore invalid error payloads
   }
-  throw new ApiError(message, response.status, code)
+  throw new ApiError(message, response.status, code, fields)
 }
 
 function isMutatingMethod(method: string | undefined): boolean {
@@ -998,6 +1004,51 @@ export async function fetchPricing(signal?: AbortSignal): Promise<PricingRespons
   const response = await apiFetch(apiPath('/pricing'), { signal })
   if (!response.ok) {
     await parseApiError(response, `Failed to load pricing: ${response.status}`)
+  }
+  return response.json()
+}
+
+// 列表同时返回完整配置与已保存修订，供编辑和重算确认使用。
+export async function fetchPricingModels(signal?: AbortSignal): Promise<PricingModelsResponse> {
+  const response = await apiFetch(apiPath('/pricing/models'), { signal, cache: 'no-store' })
+  if (!response.ok) {
+    await parseApiError(response, `Failed to load pricing models: ${response.status}`)
+  }
+  return response.json()
+}
+
+// 候选模型沿用服务端的完整标识来源与去重结果。
+export async function fetchPricingModelOptions(signal?: AbortSignal): Promise<PricingModelOptionsResponse> {
+  const response = await apiFetch(apiPath('/pricing/model-options'), { signal, cache: 'no-store' })
+  if (!response.ok) {
+    await parseApiError(response, `Failed to load pricing model options: ${response.status}`)
+  }
+  return response.json()
+}
+
+// 一次保存完整配置；空倍率和分支数组表示清空，历史已存费用保持原值。
+export async function savePricingModel(config: ModelPricingConfig, signal?: AbortSignal): Promise<SavePricingModelResponse> {
+  const response = await apiFetch(apiPath('/pricing/models'), {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(config),
+    signal,
+  })
+  if (!response.ok) {
+    await parseApiError(response, `Failed to save pricing model: ${response.status}`)
+  }
+  return response.json()
+}
+
+// 仅删除当前配置；模型名放在查询参数中，包含斜杠时仍可准确传递。
+export async function deletePricingModel(model: string, signal?: AbortSignal): Promise<DeletePricingModelResponse> {
+  const params = new URLSearchParams({ model })
+  const response = await apiFetch(`${apiPath('/pricing/models')}?${params.toString()}`, {
+    method: 'DELETE',
+    signal,
+  })
+  if (!response.ok) {
+    await parseApiError(response, `Failed to delete pricing model: ${response.status}`)
   }
   return response.json()
 }

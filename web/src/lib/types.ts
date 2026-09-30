@@ -856,6 +856,76 @@ export interface CpaApiKeyOptionsResponse {
 
 export type PricingStyle = 'openai' | 'claude'
 
+// 完整模型配置与后端保存合同一致；条件只携带当前 type 允许的字段。
+export interface PricingBasePrices {
+  input: number
+  output: number
+  cache_read: number
+  cache_write: number
+}
+
+export interface PricingConditionalMultiplier {
+  key: string
+  value: string
+  multiplier: number
+}
+
+export type PricingContextCondition =
+  | { type: 'all' }
+  | { type: 'gt' | 'lte'; threshold: number }
+  | { type: 'range'; min: number; max: number }
+
+export type PricingPeriodCondition =
+  | { type: 'all' }
+  | { type: 'window'; start: string; end: string }
+
+export interface PricingPriceBranch {
+  id: string
+  name: string
+  context: PricingContextCondition
+  period: PricingPeriodCondition
+  prices: PricingBasePrices
+}
+
+export interface ModelPricingConfig {
+  model: string
+  pricing_style: PricingStyle
+  base_prices: PricingBasePrices
+  model_multiplier: number
+  conditional_multipliers: PricingConditionalMultiplier[]
+  branches: PricingPriceBranch[]
+}
+
+export interface PricingModelsResponse {
+  models: ModelPricingConfig[]
+  config_revision: number
+}
+
+export interface PricingModelOptionsResponse {
+  models: string[]
+}
+
+export interface SavePricingModelResponse {
+  model: string
+  config_revision: number
+}
+
+export interface DeletePricingModelResponse {
+  config_revision: number
+}
+
+export interface PricingFieldError {
+  path: string
+  code: string
+  branch_ids?: string[]
+}
+
+export interface PricingErrorResponse {
+  code: string
+  message: string
+  fields?: PricingFieldError[]
+}
+
 export interface ModelPrice {
 	style: PricingStyle
 	prompt: number

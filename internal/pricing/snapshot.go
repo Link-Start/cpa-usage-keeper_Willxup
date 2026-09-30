@@ -28,7 +28,14 @@ func (r *RuleConfig) UnmarshalJSON(data []byte) error {
 		return err
 	}
 	if wire.Key == nil || wire.Value == nil || wire.Multiplier == nil {
-		return fmt.Errorf("conditional multiplier requires key, value and multiplier")
+		switch {
+		case wire.Key == nil:
+			return invalidPricingField("key", "required", "conditional multiplier key is required")
+		case wire.Value == nil:
+			return invalidPricingField("value", "required", "conditional multiplier value is required")
+		default:
+			return invalidPricingField("multiplier", "required", "conditional multiplier value is required")
+		}
 	}
 	*r = RuleConfig{Key: *wire.Key, Value: *wire.Value, Multiplier: *wire.Multiplier}
 	return nil
@@ -89,7 +96,7 @@ func compileModelConfig(config ModelConfig) (compiledModel, ModelConfig, error) 
 	pricing := cloneModelPriceSetting(config.Pricing)
 	pricing.Model = strings.TrimSpace(pricing.Model)
 	if pricing.Model == "" {
-		return compiledModel{}, ModelConfig{}, fmt.Errorf("model is required")
+		return compiledModel{}, ModelConfig{}, invalidPricingField("model", "required", "model is required")
 	}
 	if err := validatePricingNumbers(pricing); err != nil {
 		return compiledModel{}, ModelConfig{}, err
@@ -101,11 +108,11 @@ func compileModelConfig(config ModelConfig) (compiledModel, ModelConfig, error) 
 	for index := range config.Rules {
 		rule, compiledRuleValue, err := compileRule(config.Rules[index])
 		if err != nil {
-			return compiledModel{}, ModelConfig{}, fmt.Errorf("rule at index %d: %w", index, err)
+			return compiledModel{}, ModelConfig{}, prefixPricingValidationError(fmt.Sprintf("conditional_multipliers[%d]", index), err)
 		}
 		identity := ruleIdentity{key: rule.Key, value: rule.Value}
 		if _, exists := seen[identity]; exists {
-			return compiledModel{}, ModelConfig{}, fmt.Errorf("duplicate rule %s=%q", rule.Key, rule.Value)
+			return compiledModel{}, ModelConfig{}, invalidPricingField(fmt.Sprintf("conditional_multipliers[%d].key", index), "invalid", "duplicate rule key and value")
 		}
 		seen[identity] = struct{}{}
 		normalizedRules = append(normalizedRules, rule)
@@ -130,28 +137,31 @@ type ruleIdentity struct {
 func compileRule(input RuleConfig) (RuleConfig, compiledRule, error) {
 	field, err := ParseRuleField(input.Key)
 	if err != nil {
-		return RuleConfig{}, compiledRule{}, err
+		return RuleConfig{}, compiledRule{}, invalidPricingField("key", "invalid", err.Error())
 	}
 	value := strings.TrimSpace(input.Value)
 	if value == "" {
-		return RuleConfig{}, compiledRule{}, fmt.Errorf("rule value is required")
+		return RuleConfig{}, compiledRule{}, invalidPricingField("value", "required", "rule value is required")
 	}
 	if !isNonNegativeFinite(input.Multiplier) {
-		return RuleConfig{}, compiledRule{}, fmt.Errorf("rule multiplier must be a finite non-negative number")
+		return RuleConfig{}, compiledRule{}, invalidPricingField("multiplier", "invalid", "rule multiplier must be a finite non-negative number")
 	}
 	normalized := RuleConfig{Key: field.String(), Value: value, Multiplier: input.Multiplier}
 	return normalized, compiledRule{field: field, value: value, multiplier: input.Multiplier}, nil
 }
 
 func validatePricingNumbers(pricing entities.ModelPriceSetting) error {
-	for name, value := range map[string]float64{
-		"prompt price":      pricing.PromptPricePer1M,
-		"completion price":  pricing.CompletionPricePer1M,
-		"cache read price":  pricing.CacheReadPricePer1M,
-		"cache write price": pricing.CacheWritePricePer1M,
+	for _, field := range []struct {
+		path, name string
+		value      float64
+	}{
+		{"base_prices.input", "prompt price", pricing.PromptPricePer1M},
+		{"base_prices.output", "completion price", pricing.CompletionPricePer1M},
+		{"base_prices.cache_read", "cache read price", pricing.CacheReadPricePer1M},
+		{"base_prices.cache_write", "cache write price", pricing.CacheWritePricePer1M},
 	} {
-		if !isNonNegativeFinite(value) {
-			return fmt.Errorf("%s must be a finite non-negative number", name)
+		if !isNonNegativeFinite(field.value) {
+			return invalidPricingField(field.path, "invalid", field.name+" must be a finite non-negative number")
 		}
 	}
 	multiplier := 1.0
@@ -159,7 +169,7 @@ func validatePricingNumbers(pricing entities.ModelPriceSetting) error {
 		multiplier = *pricing.PriceMultiplier
 	}
 	if !isNonNegativeFinite(multiplier) {
-		return fmt.Errorf("model price multiplier must be a finite non-negative number")
+		return invalidPricingField("model_multiplier", "invalid", "model price multiplier must be a finite non-negative number")
 	}
 	pricing.PriceMultiplier = &multiplier
 	return nil
@@ -189,12 +199,12 @@ func validateWorstCaseCost(pricing entities.ModelPriceSetting, rules []compiledR
 		var ok bool
 		maxRuleMultiplier, ok = safeMultiply(maxRuleMultiplier, maxByField[field])
 		if !ok {
-			return fmt.Errorf("combined pricing rule multiplier is not finite")
+			return invalidPricingField("conditional_multipliers", "invalid", "combined pricing rule multiplier is not finite")
 		}
 	}
 	totalMultiplier, ok := safeMultiply(modelMultiplier, maxRuleMultiplier)
 	if !ok {
-		return fmt.Errorf("combined model and rule multiplier is not finite")
+		return invalidPricingField("model_multiplier", "invalid", "combined model and rule multiplier is not finite")
 	}
 
 	maxTokensPerMillion := float64(math.MaxInt64) / 1_000_000
@@ -208,13 +218,13 @@ func validateWorstCaseCost(pricing entities.ModelPriceSetting, rules []compiledR
 	} {
 		segment, segmentOK := safeMultiply(price, maxTokensPerMillion)
 		if !segmentOK || unscaledTotal > math.MaxFloat64-segment {
-			return fmt.Errorf("unscaled worst-case token cost is not finite")
+			return invalidPricingField("base_prices", "invalid", "unscaled worst-case token cost is not finite")
 		}
 		unscaledTotal += segment
 
 		segment, segmentOK = safeMultiply(segment, totalMultiplier)
 		if !segmentOK || scaledTotal > math.MaxFloat64-segment {
-			return fmt.Errorf("worst-case token cost is not finite")
+			return invalidPricingField("base_prices", "invalid", "worst-case token cost is not finite")
 		}
 		scaledTotal += segment
 	}

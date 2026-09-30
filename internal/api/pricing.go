@@ -52,6 +52,7 @@ type updatePricingRequest struct {
 }
 
 func registerPricingRoutes(router gin.IRoutes, pricingProvider service.PricingProvider) {
+	registerCompletePricingRoutes(router, pricingProvider)
 	router.GET("/models/used", func(c *gin.Context) {
 		if pricingProvider == nil {
 			c.JSON(http.StatusOK, usedModelsResponse{Models: []string{}})
