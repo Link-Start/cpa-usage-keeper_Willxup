@@ -11,7 +11,7 @@
 .intro {
   margin: 0 0 20px;
   color: var(--text-secondary);
-  font-size: 13px;
+  font-size: 12px;
 }
 
 .range,
@@ -32,7 +32,7 @@
 .startFields {
   align-items: end;
   min-width: 0;
-  flex: 1;
+  flex: 0 1 320px;
 }
 
 .startFields label {
@@ -42,48 +42,11 @@
   min-width: 0;
   flex: 1;
   color: var(--text-secondary);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
 }
 
-.startFields label::after {
-  content: '';
-  position: absolute;
-  right: 16px;
-  bottom: 17px;
-  width: 7px;
-  height: 7px;
-  border-right: 1.5px solid var(--text-secondary);
-  border-bottom: 1.5px solid var(--text-secondary);
-  transform: rotate(45deg);
-  pointer-events: none;
-}
-
-.startFields select {
-  width: 100%;
-  min-width: 0;
-  min-height: 40px;
-  padding: 8px 34px 8px 12px;
-  border: 1px solid var(--border-color);
-  border-radius: 999px;
-  // WebKit 暗色原生外观会覆盖主题背景，改由主题色绘制控件和箭头。
-  appearance: none;
-  background: var(--bg-primary);
-  color: var(--text-primary);
-  color-scheme: light;
-  font: inherit;
-  font-size: 12px;
-  font-variant-numeric: tabular-nums;
-}
-
-.startFields select option {
-  background: var(--bg-primary);
-  color: var(--text-primary);
-}
-
-:global([data-theme='dark']) .startFields select {
-  color-scheme: dark;
-}
+.startFields button { font-variant-numeric: tabular-nums; }
 
 .rangeEnd {
   display: flex;
@@ -103,7 +66,7 @@
 .muted {
   margin: 10px 0;
   color: var(--text-secondary);
-  font-size: 11px;
+  font-size: 12px;
   overflow-wrap: anywhere;
 }
 
@@ -138,7 +101,7 @@
   margin-top: 12px;
   padding: 12px 14px;
   border-radius: 16px;
-  background: var(--bg-primary);
+  background: var(--bg-secondary);
 }
 
 .modelList > .muted {
@@ -149,8 +112,7 @@
   display: grid;
   gap: 7px;
   min-width: 0;
-  padding-top: 10px;
-  border-top: 1px solid var(--border-color);
+  padding-top: 0;
 }
 
 .model strong {
@@ -162,30 +124,20 @@
 }
 
 .modelPrices {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 8px;
-  font-size: 11px;
-}
-
-.modelPrices span {
-  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  font-size: 12px;
   color: var(--text-secondary);
-  overflow-wrap: anywhere;
 }
-
-.modelPrices b {
-  color: var(--text-primary);
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-}
+.modelPrices span { overflow-wrap: anywhere; min-width: 0; }
 
 .footer {
   justify-content: flex-end;
   flex-wrap: wrap;
-  margin: 18px -24px 0;
-  padding: 16px 24px;
-  border-top: 1px solid var(--border-color);
+  width: 100%;
+  margin: 0;
+  padding: 0;
 }
 
 .progressTitle {
@@ -212,13 +164,11 @@
   border-radius: 999px;
   background: var(--bg-primary);
 }
-
 .progress > div {
   height: 100%;
   background: var(--primary-color);
   transition: width 200ms ease;
 }
-
 .stages {
   display: flex;
   justify-content: space-between;
@@ -227,12 +177,14 @@
   padding: 0;
   list-style: none;
   color: var(--text-secondary);
-  font-size: 11px;
+  font-size: 12px;
 }
-
 .stages li[data-current='true'] {
   color: var(--text-primary);
   font-weight: 700;
+}
+@media (prefers-reduced-motion: reduce) {
+  .progress > div { transition: none; }
 }
 
 .success,
@@ -264,14 +216,7 @@
 }
 
 @media (max-width: 620px) {
-  .range {
-    align-items: stretch;
-    flex-direction: column;
-  }
-
-  .range > span {
-    align-self: flex-start;
-  }
+  .range { min-width: 0; }
 }
 
 @media (max-width: 399px) {
@@ -279,23 +224,53 @@
     padding-inline: 16px;
   }
 
-  .startFields {
-    align-items: stretch;
-    flex-direction: column;
-  }
 
   .modelPrices {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 4px 10px;
   }
 
-  .footer {
-    margin-inline: -16px;
-    padding-inline: 16px;
-  }
+
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .progress > div {
-    transition: none;
-  }
+
+// 时间输入保留两个字段；箭头按控件高度居中，不参与标签高度计算。
+.startFields label:first-child { flex: 1.55; }
+.startFields label:last-child { flex: 1; }
+.rangeArrow { display: flex; align-items: center; justify-content: center; height: 40px; flex: 0 0 20px; color: var(--text-secondary); font-size: 18px; }
+.impact { display: flex; align-items: start; gap: 8px; }
+.impact svg { flex-shrink: 0; }
+.savedPricing summary { list-style: none; }
+.savedPricing summary::-webkit-details-marker { display: none; }
+.savedPricing summary > svg { margin-left: auto; }
+.savedPricing[open] > summary > svg { transform: rotate(180deg); }
+.model + .model { padding-top: 10px; border-top: 1px solid var(--border-color); }
+@media (max-width: 620px) {
+  .range { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: end; gap: 8px; }
+  .startFields { flex-basis: auto; }
+  .range > .rangeArrow { align-self: end; }
 }
+@media (max-width: 479px) {
+  .range { grid-template-columns: minmax(0, 1fr) auto; }
+  .startFields { grid-column: 1 / -1; flex-direction: row; }
+  .rangeArrow { justify-self: end; }
+  .rangeEnd { justify-self: end; }
+}
+@media (pointer: coarse) {
+  .startFields button { min-height: 44px; font-size: 14px; }
+  .rangeArrow, .rangeEnd { min-height: 44px; }
+  .footer :global(.btn.btn-action) { min-height: 44px; }
+}
+
+@media (max-width: 479px) and (pointer: coarse) {
+  // 手机日期至少容纳完整 YYYY-MM-DD；小时仅需 HH:mm。
+  .startFields { gap: 8px; }
+  .startFields label:first-child { flex: 1.75; }
+  .startFields button { padding-inline: 8px; gap: 4px; }
+
+}
+
+.startFields button[aria-haspopup="listbox"] { border-radius: 999px; box-shadow: none; }
+
+.modal :global(.modal-body) { min-height: 0; padding-bottom: 20px; }
+.modal :global(.modal-footer) { flex: 0 0 auto; }
+.modal :global(.modal-footer) .footer :global(.btn) { width: auto; }

@@ -1,11 +1,11 @@
+import { Select } from '@/components/ui/Select'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/Button'
 import { Modal } from '@/components/ui/Modal'
 import { ApiError, fetchPricingRecalculationOptions } from '@/lib/api'
 import type { ModelPricingConfig, PricingRecalculationOptions, PricingRecalculationTask, StartPricingRecalculationResponse } from '@/lib/types'
-import { PricingDraftPreview } from './PricingDraftPreview'
-import { makePricingBranchDraft } from './pricingBranchDraft'
+import { IconInfo, IconChevronDown } from '@/components/ui/icons'
 import { buildPricingRecalculationHours } from './pricingRecalculationHours'
 import styles from './PricingRecalculationModal.module.scss'
 
@@ -38,21 +38,19 @@ function taskRangeHasDifferentOffsets(start: string, end: string): boolean {
   return offset(start) !== offset(end)
 }
 
-// 每个模型复用编辑器的纯只读预览，展示默认价、分支匹配和条件倍率。
-function SavedModelPricingPreview({ model, timezone }: { model: ModelPricingConfig; timezone?: string }) {
-  const [open, setOpen] = useState(true)
-  const prices = {
-    input: String(model.base_prices.input), output: String(model.base_prices.output),
-    cache_read: String(model.base_prices.cache_read), cache_write: String(model.base_prices.cache_write),
-  }
+// 重算确认只概览已保存基础价与规则数量，不把倍率乘入单价，也不展开编辑器内容。
+function SavedModelPricingPreview({ model }: { model: ModelPricingConfig }) {
+  const { t } = useTranslation()
+  const keys = ['input', 'output', 'cache_read', 'cache_write'] as const
   return <article className={styles.model}>
     <strong>{model.model}</strong>
-    <PricingDraftPreview prices={prices} modelMultiplier={String(model.model_multiplier)}
-      branches={model.branches.map((branch) => makePricingBranchDraft(branch, prices, branch.id))}
-      conditions={model.conditional_multipliers.map((condition) => ({
-        key: condition.key, value: condition.value, multiplier: String(condition.multiplier),
-      }))}
-      open={open} onToggle={setOpen} showBranchMatches branchTimezone={timezone} />
+    <div className={styles.modelPrices}>
+      {keys.map((key) => <span key={key}>{t(`usage_stats.pricing_settings_${key}`)}: ${model.base_prices[key]}</span>)}
+      <span>{t('usage_stats.pricing_settings_model_multiplier')}: ×{model.model_multiplier}</span>
+      <span>{t('usage_stats.pricing_settings_rule_counts', {
+        branches: model.branches.length, conditions: model.conditional_multipliers.length,
+      })}</span>
+    </div>
   </article>
 }
 
@@ -196,7 +194,12 @@ export function PricingRecalculationModal({
   const showRangeOffsets = currentTask ? taskRangeHasDifferentOffsets(currentTask.start_at, currentTask.end_at) : false
 
   return <Modal open={open} width={720} title={t('usage_stats.pricing_recalculation_title')} onClose={onClose}
-    closeDisabled={starting} className={styles.modal}>
+    closeDisabled={starting} className={styles.modal} footer={currentTask ? <div className={styles.footer}><Button type="button" variant="secondary" appearance="action" data-recalculation-close
+          onClick={onClose}>{t(currentTask.status === 'running' ? 'usage_stats.pricing_recalculation_background' : 'usage_stats.pricing_recalculation_return')}</Button></div> : <div className={styles.footer}>
+          <Button type="button" variant="secondary" appearance="action" disabled={starting} onClick={onClose}>{t('common.cancel')}</Button>
+          <Button type="button" appearance="action" data-recalculation-start disabled={!canStart} loading={starting}
+            onClick={() => void start()}>{t('usage_stats.pricing_recalculation_start')}</Button>
+        </div>}>
     <div className={styles.body}>
       {currentTask ? <>
         <div className={styles.progressTitle}>
@@ -213,7 +216,7 @@ export function PricingRecalculationModal({
         <p className={styles.muted}>{currentTask.total_count !== null && currentTask.total_count > 0
           ? t('usage_stats.pricing_recalculation_processed_total', { processed: currentTask.processed_count, total: currentTask.total_count })
           : t('usage_stats.pricing_recalculation_processed', { processed: currentTask.processed_count })}</p>
-        {currentTask.status === 'running' ? <p className={styles.impact}>{t('usage_stats.pricing_recalculation_impact')}</p> : null}
+        {currentTask.status === 'running' ? <p className={styles.impact}><IconInfo size={16} />{t('usage_stats.pricing_recalculation_impact')}</p> : null}
         {currentTask.status === 'completed' ? <p role="status" className={styles.success}>{t('usage_stats.pricing_recalculation_done')}</p> : null}
         {currentTask.status === 'failed' ? <p role="alert" className={styles.failure}>
           {currentTask.error?.message || t('usage_stats.pricing_recalculation_failed')}
@@ -222,40 +225,39 @@ export function PricingRecalculationModal({
           <span>{t('usage_stats.pricing_recalculation_connection_lost')}</span>
           <Button type="button" variant="secondary" appearance="action" onClick={() => void onRefreshCurrent()}>{t('common.retry')}</Button>
         </div> : null}
-        <div className={styles.footer}><Button type="button" variant="secondary" appearance="action" data-recalculation-close
-          onClick={onClose}>{t(currentTask.status === 'running' ? 'usage_stats.pricing_recalculation_background' : 'usage_stats.pricing_recalculation_return')}</Button></div>
+
       </> : <>
         <p className={styles.intro}>{t('usage_stats.pricing_recalculation_intro')}</p>
         <div className={styles.range}>
           <div className={styles.startFields}>
             <label>{t('usage_stats.pricing_recalculation_start_date')}
-              <select data-recalculation-date value={selectedDate} disabled={!dates.length || optionsLoading || reloading || starting}
-                onChange={(event) => {
-                  const date = event.target.value
+              <Select dataAttributes={{ 'data-recalculation-date': true }} value={optionsLoading ? '' : selectedDate} placeholder={optionsLoading ? t('common.loading') : undefined} disabled={!dates.length || optionsLoading || reloading || starting}
+                ariaLabel={t('usage_stats.pricing_recalculation_start_date')}
+                options={dates.map((date) => ({ value: date, label: date }))}
+                onChange={(date) => {
                   setSelectedDate(date)
                   setSelectedHour(hours.filter((hour) => hour.date === date).at(-1)?.value ?? '')
-                }}>{dates.map((date) => <option key={date} value={date}>{date}</option>)}</select>
+                }} />
             </label>
             <label>{t('usage_stats.pricing_recalculation_start_hour')}
-              <select data-recalculation-hour value={selectedHour} disabled={!hoursOnDate.length || optionsLoading || reloading || starting}
-                onChange={(event) => setSelectedHour(event.target.value)}>
-                {hoursOnDate.map((hour) => <option key={hour.value} value={hour.value}>{hour.hourLabel}</option>)}
-              </select>
+              <Select dataAttributes={{ 'data-recalculation-hour': true }} value={optionsLoading ? '' : selectedHour} placeholder={optionsLoading ? t('common.loading') : undefined} disabled={!hoursOnDate.length || optionsLoading || reloading || starting}
+                ariaLabel={t('usage_stats.pricing_recalculation_start_hour')}
+                options={hoursOnDate.map((hour) => ({ value: hour.value, label: hour.hourLabel }))}
+                onChange={setSelectedHour} />
             </label>
           </div>
-          <span aria-hidden="true">→</span>
+          <span className={styles.rangeArrow} aria-hidden="true">→</span>
           <div className={styles.rangeEnd}><strong>{t('usage_stats.pricing_recalculation_until_now')}</strong></div>
         </div>
         <p className={styles.muted}>{t('usage_stats.pricing_recalculation_recent_days', { days: options?.max_days ?? 30 })}</p>
-        <p className={styles.impact}>{t('usage_stats.pricing_recalculation_impact')}</p>
+        <p className={styles.impact}><IconInfo size={16} />{t('usage_stats.pricing_recalculation_impact')}</p>
         <details className={styles.savedPricing}>
-          <summary>{t('usage_stats.pricing_recalculation_saved_pricing')} <span>{t('usage_stats.pricing_recalculation_model_count', { count: models.length })}</span></summary>
+          <summary>{t('usage_stats.pricing_recalculation_saved_pricing')} <span>{t('usage_stats.pricing_recalculation_model_count', { count: models.length })}</span><IconChevronDown size={16} /></summary>
           <div className={styles.modelList}>
             <p className={styles.muted}>{t('usage_stats.pricing_settings_price_unit')}</p>
-            {models.map((model) => <SavedModelPricingPreview key={model.model} model={model} timezone={options?.timezone} />)}
+            {models.map((model) => <SavedModelPricingPreview key={model.model} model={model} />)}
           </div>
         </details>
-        {optionsLoading ? <p role="status" className={styles.muted}>{t('common.loading')}</p> : null}
         {options && !hours.length ? <p role="status" className={styles.muted}>{t('usage_stats.pricing_recalculation_no_data')}</p> : null}
         {optionsError ? <p role="alert" className={styles.failure}>{optionsError}</p> : null}
         {mismatch || requiresReconfirm ? <div role="alert" className={styles.failure}>
@@ -265,11 +267,7 @@ export function PricingRecalculationModal({
         </div> : null}
         {startAttempted && error && errorCode !== 'pricing_changed' && errorCode !== 'pricing_busy' ? <p role="alert" className={styles.failure}>{error}</p> : null}
         {startAttempted && errorCode === 'pricing_busy' && !task ? <p role="status" className={styles.failure}>{t('usage_stats.pricing_recalculation_busy')}</p> : null}
-        <div className={styles.footer}>
-          <Button type="button" variant="secondary" appearance="action" disabled={starting} onClick={onClose}>{t('common.cancel')}</Button>
-          <Button type="button" appearance="action" data-recalculation-start disabled={!canStart} loading={starting}
-            onClick={() => void start()}>{t('usage_stats.pricing_recalculation_start')}</Button>
-        </div>
+
       </>}
     </div>
   </Modal>

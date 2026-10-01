@@ -73,23 +73,43 @@ describe('PricingRecalculationModal', () => {
       onStart={onStart} onReloadPricing={onReloadPricing} onRefreshCurrent={async () => null} onClose={onClose} {...overrides} />))
   }
 
+  it('shows loading inside disabled time controls until options arrive', async () => {
+    let finish!: (response: Response) => void
+    vi.mocked(fetch).mockImplementationOnce(() => new Promise<Response>((resolve) => { finish = resolve }))
+    await renderModal()
+    const date = document.querySelector<HTMLButtonElement>('[data-recalculation-date]')!
+    const hour = document.querySelector<HTMLButtonElement>('[data-recalculation-hour]')!
+    expect(date.disabled).toBe(true)
+    expect(hour.disabled).toBe(true)
+    expect(date.textContent).toBe('common.loading')
+    expect(hour.textContent).toBe('common.loading')
+    expect(document.querySelector('[role="dialog"] p[role="status"]')).toBeNull()
+    await act(async () => finish(Response.json({ timezone: 'Asia/Kolkata',
+      earliest_start: '2026-09-22T09:30:00+05:30', latest_start: '2026-09-22T11:30:00+05:30',
+      step_seconds: 3600, max_days: 30, config_revision: 7 })))
+    expect(date.disabled).toBe(false)
+    expect(hour.disabled).toBe(false)
+    expect(date.textContent).toBe('2026-09-22')
+    expect(hour.textContent).toBe('11:30')
+  })
+
   it('uses one saved model snapshot and server hours, preserving the half-hour offset in the start request', async () => {
     await renderModal()
     expect(optionsCalls).toBe(1)
     const dialog = document.querySelector<HTMLElement>('[role="dialog"]')!
     expect(dialog.textContent).toContain('model-a')
     expect(dialog.textContent).toContain('model-b')
-    expect(dialog.textContent).toContain('$18')
-    expect(dialog.textContent).toContain('Night')
-    expect(dialog.textContent).toContain('> 200000 Token')
-    expect(dialog.textContent).toContain('22:00–06:00')
-    expect(dialog.textContent).toContain('endpoint = /v1/messages')
-    expect(dialog.textContent).toContain('×2')
+    expect(dialog.textContent).toContain('$15')
+    expect(dialog.textContent).not.toContain('$18')
+    expect(dialog.textContent).not.toContain('Night')
+    expect(dialog.textContent).not.toContain('endpoint = /v1/messages')
+    expect(dialog.textContent).toContain('×1.2')
+    expect(dialog.textContent).toContain('usage_stats.pricing_settings_rule_counts:{"branches":1,"conditions":1}')
     expect(dialog.textContent).toContain('usage_stats.pricing_recalculation_recent_days')
-    const date = dialog.querySelector<HTMLSelectElement>('[data-recalculation-date]')!
-    const hour = dialog.querySelector<HTMLSelectElement>('[data-recalculation-hour]')!
-    expect(date.value).toBe('2026-09-22')
-    expect(hour.value).toBe('2026-09-22T11:30:00+05:30')
+    const date = dialog.querySelector<HTMLButtonElement>('[data-recalculation-date]')!
+    const hour = dialog.querySelector<HTMLButtonElement>('[data-recalculation-hour]')!
+    expect(date.textContent).toBe('2026-09-22')
+    expect(hour.textContent).toBe('11:30')
     await act(async () => dialog.querySelector<HTMLButtonElement>('[data-recalculation-start]')!.click())
     expect(onStart).toHaveBeenCalledTimes(1)
     expect(onStart).toHaveBeenCalledWith('2026-09-22T11:30:00+05:30', 7)
