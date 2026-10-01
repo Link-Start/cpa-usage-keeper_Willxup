@@ -8,6 +8,7 @@ import type { ModelPricingConfig, PricingRecalculationTask } from '@/lib/types'
 import { PricingSettings } from '../PricingSettings'
 
 vi.mock('react-i18next', () => ({
+  Trans: ({ i18nKey, values }: { i18nKey: string; values: Record<string, number> }) => `${i18nKey}:${JSON.stringify(values)}`,
   initReactI18next: { type: '3rdParty', init: () => undefined },
   useTranslation: () => ({ t: (key: string, params?: Record<string, unknown>) => (
     params ? `${key}:${JSON.stringify(params)}` : key
@@ -388,13 +389,11 @@ describe('PricingSettings', () => {
     expect(title()).not.toContain('usage_stats.pricing_settings_unsaved')
   })
 
-  it('places a completed recalculation after the model list without a running banner', async () => {
+  it('does not append a completed recalculation notice to the model list', async () => {
     currentTask = { ...runningTask, status: 'completed', stage: 'finalizing', processed_count: 8 }
     await renderSettings()
-    expect(document.body.textContent).toContain('usage_stats.pricing_recalculation_list_done')
+    expect(document.querySelector('section[aria-label="usage_stats.model_price_settings_title"] > p[role="status"]')).toBeNull()
     expect(document.body.textContent).not.toContain('usage_stats.pricing_recalculation_view_progress')
-    expect(document.body.textContent!.indexOf('usage_stats.pricing_recalculation_list_done'))
-      .toBeGreaterThan(document.body.textContent!.indexOf(existing.model))
   })
 
   it('requires confirmation before deleting configuration and keeps the model query intact', async () => {

@@ -9,6 +9,7 @@ import type { ModelPricingConfig, PricingBasePrices, PricingRecalculationTask } 
 import { CompletePricingSyncModal } from './CompletePricingSyncModal'
 import { ModelPricingEditor } from './ModelPricingEditor'
 import { PricingRecalculationModal } from './PricingRecalculationModal'
+import { PricingRuleCounts } from './PricingRuleCounts'
 import { usePricingRecalculation } from './usePricingRecalculation'
 import styles from './PricingSettings.module.scss'
 
@@ -146,9 +147,7 @@ export const PricingSettings = forwardRef<PricingSettingsHandle, PricingSettings
           </div>
           <div className={styles.modelMeta}>
             <strong>{t('usage_stats.pricing_settings_model_multiplier')} ×{config.model_multiplier}</strong>
-            <span>{t('usage_stats.pricing_settings_rule_counts', {
-              branches: config.branches.length, conditions: config.conditional_multipliers.length,
-            })}</span>
+            <PricingRuleCounts branches={config.branches.length} conditions={config.conditional_multipliers.length} />
           </div>
           <div className={styles.modelActions}>
             <Button type="button" variant="secondary" appearance="action" disabled={pricingLocked} onClick={() => openEditor(config)}>{t('common.edit')}</Button>
@@ -160,9 +159,7 @@ export const PricingSettings = forwardRef<PricingSettingsHandle, PricingSettings
       </div> : <p className={styles.empty}>{t('usage_stats.model_price_empty')}</p>}
 
     {notice ? <p className={styles.notice} role="status">{notice}</p> : null}
-    {recalculation.task?.status === 'completed' ? <p className={styles.notice} role="status">
-      {t('usage_stats.pricing_recalculation_list_done', { count: recalculation.task.processed_count })}
-    </p> : recalculation.task?.status === 'failed' ? <p className={styles.listError} role="alert">
+    {recalculation.task?.status === 'failed' ? <p className={styles.listError} role="alert">
       {recalculation.task.error?.message || t('usage_stats.pricing_recalculation_failed')}
       {' '}{t('usage_stats.pricing_recalculation_partial_kept')}
     </p> : null}

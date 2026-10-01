@@ -7,6 +7,7 @@ import type { ModelPricingConfig, PricingRecalculationTask, StartPricingRecalcul
 import { PricingRecalculationModal } from '../PricingRecalculationModal'
 
 vi.mock('react-i18next', () => ({
+  Trans: ({ i18nKey, values }: { i18nKey: string; values: Record<string, number> }) => `${i18nKey}:${JSON.stringify(values)}`,
   initReactI18next: { type: '3rdParty', init: () => undefined },
   useTranslation: () => ({ t: (key: string, params?: Record<string, unknown>) => (
     params ? `${key}:${JSON.stringify(params)}` : key
@@ -143,12 +144,23 @@ describe('PricingRecalculationModal', () => {
     expect(document.body.textContent).toContain('20')
   })
 
-  it('keeps the task running when the progress modal closes', async () => {
+  it('blocks all closing paths while running and restores return after completion', async () => {
     await renderModal({ task: runningTask })
     const dialog = document.querySelector<HTMLElement>('[role="dialog"]')!
     expect(dialog.textContent).toContain('2026-09-22 09:30')
     expect(dialog.textContent).not.toContain('UTC+05:30')
     expect(dialog.textContent).not.toContain('2026-09-22T09:30:00+05:30')
+    expect(dialog.querySelector('[data-recalculation-close]')).toBeNull()
+    expect(dialog.querySelector<HTMLButtonElement>('.modal-close-floating')?.disabled).toBe(true)
+    await act(async () => {
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+      document.querySelector('.modal-overlay')!.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))
+    })
+    expect(onClose).not.toHaveBeenCalled()
+    expect(dialog.querySelectorAll('[data-state="done"]')).toHaveLength(1)
+    expect(dialog.querySelector('[data-state="active"]')?.textContent).toContain('events')
+    await renderModal({ task: { ...runningTask, status: 'completed', stage: 'finalizing' } })
+    expect(dialog.querySelectorAll('[data-state="done"]')).toHaveLength(4)
     await act(async () => dialog.querySelector<HTMLButtonElement>('[data-recalculation-close]')!.click())
     expect(onClose).toHaveBeenCalledTimes(1)
     expect(onStart).not.toHaveBeenCalled()

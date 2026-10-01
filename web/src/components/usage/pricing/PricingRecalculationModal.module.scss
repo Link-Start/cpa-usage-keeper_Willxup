@@ -157,34 +157,41 @@
   font-variant-numeric: tabular-nums;
 }
 
-.progress {
-  height: 6px;
-  margin: 16px 0;
-  overflow: hidden;
-  border-radius: 999px;
-  background: var(--bg-primary);
-}
-.progress > div {
-  height: 100%;
-  background: var(--primary-color);
-  transition: width 200ms ease;
-}
 .stages {
   display: flex;
-  justify-content: space-between;
-  gap: 8px;
-  margin: 16px 0;
+  gap: 10px;
+  margin: 24px 0;
   padding: 0;
   list-style: none;
-  color: var(--text-secondary);
   font-size: 12px;
 }
-.stages li[data-current='true'] {
-  color: var(--text-primary);
-  font-weight: 700;
+.stages li { position: relative; display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; color: var(--text-secondary); transition: color 180ms ease; }
+.stages li:last-child { flex: 0 0 auto; }
+.stages li > span:nth-child(2) { white-space: nowrap; }
+.stages li[data-state='done'] { color: var(--success-color); }
+.stages li[data-state='active'] { color: var(--primary-color); font-weight: 600; }
+.stages li[data-state='failed'] { color: var(--danger-color); font-weight: 600; }
+.stageIcon { display: flex; align-items: center; justify-content: center; flex: 0 0 24px; width: 24px; height: 24px; transition: color 180ms ease; }
+.stageIcon svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.stageDot { width: 4px; height: 4px; background: currentColor; border-radius: 50%; }
+.stageSpinner { width: 12px; height: 12px; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: stageSpin 900ms linear infinite; }
+.stageConnector { position: relative; flex: 1; min-width: 12px; height: 1px; margin: 0 3px; background: var(--border-color); transition: background-color 180ms ease; }
+.stageConnector::after { content: ''; position: absolute; right: 0; top: -3px; width: 6px; height: 6px; border-top: 1px solid var(--border-color); border-right: 1px solid var(--border-color); transform: rotate(45deg); transition: border-color 180ms ease; }
+.stages li[data-state='done'] .stageConnector { background: var(--success-color); }
+.stages li[data-state='done'] .stageConnector::after { border-color: var(--success-color); }
+.runningModal :global(.modal-close-floating) { display: none; }
+@keyframes stageSpin { to { transform: rotate(360deg); } }
+@media (max-width: 600px) {
+  .stages { flex-direction: column; gap: 0; }
+  .stages li { flex: auto; min-height: 44px; padding-bottom: 20px; align-items: flex-start; }
+  .stages li > span:nth-child(2) { line-height: 24px; }
+  .stages li:last-child { padding-bottom: 0; min-height: 24px; }
+  .stageConnector { position: absolute; left: 11px; top: 29px; bottom: 5px; width: 1px; height: auto; min-width: 0; margin: 0; }
+  .stageConnector::after { top: auto; bottom: 0; right: -3px; transform: rotate(135deg); }
 }
 @media (prefers-reduced-motion: reduce) {
-  .progress > div { transition: none; }
+  .stageSpinner { animation: none; }
+  .stages li, .stageIcon, .stageConnector, .stageConnector::after { transition: none; }
 }
 
 .success,

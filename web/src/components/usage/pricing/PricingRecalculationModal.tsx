@@ -7,6 +7,7 @@ import { ApiError, fetchPricingRecalculationOptions } from '@/lib/api'
 import type { ModelPricingConfig, PricingRecalculationOptions, PricingRecalculationTask, StartPricingRecalculationResponse } from '@/lib/types'
 import { IconInfo, IconChevronDown } from '@/components/ui/icons'
 import { buildPricingRecalculationHours } from './pricingRecalculationHours'
+import { PricingRuleCounts } from './PricingRuleCounts'
 import styles from './PricingRecalculationModal.module.scss'
 
 interface PricingRecalculationModalProps {
@@ -47,9 +48,7 @@ function SavedModelPricingPreview({ model }: { model: ModelPricingConfig }) {
     <div className={styles.modelPrices}>
       {keys.map((key) => <span key={key}>{t(`usage_stats.pricing_settings_${key}`)}: ${model.base_prices[key]}</span>)}
       <span>{t('usage_stats.pricing_settings_model_multiplier')}: ×{model.model_multiplier}</span>
-      <span>{t('usage_stats.pricing_settings_rule_counts', {
-        branches: model.branches.length, conditions: model.conditional_multipliers.length,
-      })}</span>
+      <PricingRuleCounts branches={model.branches.length} conditions={model.conditional_multipliers.length} />
     </div>
   </article>
 }
@@ -194,8 +193,8 @@ export function PricingRecalculationModal({
   const showRangeOffsets = currentTask ? taskRangeHasDifferentOffsets(currentTask.start_at, currentTask.end_at) : false
 
   return <Modal open={open} width={720} title={t('usage_stats.pricing_recalculation_title')} onClose={onClose}
-    closeDisabled={starting} className={styles.modal} footer={currentTask ? <div className={styles.footer}><Button type="button" variant="secondary" appearance="action" data-recalculation-close
-          onClick={onClose}>{t(currentTask.status === 'running' ? 'usage_stats.pricing_recalculation_background' : 'usage_stats.pricing_recalculation_return')}</Button></div> : <div className={styles.footer}>
+    closeDisabled={starting || running} className={`${styles.modal} ${starting || running ? styles.runningModal : ''}`} footer={running ? undefined : currentTask ? <div className={styles.footer}><Button type="button" variant="secondary" appearance="action" data-recalculation-close
+          onClick={onClose}>{t('usage_stats.pricing_recalculation_return')}</Button></div> : <div className={styles.footer}>
           <Button type="button" variant="secondary" appearance="action" disabled={starting} onClick={onClose}>{t('common.cancel')}</Button>
           <Button type="button" appearance="action" data-recalculation-start disabled={!canStart} loading={starting}
             onClick={() => void start()}>{t('usage_stats.pricing_recalculation_start')}</Button>
@@ -204,15 +203,25 @@ export function PricingRecalculationModal({
       {currentTask ? <>
         <div className={styles.progressTitle}>
           <h3 role="status">{t(`usage_stats.pricing_recalculation_${currentTask.status === 'running' ? currentTask.stage : currentTask.status}`)}</h3>
-          {progress !== null ? <strong>{progress}%</strong> : null}
+          {progress !== null ? <strong role="progressbar" aria-label={t('usage_stats.pricing_recalculation_events_progress')}
+            aria-valuemin={0} aria-valuemax={100} aria-valuenow={progress}>{progress}%</strong> : null}
         </div>
         <p className={styles.muted}>{t('usage_stats.pricing_recalculation_all_models')} · {formatTaskTime(currentTask.start_at, showRangeOffsets)} → {formatTaskTime(currentTask.end_at, showRangeOffsets)}</p>
-        {progress !== null ? <div role="progressbar" aria-label={t('usage_stats.pricing_recalculation_events_progress')}
-          aria-valuemin={0} aria-valuemax={100} aria-valuenow={progress} className={styles.progress}>
-          <div style={{ width: `${progress}%` }} /></div> : null}
-        <ol className={styles.stages}>{stages.map((stage) => <li key={stage} data-current={currentTask.stage === stage}>
-          {t(`usage_stats.pricing_recalculation_${stage}`)}
-        </li>)}</ol>
+        <ol className={styles.stages}>{stages.map((stage, index) => {
+          // 仅依据后端阶段标记完成，不将事件百分比当成整个任务进度。
+          const currentIndex = stages.indexOf(currentTask.stage)
+          const state = currentTask.status === 'completed' || index < currentIndex ? 'done'
+            : index === currentIndex ? currentTask.status === 'failed' ? 'failed' : 'active' : 'pending'
+          return <li key={stage} data-state={state} aria-current={state === 'active' || state === 'failed' ? 'step' : undefined}>
+            <span className={styles.stageIcon} aria-hidden="true">
+              {state === 'done' ? <svg viewBox="0 0 24 24"><path d="m5 12 4 4 10-10" /></svg>
+                : state === 'failed' ? <svg viewBox="0 0 24 24"><path d="m7 7 10 10M7 17 17 7" /></svg>
+                : state === 'active' ? <span className={styles.stageSpinner} /> : <span className={styles.stageDot} />}
+            </span>
+            <span>{t(`usage_stats.pricing_recalculation_${stage}`)}</span>
+            {index < stages.length - 1 ? <span className={styles.stageConnector} aria-hidden="true" /> : null}
+          </li>
+        })}</ol>
         <p className={styles.muted}>{currentTask.total_count !== null && currentTask.total_count > 0
           ? t('usage_stats.pricing_recalculation_processed_total', { processed: currentTask.processed_count, total: currentTask.total_count })
           : t('usage_stats.pricing_recalculation_processed', { processed: currentTask.processed_count })}</p>
