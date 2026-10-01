@@ -204,6 +204,10 @@ export function validatePricingBranchDraft(
   const context = parseContext(draft.context, errors)
   const period = parsePeriod(draft.period, errors)
   const prices = parsePrices(draft.prices, errors)
+  if (context?.type === 'all' && period?.type === 'all') {
+    errors.context = 'default_conflict'
+    errors.period = 'default_conflict'
+  }
   const conflictBranchIds = new Set<string>()
   if (context && period) {
     for (const other of otherBranches) {

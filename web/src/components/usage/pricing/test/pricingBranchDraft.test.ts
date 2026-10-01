@@ -13,6 +13,7 @@ const defaultPrices: Record<keyof PricingBasePrices, string> = {
 
 const makeDraft = (id: string): PricingBranchDraft => ({
   ...makePricingBranchDraft(null, defaultPrices, id), name: id,
+  context: { type: 'gt', threshold: '0', min: '', max: '' },
 })
 
 const validBranch = (draft: PricingBranchDraft, others: PricingBranchDraft[] = []): PricingPriceBranch => {
@@ -23,6 +24,13 @@ const validBranch = (draft: PricingBranchDraft, others: PricingBranchDraft[] = [
 }
 
 describe('pricingBranchDraft', () => {
+  it('rejects a condition that replaces the default price for every request', () => {
+    const draft = makeDraft('all');
+    draft.context.type = 'all'; draft.period.type = 'all';
+    const result = validatePricingBranchDraft(draft, []);
+    expect(result.branch).toBeNull();
+    expect(result.errors).toMatchObject({ context: 'default_conflict', period: 'default_conflict' });
+  });
   it('creates an independent draft and preserves the stable saved ID and all four prices', () => {
     const saved: PricingPriceBranch = {
       id: 'saved', name: '夜间', context: { type: 'range', min: 0, max: 20 },
@@ -134,7 +142,7 @@ describe('pricingBranchDraft', () => {
     expect(validatePricingBranchDraft(empty, []).errors.id).toBe('required')
   })
 
-  it('does not treat the implicit default price as a competing branch', () => {
+  it('allows restricted prices with a default fallback but rejects overlapping branches', () => {
     const catchAll = makeDraft('catch-all')
     expect(findPricingBranchConflicts([validBranch(catchAll)])).toEqual([])
     const another = makeDraft('another')

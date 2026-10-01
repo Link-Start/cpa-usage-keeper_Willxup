@@ -122,9 +122,10 @@ func TestCompletePricingSaveFailureKeepsDatabaseRevisionAndCatalog(t *testing.T)
 	}
 	before := catalog.Snapshot()
 	bad := completeServiceConfig("model-a", 7)
+	threshold := int64(0)
 	bad.Branches = []pricing.PriceBranch{
-		{ID: "a", Name: "A", Context: pricing.ContextCondition{Type: pricing.ContextAll}, Period: pricing.PeriodCondition{Type: pricing.PeriodAll}, Prices: pricing.BasePrices{Input: 2}},
-		{ID: "b", Name: "B", Context: pricing.ContextCondition{Type: pricing.ContextAll}, Period: pricing.PeriodCondition{Type: pricing.PeriodAll}, Prices: pricing.BasePrices{Input: 3}},
+		{ID: "a", Name: "A", Context: pricing.ContextCondition{Type: pricing.ContextGT, Threshold: &threshold}, Period: pricing.PeriodCondition{Type: pricing.PeriodAll}, Prices: pricing.BasePrices{Input: 2}},
+		{ID: "b", Name: "B", Context: pricing.ContextCondition{Type: pricing.ContextGT, Threshold: &threshold}, Period: pricing.PeriodCondition{Type: pricing.PeriodAll}, Prices: pricing.BasePrices{Input: 3}},
 	}
 	_, err = provider.SavePricingModel(context.Background(), bad)
 	var conflict *pricing.BranchConflictError
@@ -365,5 +366,22 @@ func TestCompletePricingReadsLegacyLegalRulesWithoutLoss(t *testing.T) {
 		if got.Key != rule.Key || got.Value != rule.Value || got.Multiplier != rule.Multiplier {
 			t.Fatalf("legacy rule %d changed on save: got %+v want %+v", index, got, rule)
 		}
+	}
+}
+
+// 保存入口拒绝完全覆盖默认单价，失败不得写配置或推进版本。
+func TestCompletePricingRejectsUnconditionalBranch(t *testing.T) {
+	db := openUsageServiceTestDatabase(t)
+	provider, _ := newCatalogPricingService(t, db)
+	config := completeServiceConfig("all-branch", 1)
+	config.Branches = []pricing.PriceBranch{{ID: "all", Name: "All", Context: pricing.ContextCondition{Type: pricing.ContextAll}, Period: pricing.PeriodCondition{Type: pricing.PeriodAll}, Prices: pricing.BasePrices{Input: 2}}}
+	_, err := provider.SavePricingModel(context.Background(), config)
+	var validation *pricing.ValidationError
+	if !errors.Is(err, service.ErrInvalidPricingInput) || !errors.As(err, &validation) || validation.Code != "default_conflict" {
+		t.Fatalf("expected default-price conflict, got %v", err)
+	}
+	result, err := provider.ListPricingModels(context.Background())
+	if err != nil || len(result.Models) != 0 || result.ConfigRevision != 0 {
+		t.Fatalf("invalid save changed config: %+v %v", result, err)
 	}
 }
