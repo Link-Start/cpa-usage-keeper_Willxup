@@ -79,8 +79,6 @@ CPA Usage Keeper is a standalone persistence and analytics dashboard for [CLIPro
 - Deploy with Docker/Docker Compose, Homebrew, binaries, or systemd, with optional password protection
 - Embed the Keeper dashboard in CPAMC through the CPA plugin
 
-Model prices are applied when usage events are stored. Price edits and source syncs affect new events; a manual recalculation is required to update historical costs. See the [Pricing and Upgrade Guide](./docs/pricing-upgrade.md) for configuration, first-upgrade recovery, and API changes.
-
 ## Sponsors and Special Thanks
 
 - Thanks to [CLIProxyAPI (CPA)](https://github.com/router-for-me/CLIProxyAPI) for providing the upstream CPA foundation and data source this project builds on.
