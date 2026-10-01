@@ -1,10 +1,12 @@
 .settings {
-  width: min(100%, 1120px);
-  margin-inline: auto;
+  container: pricing-list / inline-size;
+  // 外层宽度跟随设置页，与会话及 API Key 卡片共用左右边界。
+  width: 100%;
+  min-width: 0;
   padding: 20px;
   border: 1px solid var(--border-color);
   border-radius: 24px;
-  background: var(--bg-secondary);
+  background: var(--bg-primary);
   color: var(--text-primary);
 }
 
@@ -62,14 +64,14 @@
 
 .modelCard {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 2fr) minmax(130px, .65fr) auto;
+  grid-template-columns: minmax(118px, 1.1fr) minmax(220px, 2.5fr) minmax(110px, .8fr) auto;
   align-items: center;
-  gap: 14px;
+  gap: 12px;
   min-width: 0;
-  padding: 14px;
+  padding: 12px;
   border: 1px solid var(--border-color);
   border-radius: 20px;
-  background: var(--bg-primary);
+  background: var(--bg-secondary);
 }
 
 .modelName,
@@ -88,7 +90,7 @@
 .modelMeta span,
 .modelPrices span {
   color: var(--text-secondary);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .modelPrices {
@@ -112,7 +114,7 @@
 }
 
 .modelMeta strong {
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
 }
 
@@ -135,7 +137,7 @@
 }
 
 .notice {
-  background: color-mix(in srgb, var(--success-color) 9%, var(--bg-primary));
+  padding: 0;
   color: var(--success-color);
 }
 
@@ -198,7 +200,7 @@
   padding: 12px;
   border: 1px solid var(--border-color);
   border-radius: 18px;
-  background: color-mix(in srgb, var(--bg-primary) 82%, var(--bg-secondary));
+  background: var(--bg-secondary);
 }
 
 .branchIdentity,
@@ -230,7 +232,7 @@
   border-radius: 999px;
   background: color-mix(in srgb, var(--border-color) 48%, transparent);
   color: var(--text-secondary);
-  font-size: 11px;
+  font-size: 12px;
   overflow-wrap: anywhere;
 }
 
@@ -242,7 +244,7 @@
 
 .branchRates span {
   color: var(--text-secondary);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .branchRates strong {
@@ -264,7 +266,7 @@
   justify-content: space-between;
   gap: 10px;
   color: var(--text-secondary);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .previewPlan + .previewPlan {
@@ -298,7 +300,7 @@
 
 .previewTable th {
   color: var(--text-secondary);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 400;
 }
 
@@ -378,7 +380,7 @@
   gap: 6px;
   min-width: 0;
   color: var(--text-secondary);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
 }
 
@@ -405,7 +407,7 @@
   border-radius: 999px;
   background: color-mix(in srgb, var(--border-color) 48%, transparent);
   color: var(--text-secondary);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .field input,
@@ -471,7 +473,7 @@
 .historyNotice {
   margin: 0;
   color: var(--text-secondary);
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.5;
 }
 
@@ -502,7 +504,7 @@
   border-radius: 999px;
   background: color-mix(in srgb, var(--border-color) 48%, transparent);
   color: var(--text-secondary);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .conditionBody {
@@ -524,7 +526,7 @@
   padding: 12px;
   border: 1px solid var(--border-color);
   border-radius: 18px;
-  background: color-mix(in srgb, var(--bg-primary) 82%, var(--bg-secondary));
+  background: var(--bg-secondary);
 }
 
 .historyNotice {
@@ -544,9 +546,9 @@
 
 .editorFooter {
   justify-content: flex-end;
-  margin: 0 -24px;
-  padding: 16px 24px;
-  border-top: 1px solid var(--border-color);
+  width: 100%;
+  margin: 0;
+  padding: 0;
 }
 
 .deleteFooter {
@@ -633,9 +635,15 @@
   }
 
   .branchCard {
-    grid-template-columns: minmax(130px, 1fr) minmax(210px, 1.5fr) auto;
-    align-items: center;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: start;
+    gap: 8px;
+    padding: 10px 12px;
   }
+
+  .branchRates { grid-column: 1 / -1; grid-row: 2; }
+  .branchActions { grid-column: 2; grid-row: 1; gap: 3px; }
+  .branchActions :global(.btn) { padding: 4px 7px; min-height: 30px; }
 
   .branchActions {
     flex-wrap: nowrap;
@@ -643,17 +651,25 @@
 }
 
 @container pricing-editor (max-width: 399px) {
-  .priceGrid,
+  // 条件字段保留完整输入宽度；倍率与删除共用末行，减少手机上的滚动。
   .conditionRow {
-    grid-template-columns: minmax(0, 1fr);
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .conditionRow > label:nth-child(-n + 2) {
+    grid-column: 1 / -1;
   }
 
   .conditionRow :global(.btn) {
-    justify-self: stretch;
+    justify-self: end;
+  }
+
+  .branchEditorPair:has(.clockFields) {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 
-@media (max-width: 900px) {
+@container pricing-list (max-width: 679px) {
   .modelCard {
     grid-template-columns: minmax(0, 1fr) auto;
   }
@@ -674,9 +690,7 @@
     padding: 14px;
   }
 
-  .modelPrices {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
+
 
   .modelActions {
     justify-content: flex-start;
@@ -692,10 +706,7 @@
     padding-inline: 16px;
   }
 
-  .editorFooter {
-    margin-inline: -16px;
-    padding-inline: 16px;
-  }
+
 
   .multiplierRow {
     align-items: flex-start;
@@ -715,3 +726,74 @@
     animation: none;
   }
 }
+
+// 标题、图标和底部操作与确认原型一致，提示不改变草稿保存行为。
+.editorTitle { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.dirtyBadge { padding: 2px 8px; border-radius: 999px; background: var(--bg-primary); color: var(--text-secondary); font-size: 12px; font-weight: 400; }
+.iconDelete:global(.btn.btn-ghost.btn-action) { color: var(--danger-color); padding: 7px; background: transparent; border-color: transparent; box-shadow: none; }
+.conditionSummary { list-style: none; }
+.conditionSummary::-webkit-details-marker { display: none; }
+.conditionSummary > svg { margin-left: auto; transition: transform 150ms ease; }
+details[open] > .conditionSummary > svg { transform: rotate(180deg); }
+.historyNotice { display: flex; align-items: start; gap: 8px; padding: 12px 0; background: none; }
+.historyNotice > svg { flex-shrink: 0; }
+.deleteFooter { justify-content: space-between; }
+@container pricing-list (max-width: 399px) {
+  .modelPrices { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (pointer: coarse) {
+  .settings :global(.btn.btn-action), .editorModal :global(.btn.btn-action) { min-height: 44px; }
+  .iconDelete { min-width: 44px; }
+  .field input, .field select, .modelField select, .styleField select { min-height: 44px; font-size: 16px; }
+}
+
+.modelActions :global(.btn) { flex-shrink: 0; white-space: nowrap; }
+.conditionFooter { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-direction: row; }
+@container pricing-editor (max-width: 599px) {
+  .conditionFooter { flex-wrap: wrap; }
+  .conditionFooter > :global(.btn) { margin-left: auto; }
+}
+
+// 条件说明与新增按钮共用一行；窄屏允许换行但操作始终靠右。
+.conditionFooter .hint { flex: 1; min-width: 140px; }
+.conditionFooter > :global(.btn) { flex-shrink: 0; }
+.conditionRow > .iconDelete { align-self: end; margin-bottom: 3px; }
+.footerActions { display: flex; justify-content: flex-end; gap: 12px; margin-left: auto; }
+.editorFooter > .historyNotice { flex: 1; min-width: 180px; padding: 0; }
+.field > div, .modelField > div { min-width: 0; }
+.styleField > div { width: 120px; }
+.invalid button[aria-haspopup='listbox'] { border-color: var(--danger-color); }
+.invalid[data-shake='odd'] button[aria-haspopup='listbox'] { animation: priceInvalidOdd 200ms ease; }
+.invalid[data-shake='even'] button[aria-haspopup='listbox'] { animation: priceInvalidEven 200ms ease; }
+@media (prefers-reduced-motion: reduce) {
+ .invalid[data-shake] button[aria-haspopup='listbox'] { animation: none; }
+}
+@media (pointer: coarse) {
+ .editorModal button[aria-haspopup='listbox'] { min-height: 44px; }
+}
+
+.clockFields { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 6px; }
+
+// 下拉触发器沿用请求日志的胶囊轮廓，仅改外观，不改变控件尺寸。
+.editorModal button[aria-haspopup='listbox'] { border-radius: 999px; box-shadow: none; }
+.modelHeading { display: flex; align-items: end; justify-content: space-between; flex-wrap: wrap; gap: 12px 20px; }
+.modelHeading h3 { margin: 0; font-size: 13px; }
+.modelHeading .modelField { flex: 1 1 180px; max-width: 340px; }
+.modelHeading .styleField { flex-shrink: 0; }
+.modelMeta { padding-right: 12px; }
+.modelMeta span { overflow-wrap: anywhere; }
+@media (pointer: coarse) { .conditionRow > .iconDelete { margin-bottom: 0; } }
+
+.branchName { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.branchName > svg { flex-shrink: 0; color: var(--text-secondary); }
+.branchName > span { min-width: 0; overflow-wrap: anywhere; }
+
+.modelHeading:has(> h3) { align-items: center; }
+.editorModal :global(.modal-body) { min-height: 0; padding-bottom: 20px; }
+.editorModal :global(.modal-footer) { flex: 0 0 auto; }
+.editorModal :global(.modal-footer) .editorFooter :global(.btn) { width: auto; }
+.editorTitle { display: flex; min-width: 0; }
+.modelTitleName { display: block; overflow: hidden; overflow-wrap: anywhere; min-width: 0; max-width: 100%; padding: 0; border: 0; background: none; color: inherit; font: inherit; line-height: 1.35; text-align: left; cursor: pointer; }
+.modelTitleName:focus-visible { outline: 2px solid var(--primary-color); outline-offset: 2px; }
+
+.modelTitleName > span { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; max-height: 2.7em; }

@@ -1,3 +1,4 @@
+import { selectOption } from './selectOption'
 // @vitest-environment happy-dom
 
 import { act } from 'react'
@@ -107,10 +108,10 @@ describe('PricingSettings', () => {
     expect(document.body.textContent).toContain('provider/claude-sonnet')
     await act(async () => button('usage_stats.pricing_settings_add').click())
     const dialog = document.querySelector<HTMLElement>('[role="dialog"]')!
-    const modelSelect = dialog.querySelector<HTMLSelectElement>('[data-pricing-field="model"]')!
+    const modelSelect = dialog.querySelector<HTMLButtonElement>('[data-pricing-field="model"]')!
     const inputPrice = dialog.querySelector<HTMLInputElement>('[data-pricing-field="base_prices.input"]')!
     expect(modelSelect.compareDocumentPosition(inputPrice) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
-    expect(modelSelect.value).toBe('openai/gpt-5')
+    expect(modelSelect.textContent).toBe('openai/gpt-5')
     expect(inputPrice.getAttribute('aria-invalid')).not.toBe('true')
     for (const [field, value] of Object.entries({ input: '1.25', output: '10', cache_read: '0.125', cache_write: '0' })) {
       await setInput(dialog.querySelector<HTMLInputElement>(`[data-pricing-field="base_prices.${field}"]`)!, value)
@@ -136,7 +137,7 @@ describe('PricingSettings', () => {
     await renderSettings()
     await act(async () => button('common.edit').click())
     let dialog = document.querySelector<HTMLElement>('[role="dialog"]')!
-    expect(dialog.querySelector<HTMLSelectElement>('[data-pricing-field="model"]')).toBeNull()
+    expect(dialog.querySelector<HTMLButtonElement>('[data-pricing-field="model"]')).toBeNull()
     expect(dialog.querySelector<HTMLInputElement>('[data-pricing-field="conditional_multipliers[0].value"]')?.value).toBe('xhigh')
     expect(dialog.querySelector<HTMLInputElement>('[data-pricing-field="conditional_multipliers[1].key"]')?.value).toBe('endpoint')
     expect(dialog.querySelector<HTMLInputElement>('[data-pricing-field="conditional_multipliers[1].value"]')?.value).toBe('/v1/responses')
@@ -162,12 +163,9 @@ describe('PricingSettings', () => {
     await setInput(dialog.querySelector<HTMLInputElement>('[data-pricing-field="base_prices.input"]')!, '1.75')
     await act(async () => button('common.save').click())
     expect(dialog.querySelector<HTMLInputElement>('[data-pricing-field="base_prices.output"]')?.getAttribute('aria-invalid')).toBe('true')
-    const select = dialog.querySelector<HTMLSelectElement>('[data-pricing-field="model"]')!
-    await act(async () => {
-      Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')!.set!.call(select, 'gemini/3')
-      select.dispatchEvent(new Event('change', { bubbles: true }))
-    })
-    expect(select.value).toBe('gemini/3')
+    const select = dialog.querySelector<HTMLButtonElement>('[data-pricing-field="model"]')!
+    await selectOption(select, 'gemini/3')
+    expect(select.textContent).toBe('gemini/3')
     expect(dialog.querySelector<HTMLInputElement>('[data-pricing-field="base_prices.input"]')?.value).toBe('1.75')
     expect(dialog.querySelector('[aria-invalid="true"]')).toBeNull()
     expect(dialog.querySelector('[data-shake]')).toBeNull()
@@ -177,7 +175,7 @@ describe('PricingSettings', () => {
     await act(async () => button('usage_stats.pricing_settings_add').click())
     dialog = document.querySelector<HTMLElement>('[role="dialog"]')!
     expect(dialog.querySelector<HTMLInputElement>('[data-pricing-field="base_prices.input"]')?.value).toBe('')
-    expect(dialog.querySelector<HTMLSelectElement>('[data-pricing-field="model"]')?.value).toBe('openai/gpt-5')
+    expect(dialog.querySelector<HTMLButtonElement>('[data-pricing-field="model"]')?.textContent).toBe('openai/gpt-5')
   })
 
   it('shows submitted validation only after save, focuses the field, and accepts explicit zero', async () => {
@@ -290,11 +288,8 @@ describe('PricingSettings', () => {
     await act(async () => button('usage_stats.pricing_settings_save_branch').click())
     expect(document.querySelector<HTMLInputElement>('[data-pricing-field="context.threshold"]')?.getAttribute('aria-invalid')).toBe('true')
     expect(writes).toHaveLength(0)
-    const contextSelect = document.querySelector<HTMLSelectElement>('[data-pricing-field="context.type"]')!
-    await act(async () => {
-      Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')!.set!.call(contextSelect, 'lte')
-      contextSelect.dispatchEvent(new Event('change', { bubbles: true }))
-    })
+    const contextSelect = document.querySelector<HTMLButtonElement>('[data-pricing-field="context.type"]')!
+    await selectOption(contextSelect, 'usage_stats.pricing_settings_context_lte')
     await act(async () => button('usage_stats.pricing_settings_save_branch').click())
     expect(document.querySelector('[data-pricing-branch-editor]')).toBeNull()
     expect(writes).toHaveLength(0)
@@ -312,16 +307,13 @@ describe('PricingSettings', () => {
     await act(async () => button('usage_stats.pricing_settings_add_branch').click())
     await setInput(document.querySelector<HTMLInputElement>('[data-pricing-field="name"]')!, 'Short night')
     for (const [path, value] of [['context.type', 'range'], ['period.type', 'window']]) {
-      const select = document.querySelector<HTMLSelectElement>(`[data-pricing-field="${path}"]`)!
-      await act(async () => {
-        Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')!.set!.call(select, value)
-        select.dispatchEvent(new Event('change', { bubbles: true }))
-      })
+      const select = document.querySelector<HTMLButtonElement>(`[data-pricing-field="${path}"]`)!
+    await selectOption(select, `usage_stats.pricing_settings_${path.startsWith('context') ? 'context' : 'period'}_${value}`)
     }
     await setInput(document.querySelector<HTMLInputElement>('[data-pricing-field="context.min"]')!, '0')
     await setInput(document.querySelector<HTMLInputElement>('[data-pricing-field="context.max"]')!, '200000')
-    await setInput(document.querySelector<HTMLInputElement>('[data-pricing-field="period.start"]')!, '20:00')
-    await setInput(document.querySelector<HTMLInputElement>('[data-pricing-field="period.end"]')!, '08:00')
+    await selectOption(document.querySelector<HTMLButtonElement>('[data-pricing-field="period.start"]')!, '20')
+    await selectOption(document.querySelector<HTMLButtonElement>('[data-pricing-field="period.end"]')!, '08')
     await setInput(document.querySelector<HTMLInputElement>('[data-pricing-field="prices.input"]')!, '0')
     await act(async () => button('usage_stats.pricing_settings_save_branch').click())
     expect(document.querySelector('[data-pricing-branch-editor]')).toBeNull()
@@ -383,15 +375,37 @@ describe('PricingSettings', () => {
     expect(document.querySelector<HTMLDetailsElement>('[data-pricing-preview]')?.open).toBe(false)
   })
 
+  it('marks changed model drafts as unsaved and clears the badge when reverted', async () => {
+    await renderSettings()
+    await act(async () => button('common.edit').click())
+    const title = () => document.querySelector('[role="dialog"]')!.textContent
+    expect(title()).not.toContain('usage_stats.pricing_settings_unsaved')
+    const price = document.querySelector<HTMLInputElement>('[data-pricing-field="base_prices.input"]')!
+    const original = price.value
+    await setInput(price, '99')
+    expect(title()).toContain('usage_stats.pricing_settings_unsaved')
+    await setInput(price, original)
+    expect(title()).not.toContain('usage_stats.pricing_settings_unsaved')
+  })
+
+  it('places a completed recalculation after the model list without a running banner', async () => {
+    currentTask = { ...runningTask, status: 'completed', stage: 'finalizing', processed_count: 8 }
+    await renderSettings()
+    expect(document.body.textContent).toContain('usage_stats.pricing_recalculation_list_done')
+    expect(document.body.textContent).not.toContain('usage_stats.pricing_recalculation_view_progress')
+    expect(document.body.textContent!.indexOf('usage_stats.pricing_recalculation_list_done'))
+      .toBeGreaterThan(document.body.textContent!.indexOf(existing.model))
+  })
+
   it('requires confirmation before deleting configuration and keeps the model query intact', async () => {
     await renderSettings()
-    await act(async () => button('common.delete').click())
+    await act(async () => document.querySelector<HTMLButtonElement>('[aria-label="common.delete provider/claude-sonnet"]')!.click())
     expect(writes).toHaveLength(0)
     const confirmation = document.querySelector<HTMLElement>('[role="dialog"]')!
     expect(confirmation.textContent).toContain('provider/claude-sonnet')
     await act(async () => confirmation.querySelector<HTMLButtonElement>('button')!.click())
     expect(writes).toHaveLength(0)
-    await act(async () => button('common.delete').click())
+    await act(async () => document.querySelector<HTMLButtonElement>('[aria-label="common.delete provider/claude-sonnet"]')!.click())
     const confirm = [...document.querySelectorAll<HTMLElement>('[role="dialog"] button')]
       .find((candidate) => candidate.textContent?.trim() === 'common.delete') as HTMLButtonElement
     await act(async () => confirm.click())
@@ -416,7 +430,7 @@ describe('PricingSettings', () => {
     expect(button('usage_stats.pricing_settings_sync_title').disabled).toBe(true)
     expect(button('usage_stats.pricing_recalculation_title').disabled).toBe(true)
     expect(button('common.edit').disabled).toBe(true)
-    expect(button('common.delete').disabled).toBe(true)
+    expect(document.querySelector<HTMLButtonElement>('[aria-label="common.delete provider/claude-sonnet"]')!.disabled).toBe(true)
     expect(document.body.textContent).toContain('50%')
     expect(button('usage_stats.pricing_recalculation_view_progress').disabled).toBe(false)
     expect(writes).toHaveLength(0)

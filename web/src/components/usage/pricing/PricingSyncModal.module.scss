@@ -53,9 +53,8 @@
 
 .note {
   margin: 0;
-  padding: 12px 14px;
-  border-radius: 16px;
-  background: var(--bg-secondary);
+  padding: 0;
+  line-height: 1.5;
 }
 
 .unit {
@@ -109,7 +108,7 @@
   border-radius: 999px;
   background: var(--bg-primary);
   color: var(--text-secondary);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .match {
@@ -128,7 +127,7 @@
   gap: 5px;
   min-width: 0;
   color: var(--text-secondary);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .priceField input {
@@ -177,7 +176,7 @@
 }
 
 .footer {
-  justify-content: flex-end;
+  justify-content: space-between;
 }
 
 .screenReaderOnly {
@@ -200,9 +199,34 @@
 }
 
 @container pricing-sync (max-width: 399px) {
-  .priceGrid { grid-template-columns: minmax(0, 1fr); }
+  // 来源与拉取仍在同一行；标签在上方，避免挤压原生下拉框。
+  .toolbar { align-items: flex-end; flex-wrap: nowrap; gap: 8px; }
+  .toolbar label { display: grid; flex: 1; min-width: 0; }
+
+  .toolbar > :global(.btn) { flex-shrink: 0; }
+  .draft { padding: 10px; }
+  .priceGrid { gap: 10px 8px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .priceField input[aria-invalid='true'] { animation: none; }
+}
+
+.toolbar { justify-content: flex-start; }
+@media (pointer: coarse) {
+  .body :global(.btn.btn-action), .footer :global(.btn.btn-action) { min-height: 44px; }
+  .priceField input, .toolbar select { min-height: 44px; font-size: 16px; }
+}
+
+
+@media (pointer: coarse) { .toolbar button[aria-haspopup="listbox"] { min-height: 44px; } }
+
+.toolbar button[aria-haspopup="listbox"] { border-radius: 999px; box-shadow: none; }
+
+// 来源按最长选项 Models.dev 的文本宽度预留，标签不参与压缩换行。
+.toolbar label { flex: 0 0 auto; white-space: nowrap; }
+.sourceSelect { font-size: 13px; width: calc(10ch + 64px); min-width: 0; flex: 0 0 auto; }
+.sourceSelect button { font-size: 13px; }
+@container pricing-sync (max-width: 399px) {
+  .toolbar label { flex: 0 1 auto; }
 }

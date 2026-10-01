@@ -1,3 +1,4 @@
+import { Select } from '@/components/ui/Select'
 import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/Button'
@@ -221,24 +222,24 @@ export function CompletePricingSyncModal({ open, models, locked = false, onClose
   }
 
   const selectedCount = drafts.filter((draft) => draft.selected).length
-  return <Modal open={open} width={940} title={t('usage_stats.pricing_settings_sync_title')}
+  return <Modal open={open} width={1120} title={t('usage_stats.pricing_settings_sync_title')}
     closeDisabled={applying} onClose={close} footer={<div className={styles.footer}>
       <Button type="button" appearance="action" variant="secondary" disabled={applying} onClick={close}>{t('common.cancel')}</Button>
       <Button type="button" appearance="action" disabled={locked || applying || fetching || !preview || selectedCount === 0}
-        loading={applying} onClick={() => void apply()}>{t('usage_stats.pricing_settings_sync_apply')}</Button>
+        loading={applying} onClick={() => void apply()}>{t('usage_stats.pricing_settings_sync_apply')}{preview ? `（${selectedCount}）` : ''}</Button>
     </div>}>
     <div ref={bodyRef} className={styles.body}>
       <div className={styles.toolbar}>
         <label>{t('usage_stats.pricing_settings_sync_source')}
-          <select value={source} data-sync-source disabled={locked || applying} onChange={(event) => chooseSource(event.target.value)}>
-            <option value="models-dev">Models.dev</option><option value="litellm">LiteLLM</option>
-          </select>
+          <Select className={styles.sourceSelect} fullWidth={false} value={source} dataAttributes={{ 'data-sync-source': true }} disabled={locked || applying} onChange={chooseSource}
+            ariaLabel={t('usage_stats.pricing_settings_sync_source')}
+            options={[{ value: 'models-dev', label: 'Models.dev' }, { value: 'litellm', label: 'LiteLLM' }]} />
         </label>
         <Button type="button" appearance="action" variant="secondary" disabled={locked || fetching || applying}
           onClick={() => void loadPreview()}>{t('usage_stats.pricing_settings_sync_fetch')}</Button>
       </div>
       <p className={styles.note}>{t('usage_stats.pricing_settings_sync_scope')}</p>
-      <p className={styles.unit}>{t('usage_stats.pricing_settings_price_unit')}</p>
+      {preview ? <p className={styles.unit}>{t('usage_stats.pricing_settings_price_unit')}</p> : null}
       {fetchError ? <p role="alert" className={styles.error}>{fetchError}</p> : null}
       {fetching ? <p role="status" className={styles.empty}>{t('usage_stats.pricing_settings_sync_fetching')}</p>
         : !preview ? <p role="status" className={styles.empty}>{t('usage_stats.pricing_settings_sync_empty')}</p> : <>

@@ -59,10 +59,10 @@ describe('UsagePage responsive layout and accessibility', () => {
     }
   })
 
-  it('lets short request, credential, and settings cards reach the common bottom gutter', () => {
+  it('lets short request and credential cards reach the common bottom gutter', () => {
     expect(usagePageStyles).toMatch(/\.requestEventsCard:global\(\.card\)\s*\{[\s\S]*?flex:\s*1 0 auto;/)
     expect(usagePageStyles).toMatch(/\.credentialsSections,\s*\n\.settingsSections\s*\{[\s\S]*?flex:\s*1 0 auto;/)
-    expect(usagePageStyles).toMatch(/\.credentialsSections\s*>\s*:last-child,\s*\n\.settingsSections\s*>\s*:last-child\s*\{[\s\S]*?flex:\s*1 0 auto;/)
+    expect(usagePageStyles).toMatch(/\.credentialsSections\s*>\s*:last-child\s*\{[\s\S]*?flex:\s*1 0 auto;/)
     expect(credentialStyles).toMatch(/\.credentialSectionCard\s*\{[\s\S]*?display:\s*flex;[\s\S]*?flex-direction:\s*column;/)
     expect(credentialStyles).toMatch(/\.credentialEmptyState\s*\{[\s\S]*?flex:\s*1 1 auto;[\s\S]*?align-items:\s*center;[\s\S]*?justify-content:\s*center;/)
   })

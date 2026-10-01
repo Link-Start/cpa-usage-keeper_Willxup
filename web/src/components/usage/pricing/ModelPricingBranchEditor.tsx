@@ -1,4 +1,5 @@
-import { useEffect, useId, useRef, useState, type FormEvent } from 'react'
+import { Select } from '@/components/ui/Select'
+import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/Button'
 import type { PricingBasePrices, PricingPriceBranch } from '@/lib/types'
@@ -11,6 +12,7 @@ type PriceKey = keyof PricingBasePrices
 const priceKeys: PriceKey[] = ['input', 'output', 'cache_read', 'cache_write']
 
 interface ModelPricingBranchEditorProps {
+  formId: string
   initialDraft: PricingBranchDraft
   otherBranches: PricingBranchDraft[]
   mode: 'add' | 'edit' | 'copy'
@@ -31,9 +33,8 @@ function visibleErrorPath(path: string, draft: PricingBranchDraft): string {
 }
 
 // 分支仅编辑本地子草稿；返回或取消不会改动模型配置。
-export function ModelPricingBranchEditor({ initialDraft, otherBranches, mode, timezone, locked = false, initialErrors = {}, initialConflictBranchIds = [], onCancel, onSave }: ModelPricingBranchEditorProps) {
+export function ModelPricingBranchEditor({ formId, initialDraft, otherBranches, mode, timezone, locked = false, initialErrors = {}, initialConflictBranchIds = [], onCancel, onSave }: ModelPricingBranchEditorProps) {
   const { t } = useTranslation()
-  const formId = useId().replaceAll(':', '')
   const formRef = useRef<HTMLFormElement | null>(null)
   const focusPath = useRef(Object.keys(initialErrors)[0] ?? '')
   const [draft, setDraft] = useState(initialDraft)
@@ -85,10 +86,20 @@ export function ModelPricingBranchEditor({ initialDraft, otherBranches, mode, ti
     return <label key={path} className={`${styles.field} ${error ? styles.invalid : ''}`}
       data-shake={error && shakeAttempt ? shakeAttempt % 2 ? 'odd' : 'even' : undefined}>
       <span>{label}</span>
-      <input type={inputType} min={inputType === 'number' ? 0 : undefined}
+      {inputType === 'time' ? <div className={styles.clockFields}>
+        <Select value={value.split(':')[0] ?? ''} disabled={locked} ariaLabel={`${label} · HH`}
+          dataAttributes={{ 'data-pricing-field': path }} ariaInvalid={Boolean(error)} ariaDescribedBy={error ? descriptionId : undefined}
+          options={Array.from({ length: 24 }, (_, hour) => { const text = String(hour).padStart(2, '0'); return { value: text, label: text } })}
+          onChange={(hour) => edit(path, `${hour}:${value.split(':')[1] || '00'}`)} />
+        <span aria-hidden="true">:</span>
+        <Select value={value.split(':')[1] ?? ''} disabled={locked} ariaLabel={`${label} · mm`}
+          dataAttributes={{ 'data-pricing-minute': path }} ariaInvalid={Boolean(error)} ariaDescribedBy={error ? descriptionId : undefined}
+          options={Array.from({ length: 60 }, (_, minute) => { const text = String(minute).padStart(2, '0'); return { value: text, label: text } })}
+          onChange={(minute) => edit(path, `${value.split(':')[0] || '00'}:${minute}`)} />
+      </div> : <input type={inputType} min={inputType === 'number' ? 0 : undefined}
         step={inputType === 'number' ? (path.startsWith('context.') ? 1 : 'any') : undefined}
         value={value} onChange={(event) => edit(path, event.target.value)}
-        disabled={locked} data-pricing-field={path} aria-invalid={Boolean(error)} aria-describedby={error ? descriptionId : undefined} />
+        disabled={locked} data-pricing-field={path} aria-invalid={Boolean(error)} aria-describedby={error ? descriptionId : undefined} />}
       {error ? <span id={descriptionId} className={styles.screenReaderOnly}>
         {t(`usage_stats.pricing_settings_error_${['required', 'invalid', 'conflict'].includes(error) ? error : 'invalid'}`)}
       </span> : null}
@@ -101,10 +112,9 @@ export function ModelPricingBranchEditor({ initialDraft, otherBranches, mode, ti
     return <label className={`${styles.field} ${error ? styles.invalid : ''}`}
       data-shake={error && shakeAttempt ? shakeAttempt % 2 ? 'odd' : 'even' : undefined}>
       <span>{label}</span>
-      <select value={value} disabled={locked} onChange={(event) => edit(path, event.target.value)} data-pricing-field={path}
-        aria-invalid={Boolean(error)} aria-describedby={error ? descriptionId : undefined}>
-        {options.map(([optionValue, optionLabel]) => <option key={optionValue} value={optionValue}>{optionLabel}</option>)}
-      </select>
+      <Select value={value} disabled={locked} onChange={(value) => edit(path, value)} dataAttributes={{ 'data-pricing-field': path }}
+        ariaLabel={label} ariaInvalid={Boolean(error)} ariaDescribedBy={error ? descriptionId : undefined}
+        options={options.map(([value, label]) => ({ value, label }))} />
       {error ? <span id={descriptionId} className={styles.screenReaderOnly}>
         {t(`usage_stats.pricing_settings_error_${error === 'conflict' ? 'conflict' : 'invalid'}`)}
       </span> : null}
@@ -119,7 +129,7 @@ export function ModelPricingBranchEditor({ initialDraft, otherBranches, mode, ti
       <Button type="button" variant="ghost" appearance="action" aria-label={t('usage_stats.pricing_settings_back_to_model')} onClick={onCancel}>←</Button>
       <h3>{t(`usage_stats.pricing_settings_${mode}_branch_title`)}</h3>
     </div>
-    <form ref={formRef} noValidate onSubmit={submit} className={styles.branchEditorForm}>
+    <form id={formId} ref={formRef} noValidate onSubmit={submit} className={styles.branchEditorForm}>
       {field('name', t('usage_stats.pricing_settings_branch_name'), draft.name)}
       <div className={styles.branchEditorGrid}>
         <fieldset className={styles.branchEditorSection}>
@@ -151,13 +161,11 @@ export function ModelPricingBranchEditor({ initialDraft, otherBranches, mode, ti
         </fieldset>
       </div>
       <p className={styles.hint}>{t('usage_stats.pricing_settings_branch_hint')}</p>
+      {Object.values(errors).includes('default_conflict') ? <p role="alert" className={styles.requestError}>{t('usage_stats.pricing_settings_error_default_conflict')}</p> : null}
       {conflictNames.length ? <p role="alert" className={styles.requestError}>
         {t('usage_stats.pricing_settings_branch_conflict_with', { names: conflictNames.join(' / ') })}
       </p> : null}
-      <div className={styles.editorFooter}>
-        <Button type="button" variant="secondary" appearance="action" onClick={onCancel}>{t('common.cancel')}</Button>
-        <Button type="submit" appearance="action" disabled={locked}>{t('usage_stats.pricing_settings_save_branch')}</Button>
-      </div>
+
     </form>
   </section>
 }

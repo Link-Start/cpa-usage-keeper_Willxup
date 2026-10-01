@@ -1,6 +1,7 @@
 import { forwardRef, useImperativeHandle, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/Button'
+import { IconHistory, IconPlus, IconRefreshCw, IconTrash2 } from '@/components/ui/icons'
 import { Modal } from '@/components/ui/Modal'
 import { useModelPricingData } from '@/components/usage/hooks/useModelPricingData'
 import { ApiError } from '@/lib/api'
@@ -104,14 +105,14 @@ export const PricingSettings = forwardRef<PricingSettingsHandle, PricingSettings
       <h2>{t('usage_stats.model_price_settings_title')}</h2>
       <div className={styles.headerActions}>
         <Button type="button" variant="secondary" appearance="action" disabled={pricingLocked || pricing.loading || Boolean(pricing.error)}
-          onClick={() => { setNotice(''); setSyncOpen(true) }}>{t('usage_stats.pricing_settings_sync_title')}</Button>
+          onClick={() => { setNotice(''); setSyncOpen(true) }}><IconRefreshCw size={16} />{t('usage_stats.pricing_settings_sync_title')}</Button>
         <Button type="button" variant="secondary" appearance="action" disabled={pricingLocked || pricing.loading || Boolean(pricing.error) || pricing.configRevision === null}
-          onClick={() => { setNotice(''); setRecalculationOpen(true) }}>{t('usage_stats.pricing_recalculation_title')}</Button>
+          onClick={() => { setNotice(''); setRecalculationOpen(true) }}><IconHistory size={16} />{t('usage_stats.pricing_recalculation_title')}</Button>
         <Button type="button" appearance="action" disabled={pricingLocked || !availableModels.length || pricing.loading}
-          onClick={() => openEditor(null)}>{t('usage_stats.pricing_settings_add')}</Button>
+          onClick={() => openEditor(null)}><IconPlus size={16} />{t('usage_stats.pricing_settings_add')}</Button>
       </div>
     </div>
-    {recalculation.task ? <div className={styles.recalculationBanner} role="status">
+    {recalculationRunning && recalculation.task ? <div className={styles.recalculationBanner} role="status">
       <span>{t(`usage_stats.pricing_recalculation_${recalculation.task.status === 'running' ? recalculation.task.stage : recalculation.task.status}`)}
         {recalculation.task.status === 'running' && recalculation.task.stage === 'events' && recalculation.task.total_count && recalculation.task.total_count > 0
           ? ` · ${Math.min(100, Math.round(recalculation.task.processed_count / recalculation.task.total_count * 100))}%` : ''}</span>
@@ -130,7 +131,6 @@ export const PricingSettings = forwardRef<PricingSettingsHandle, PricingSettings
       <span>{pricing.error}</span>
       <Button type="button" variant="secondary" appearance="action" onClick={() => void pricing.loadPricing()}>{t('common.retry')}</Button>
     </div> : null}
-    {notice ? <p className={styles.notice} role="status">{notice}</p> : null}
     {pricing.loading && !pricing.models.length ? <p className={styles.empty}>{t('common.loading')}</p>
       : pricing.models.length ? <div className={styles.modelList}>
         {pricing.models.map((config) => <article className={styles.modelCard} key={config.model}>
@@ -154,10 +154,18 @@ export const PricingSettings = forwardRef<PricingSettingsHandle, PricingSettings
             <Button type="button" variant="secondary" appearance="action" disabled={pricingLocked} onClick={() => openEditor(config)}>{t('common.edit')}</Button>
             <Button type="button" variant="ghost" appearance="action" aria-label={`${t('common.delete')} ${config.model}`}
               disabled={pricingLocked}
-              onClick={() => { setDeleteError(''); setDeleteTarget(config) }}>{t('common.delete')}</Button>
+              className={styles.iconDelete} onClick={() => { setDeleteError(''); setDeleteTarget(config) }}><IconTrash2 size={16} /></Button>
           </div>
         </article>)}
       </div> : <p className={styles.empty}>{t('usage_stats.model_price_empty')}</p>}
+
+    {notice ? <p className={styles.notice} role="status">{notice}</p> : null}
+    {recalculation.task?.status === 'completed' ? <p className={styles.notice} role="status">
+      {t('usage_stats.pricing_recalculation_list_done', { count: recalculation.task.processed_count })}
+    </p> : recalculation.task?.status === 'failed' ? <p className={styles.listError} role="alert">
+      {recalculation.task.error?.message || t('usage_stats.pricing_recalculation_failed')}
+      {' '}{t('usage_stats.pricing_recalculation_partial_kept')}
+    </p> : null}
 
     {editorKey > 0 ? <ModelPricingEditor key={editorKey} open={editorOpen} initialConfig={editorConfig}
       modelOptions={availableModels} timezone={timezone} locked={pricingLocked} onClose={() => setEditorOpen(false)} onSave={saveModel} /> : null}

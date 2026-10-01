@@ -1,3 +1,4 @@
+import { IconGitBranch } from '@/components/ui/icons'
 import { useTranslation } from 'react-i18next'
 import type { PricingBasePrices } from '@/lib/types'
 import type { PricingBranchDraft } from './pricingBranchDraft'
@@ -54,7 +55,7 @@ export function PricingDraftPreview({ prices, modelMultiplier, branches, conditi
         </div>
         <div aria-live="polite">
           {plans.map((plan) => <section key={plan.id} className={styles.previewPlan} data-preview-plan={plan.id}>
-            <h4>{plan.name}</h4>
+            <h4 className={styles.branchName}>{plan.branch ? <IconGitBranch size={16} aria-hidden="true" /> : null}<span>{plan.name}</span></h4>
             {showBranchMatches && plan.branch ? <PricingBranchMatch branch={plan.branch} timezone={branchTimezone} /> : null}
             <table className={styles.previewTable}>
               <thead><tr><th>{t('usage_stats.pricing_settings_token')}</th><th>{t('usage_stats.pricing_settings_unit_price')}</th></tr></thead>

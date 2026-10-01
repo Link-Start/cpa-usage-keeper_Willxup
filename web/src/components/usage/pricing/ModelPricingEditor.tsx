@@ -1,6 +1,9 @@
+import { PortalTooltip, usePortalTooltip } from '@/components/ui/PortalTooltip'
+import { Select } from '@/components/ui/Select'
 import { useCallback, useEffect, useId, useRef, useState, type FormEvent } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/Button'
+import { IconGitBranch, IconPlus, IconTrash2, IconInfo, IconChevronDown } from '@/components/ui/icons'
 import { Modal } from '@/components/ui/Modal'
 import { ApiError } from '@/lib/api'
 import type { ModelPricingConfig, PricingBasePrices, PricingConditionalMultiplier, PricingPriceBranch, PricingStyle } from '@/lib/types'
@@ -8,6 +11,19 @@ import { ModelPricingBranchEditor } from './ModelPricingBranchEditor'
 import { PricingBranchMatch, PricingDraftPreview } from './PricingDraftPreview'
 import { findPricingBranchConflicts, makePricingBranchDraft, validatePricingBranchDraft, type PricingBranchDraft } from './pricingBranchDraft'
 import styles from './PricingSettings.module.scss'
+
+// 标题保留两行；鼠标、键盘与触屏均可查看完整模型名称。
+function ModelNameTitle({ name }: { name: string }) {
+  const { tooltip, showOnMouseEnter, hideOnMouseLeave, showOnFocus, hideOnBlur, dismiss } = usePortalTooltip()
+  return <><button type="button" className={styles.modelTitleName}
+    onMouseEnter={(event) => showOnMouseEnter([name], event.currentTarget)}
+    onMouseLeave={(event) => hideOnMouseLeave(event.currentTarget)}
+    onFocus={(event) => showOnFocus([name], event.currentTarget)}
+    onBlur={(event) => hideOnBlur(event.currentTarget)}
+    onClick={(event) => showOnFocus([name], event.currentTarget)}
+    onKeyDown={(event) => { if (event.key === 'Escape' && dismiss()) event.stopPropagation() }}>
+    <span>{name}</span></button><PortalTooltip tooltip={tooltip} /></>
+}
 
 type PriceKey = keyof PricingBasePrices
 type DraftRule = { id: number; key: string; value: string; multiplier: string }
@@ -132,6 +148,8 @@ export function ModelPricingEditor({ open, initialConfig, modelOptions, timezone
   const nextRuleId = useRef(initialConfig?.conditional_multipliers.length ?? 0)
   const focusPath = useRef<string | null>(null)
   const [draft, setDraft] = useState(() => makeDraft(initialConfig, modelOptions))
+  const initialDraft = useRef(JSON.stringify(draft))
+  const dirty = JSON.stringify(draft) !== initialDraft.current
   const [errors, setErrors] = useState<FieldErrors>({})
   const [requestError, setRequestError] = useState('')
   const [saving, setSaving] = useState(false)
@@ -305,50 +323,52 @@ export function ModelPricingEditor({ open, initialConfig, modelOptions, timezone
     </label>
   }
 
-  return <Modal open={open} title={initialConfig?.model ?? t('usage_stats.pricing_settings_editor_title')}
-    width={1120} className={styles.editorModal} closeDisabled={saving} onClose={onClose}>
-    {branchSession ? <ModelPricingBranchEditor key={branchSession.draft.id} initialDraft={branchSession.draft}
+  return <Modal open={open} title={<span className={styles.editorTitle}>{initialConfig ? <ModelNameTitle name={initialConfig.model} /> : t('usage_stats.pricing_settings_editor_title')}{dirty ? <span className={styles.dirtyBadge}>{t('usage_stats.pricing_settings_unsaved')}</span> : null}</span>}
+    width={1120} className={styles.editorModal} closeDisabled={saving} onClose={onClose}
+    footer={branchSession ? <div className={styles.editorFooter}>
+      <Button type="button" variant="secondary" appearance="action" onClick={() => setBranchSession(null)}>{t('common.cancel')}</Button>
+      <Button type="submit" form={`${formId}-branch`} appearance="action" disabled={locked}>{t('usage_stats.pricing_settings_save_branch')}</Button>
+    </div> : <div className={styles.editorFooter}>
+      <p className={styles.historyNotice}><IconInfo size={16} />{t('usage_stats.pricing_settings_history_notice')}</p>
+        <div className={styles.footerActions}>
+        <Button type="button" variant="secondary" appearance="action" disabled={saving} onClick={onClose}>{t('common.cancel')}</Button>
+        <Button type="submit" form={formId} appearance="action" disabled={locked} loading={saving}>{t('common.save')}</Button>
+        </div>
+      </div>}>
+    {branchSession ? <ModelPricingBranchEditor formId={`${formId}-branch`} key={branchSession.draft.id} initialDraft={branchSession.draft}
       otherBranches={draft.branches.filter((branch) => branch.id !== branchSession.originalId)}
       mode={branchSession.mode} timezone={timezone} locked={locked} initialErrors={branchSession.errors}
       initialConflictBranchIds={branchSession.conflictIds}
       onCancel={() => setBranchSession(null)} onSave={(branchDraft) => saveBranch(branchDraft)} />
-      : <form ref={attachForm} className={styles.editorBody} noValidate onSubmit={(event) => void submit(event)}>
+      : <form id={formId} ref={attachForm} className={styles.editorBody} noValidate onSubmit={(event) => void submit(event)}>
       <div className={styles.settingsLayout}>
       <div className={styles.configColumn}>
+      <div className={styles.modelHeading}>
       {!initialConfig ? <label className={`${styles.modelField} ${errors.model ? styles.invalid : ''}`}
         data-shake={errors.model && shakeAttempt ? shakeAttempt % 2 ? 'odd' : 'even' : undefined}>
         <span>{t('usage_stats.pricing_settings_model')}</span>
-        <select value={draft.model} disabled={saving || locked} data-pricing-field="model" aria-invalid={Boolean(errors.model)}
-          aria-describedby={errors.model ? `${formId}-model-error` : undefined}
-          onChange={(event) => {
-            // 候选模型切换保留价格草稿，但清除上一候选的全部错误反馈。
-            setDraft((current) => ({ ...current, model: event.target.value }))
-            setErrors({})
-            setRequestError('')
-            setShakeAttempt(0)
-            focusPath.current = null
-          }}>
-          {modelOptions.map((model) => <option key={model} value={model}>{model}</option>)}
-        </select>
+        <Select value={draft.model} disabled={saving || locked} dataAttributes={{ 'data-pricing-field': 'model' }} ariaInvalid={Boolean(errors.model)}
+          ariaLabel={t('usage_stats.pricing_settings_model')} ariaDescribedBy={errors.model ? `${formId}-model-error` : undefined}
+          options={modelOptions.map((model) => ({ value: model, label: model }))}
+          onChange={(model) => {
+            setDraft((current) => ({ ...current, model }))
+            setErrors({}); setRequestError(''); setShakeAttempt(0); focusPath.current = null
+          }} />
         {errors.model ? <span id={`${formId}-model-error`} className={styles.screenReaderOnly}>
           {t(`usage_stats.pricing_settings_error_${errors.model === 'required' ? 'required' : 'invalid'}`)}
         </span> : null}
-      </label> : null}
-
-      <div className={styles.sectionHeading}>
-        <h3>{t('usage_stats.pricing_settings_default_prices')}</h3>
+      </label> : <h3>{t('usage_stats.pricing_settings_default_prices')}</h3>}
         <label className={`${styles.styleField} ${errors.pricing_style ? styles.invalid : ''}`}>{t('usage_stats.model_price_style')}
-          <select value={draft.pricingStyle} disabled={saving || locked} data-pricing-field="pricing_style" aria-invalid={Boolean(errors.pricing_style)}
-            aria-describedby={errors.pricing_style ? `${formId}-pricing-style-error` : undefined}
-            onChange={(event) => { setDraft((current) => ({ ...current, pricingStyle: event.target.value as PricingStyle })); clearError('pricing_style') }}>
-            <option value="openai">{t('usage_stats.model_price_style_openai')}</option>
-            <option value="claude">{t('usage_stats.model_price_style_claude')}</option>
-          </select>
+          <Select value={draft.pricingStyle} disabled={saving || locked} dataAttributes={{ 'data-pricing-field': 'pricing_style' }} ariaInvalid={Boolean(errors.pricing_style)}
+            ariaLabel={t('usage_stats.model_price_style')} ariaDescribedBy={errors.pricing_style ? `${formId}-pricing-style-error` : undefined}
+            options={['openai', 'claude'].map((value) => ({ value, label: t(`usage_stats.model_price_style_${value}`) }))}
+            onChange={(value) => { setDraft((current) => ({ ...current, pricingStyle: value as PricingStyle })); clearError('pricing_style') }} />
           {errors.pricing_style ? <span id={`${formId}-pricing-style-error`} className={styles.screenReaderOnly}>
             {t('usage_stats.pricing_settings_error_invalid')}
           </span> : null}
         </label>
       </div>
+      {!initialConfig ? <div className={styles.sectionHeading}><h3>{t('usage_stats.pricing_settings_default_prices')}</h3></div> : null}
       <div className={styles.priceGrid}>
         {priceKeys.map((key) => field(`base_prices.${key}`, t(`usage_stats.pricing_settings_${key}`), draft.prices[key], (value) => editPrice(key, value), 'number'))}
       </div>
@@ -358,11 +378,47 @@ export function ModelPricingEditor({ open, initialConfig, modelOptions, timezone
         <span>{t('usage_stats.pricing_settings_multiplier_hint')}</span>
       </div>
 
+      <details className={styles.branchSection} data-pricing-branches open={branchesOpen}
+        onToggle={(event) => setBranchesOpen(event.currentTarget.open)}>
+        <summary className={styles.conditionSummary}>
+          <strong>{t('usage_stats.pricing_settings_branches')}</strong><span>{draft.branches.length}</span><IconChevronDown size={16} />
+        </summary>
+        <div className={styles.branchBody}>
+          {draft.branches.length ? draft.branches.map((branch) => <article key={branch.id} className={styles.branchCard} data-pricing-branch-id={branch.id}>
+            <div className={styles.branchIdentity}>
+              <strong className={styles.branchName}><IconGitBranch size={16} aria-hidden="true" /><span>{branch.name || t('usage_stats.pricing_settings_unnamed_branch')}</span></strong>
+              <PricingBranchMatch branch={branch} timezone={timezone} />
+            </div>
+            <div className={styles.branchRates}>{priceKeys.map((key) => <span key={key}>
+              {t(`usage_stats.pricing_settings_${key}`)}<strong>${branch.prices[key] || '—'}</strong>
+            </span>)}</div>
+            <div className={styles.branchActions}>
+              <Button type="button" variant="secondary" appearance="action" disabled={saving || locked} data-branch-action="edit"
+                aria-label={t('usage_stats.pricing_settings_edit_branch_named', { name: branch.name })}
+                onClick={() => openBranch('edit', branch)}>{t('common.edit')}</Button>
+              <Button type="button" variant="secondary" appearance="action" disabled={saving || locked} data-branch-action="copy"
+                aria-label={t('usage_stats.pricing_settings_copy_branch_named', { name: branch.name })}
+                onClick={() => openBranch('copy', branch)}>{t('usage_stats.pricing_settings_copy_branch')}</Button>
+              <Button type="button" variant="ghost" appearance="action" disabled={saving || locked} data-branch-action="delete" className={styles.iconDelete}
+                aria-label={t('usage_stats.pricing_settings_delete_branch_named', { name: branch.name })}
+                onClick={() => { setDraft((current) => ({ ...current, branches: current.branches.filter((item) => item.id !== branch.id) })); setRequestError('') }}>
+                <IconTrash2 size={16} />
+              </Button>
+            </div>
+          </article>) : null}
+          <div className={styles.conditionFooter}>
+            <p className={styles.hint}>{t('usage_stats.pricing_settings_branches_hint')}</p>
+            <Button type="button" appearance="action" disabled={saving || locked}
+              onClick={() => openBranch('add')}><IconPlus size={16} />{t('usage_stats.pricing_settings_add_branch')}</Button>
+          </div>
+        </div>
+      </details>
+
       <details ref={conditionsRef} className={styles.conditionSection} data-pricing-conditions open={conditionsOpen}
         onToggle={(event) => setConditionsOpen(event.currentTarget.open)}>
         <summary className={styles.conditionSummary}>
           <strong>{t('usage_stats.pricing_settings_conditions')}</strong>
-          <span>{draft.rules.length}</span>
+          <span>{draft.rules.length}</span><IconChevronDown size={16} />
         </summary>
         <div className={styles.conditionBody}>
         {draft.rules.map((rule, index) => <div className={styles.conditionRow} key={rule.id}>
@@ -372,62 +428,28 @@ export function ModelPricingEditor({ open, initialConfig, modelOptions, timezone
             (value) => editRule(rule.id, 'value', value))}
           {field(`conditional_multipliers[${index}].multiplier`, t('usage_stats.model_price_rules_multiplier'), rule.multiplier,
             (value) => editRule(rule.id, 'multiplier', value), 'number')}
-          <Button type="button" variant="ghost" appearance="action" disabled={saving || locked} aria-label={t('usage_stats.pricing_settings_delete_condition')}
+          <Button type="button" variant="ghost" appearance="action" className={styles.iconDelete} disabled={saving || locked} aria-label={t('usage_stats.pricing_settings_delete_condition')}
             onClick={() => { setDraft((current) => ({ ...current, rules: current.rules.filter((item) => item.id !== rule.id) })); setErrors({}) }}>
-            {t('common.delete')}
+            <IconTrash2 size={16} />
           </Button>
         </div>)}
-        <Button type="button" variant="secondary" appearance="action" disabled={saving || locked}
-          onClick={() => setDraft((current) => ({ ...current, rules: [...current.rules, { id: nextRuleId.current++, key: '', value: '', multiplier: '1' }] }))}>
-          {t('usage_stats.pricing_settings_add_condition')}
-        </Button>
+        <div className={styles.conditionFooter}>
         <p className={styles.hint}>{t('usage_stats.pricing_settings_conditions_hint')}</p>
+        <Button type="button" appearance="action" disabled={saving || locked}
+          onClick={() => setDraft((current) => ({ ...current, rules: [...current.rules, { id: nextRuleId.current++, key: '', value: '', multiplier: '1' }] }))}>
+          <IconPlus size={16} />{t('usage_stats.pricing_settings_add_condition')}
+        </Button>
+        </div>
         </div>
       </details>
 
-      <details className={styles.branchSection} data-pricing-branches open={branchesOpen}
-        onToggle={(event) => setBranchesOpen(event.currentTarget.open)}>
-        <summary className={styles.conditionSummary}>
-          <strong>{t('usage_stats.pricing_settings_branches')}</strong><span>{draft.branches.length}</span>
-        </summary>
-        <div className={styles.branchBody}>
-          <p className={styles.hint}>{t('usage_stats.pricing_settings_branches_hint')}</p>
-          {draft.branches.length ? draft.branches.map((branch) => <article key={branch.id} className={styles.branchCard} data-pricing-branch-id={branch.id}>
-            <div className={styles.branchIdentity}>
-              <strong>{branch.name || t('usage_stats.pricing_settings_unnamed_branch')}</strong>
-              <PricingBranchMatch branch={branch} timezone={timezone} />
-            </div>
-            <div className={styles.branchRates}>{priceKeys.map((key) => <span key={key}>
-              {t(`usage_stats.pricing_settings_${key}`)}<strong>${branch.prices[key] || '—'}</strong>
-            </span>)}</div>
-            <div className={styles.branchActions}>
-              <Button type="button" variant="ghost" appearance="action" disabled={saving || locked} data-branch-action="edit"
-                aria-label={t('usage_stats.pricing_settings_edit_branch_named', { name: branch.name })}
-                onClick={() => openBranch('edit', branch)}>{t('common.edit')}</Button>
-              <Button type="button" variant="ghost" appearance="action" disabled={saving || locked} data-branch-action="copy"
-                aria-label={t('usage_stats.pricing_settings_copy_branch_named', { name: branch.name })}
-                onClick={() => openBranch('copy', branch)}>{t('usage_stats.pricing_settings_copy_branch')}</Button>
-              <Button type="button" variant="ghost" appearance="action" disabled={saving || locked} data-branch-action="delete"
-                aria-label={t('usage_stats.pricing_settings_delete_branch_named', { name: branch.name })}
-                onClick={() => { setDraft((current) => ({ ...current, branches: current.branches.filter((item) => item.id !== branch.id) })); setRequestError('') }}>
-                {t('common.delete')}
-              </Button>
-            </div>
-          </article>) : <p className={styles.empty}>{t('usage_stats.pricing_settings_no_branches')}</p>}
-          <Button type="button" variant="secondary" appearance="action" disabled={saving || locked}
-            onClick={() => openBranch('add')}>{t('usage_stats.pricing_settings_add_branch')}</Button>
-        </div>
-      </details>
+
       </div>
       <PricingDraftPreview prices={draft.prices} modelMultiplier={draft.modelMultiplier} branches={draft.branches}
-        conditions={draft.rules} open={previewOpen} onToggle={setPreviewOpen} />
+        conditions={draft.rules} open={previewOpen} onToggle={setPreviewOpen} showBranchMatches branchTimezone={timezone} />
       </div>
-      <p className={styles.historyNotice}>{t('usage_stats.pricing_settings_history_notice')}</p>
       {requestError ? <p ref={errorRef} tabIndex={-1} className={styles.requestError} role="alert" data-pricing-field="request-error">{requestError}</p> : null}
-      <div className={styles.editorFooter}>
-        <Button type="button" variant="secondary" appearance="action" disabled={saving} onClick={onClose}>{t('common.cancel')}</Button>
-        <Button type="submit" appearance="action" disabled={locked} loading={saving}>{t('common.save')}</Button>
-      </div>
+
     </form>
     }
   </Modal>

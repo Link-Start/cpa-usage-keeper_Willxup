@@ -1,3 +1,4 @@
+import { selectOption } from './selectOption'
 // @vitest-environment happy-dom
 
 import { act } from 'react'
@@ -41,7 +42,7 @@ const deferred = <T,>() => {
 
 const button = (label: string) => {
   const found = [...document.querySelectorAll<HTMLButtonElement>('button')]
-    .find((candidate) => candidate.textContent?.trim() === label)
+    .find((candidate) => candidate.textContent?.trim().startsWith(label))
   expect(found, label).toBeDefined()
   return found!
 }
@@ -94,11 +95,8 @@ describe('CompletePricingSyncModal', () => {
     })
     await renderModal()
     expect(requests).toHaveLength(0)
-    const source = document.querySelector<HTMLSelectElement>('[data-sync-source]')!
-    await act(async () => {
-      source.value = 'litellm'
-      source.dispatchEvent(new Event('change', { bubbles: true }))
-    })
+    const source = document.querySelector<HTMLButtonElement>('[data-sync-source]')!
+    await selectOption(source, 'LiteLLM')
     expect(requests).toHaveLength(0)
     expect(localStorage.getItem('cpa-pricing-sync-source-v1')).toBe('litellm')
     await act(async () => button('usage_stats.pricing_settings_sync_fetch').click())
@@ -133,8 +131,8 @@ describe('CompletePricingSyncModal', () => {
     })
     await renderModal()
     await act(async () => button('usage_stats.pricing_settings_sync_fetch').click())
-    const source = document.querySelector<HTMLSelectElement>('[data-sync-source]')!
-    await act(async () => { source.value = 'litellm'; source.dispatchEvent(new Event('change', { bubbles: true })) })
+    const source = document.querySelector<HTMLButtonElement>('[data-sync-source]')!
+    await selectOption(source, 'LiteLLM')
     expect(signals[0].aborted).toBe(true)
     await act(async () => first.resolve(Response.json(preview('models-dev'))))
     expect(document.querySelector('[data-sync-model="provider/gpt"]')).toBeNull()
@@ -156,7 +154,7 @@ describe('CompletePricingSyncModal', () => {
     await renderModal()
     await act(async () => button('usage_stats.pricing_settings_sync_fetch').click())
     expect(document.body.textContent).toContain('Source timed out')
-    expect(document.querySelector<HTMLSelectElement>('[data-sync-source]')?.value).toBe('models-dev')
+    expect(document.querySelector<HTMLButtonElement>('[data-sync-source]')?.textContent).toBe('Models.dev')
     expect(document.querySelector('[data-sync-model]')).toBeNull()
     await act(async () => button('usage_stats.pricing_settings_sync_fetch').click())
     expect(attempts).toBe(2)
