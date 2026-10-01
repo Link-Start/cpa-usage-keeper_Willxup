@@ -29,6 +29,7 @@ export interface ModelPricingEditorProps {
   initialConfig: ModelPricingConfig | null
   modelOptions: string[]
   timezone?: string
+  locked?: boolean
   onClose: () => void
   onSave: (config: ModelPricingConfig) => Promise<unknown>
 }
@@ -121,7 +122,7 @@ function validatedConfig(draft: EditorDraft): { config: ModelPricingConfig | nul
 }
 
 // 单窗编辑默认价格、模型倍率与条件倍率，提交失败才展示字段错误；取消不保存。
-export function ModelPricingEditor({ open, initialConfig, modelOptions, timezone, onClose, onSave }: ModelPricingEditorProps) {
+export function ModelPricingEditor({ open, initialConfig, modelOptions, timezone, locked = false, onClose, onSave }: ModelPricingEditorProps) {
   const { t } = useTranslation()
   const formId = useId().replaceAll(':', '')
   const formRef = useRef<HTMLFormElement | null>(null)
@@ -220,7 +221,7 @@ export function ModelPricingEditor({ open, initialConfig, modelOptions, timezone
   // 先定位草稿错误，再提交一次完整配置；服务端字段错误映射回控件，网络错误保留草稿。
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
-    if (saving) return
+    if (saving || locked) return
     const validated = validatedConfig(draft)
     if (!validated.config) {
       setRequestError('')
@@ -295,7 +296,7 @@ export function ModelPricingEditor({ open, initialConfig, modelOptions, timezone
       data-shake={error && shakeAttempt ? shakeAttempt % 2 ? 'odd' : 'even' : undefined}>
       <span>{label}</span>
       <input type={type} min={type === 'number' ? 0 : undefined} step={type === 'number' ? 'any' : undefined}
-        value={value} onChange={(event) => onChange(event.target.value)} disabled={saving}
+        value={value} onChange={(event) => onChange(event.target.value)} disabled={saving || locked}
         data-pricing-field={path} aria-invalid={Boolean(error)}
         aria-describedby={error ? descriptionId : undefined} />
       {error ? <span id={descriptionId} className={styles.screenReaderOnly}>
@@ -308,7 +309,7 @@ export function ModelPricingEditor({ open, initialConfig, modelOptions, timezone
     width={1120} className={styles.editorModal} closeDisabled={saving} onClose={onClose}>
     {branchSession ? <ModelPricingBranchEditor key={branchSession.draft.id} initialDraft={branchSession.draft}
       otherBranches={draft.branches.filter((branch) => branch.id !== branchSession.originalId)}
-      mode={branchSession.mode} timezone={timezone} initialErrors={branchSession.errors}
+      mode={branchSession.mode} timezone={timezone} locked={locked} initialErrors={branchSession.errors}
       initialConflictBranchIds={branchSession.conflictIds}
       onCancel={() => setBranchSession(null)} onSave={(branchDraft) => saveBranch(branchDraft)} />
       : <form ref={attachForm} className={styles.editorBody} noValidate onSubmit={(event) => void submit(event)}>
@@ -317,7 +318,7 @@ export function ModelPricingEditor({ open, initialConfig, modelOptions, timezone
       {!initialConfig ? <label className={`${styles.modelField} ${errors.model ? styles.invalid : ''}`}
         data-shake={errors.model && shakeAttempt ? shakeAttempt % 2 ? 'odd' : 'even' : undefined}>
         <span>{t('usage_stats.pricing_settings_model')}</span>
-        <select value={draft.model} disabled={saving} data-pricing-field="model" aria-invalid={Boolean(errors.model)}
+        <select value={draft.model} disabled={saving || locked} data-pricing-field="model" aria-invalid={Boolean(errors.model)}
           aria-describedby={errors.model ? `${formId}-model-error` : undefined}
           onChange={(event) => {
             // 候选模型切换保留价格草稿，但清除上一候选的全部错误反馈。
@@ -337,7 +338,7 @@ export function ModelPricingEditor({ open, initialConfig, modelOptions, timezone
       <div className={styles.sectionHeading}>
         <h3>{t('usage_stats.pricing_settings_default_prices')}</h3>
         <label className={`${styles.styleField} ${errors.pricing_style ? styles.invalid : ''}`}>{t('usage_stats.model_price_style')}
-          <select value={draft.pricingStyle} disabled={saving} data-pricing-field="pricing_style" aria-invalid={Boolean(errors.pricing_style)}
+          <select value={draft.pricingStyle} disabled={saving || locked} data-pricing-field="pricing_style" aria-invalid={Boolean(errors.pricing_style)}
             aria-describedby={errors.pricing_style ? `${formId}-pricing-style-error` : undefined}
             onChange={(event) => { setDraft((current) => ({ ...current, pricingStyle: event.target.value as PricingStyle })); clearError('pricing_style') }}>
             <option value="openai">{t('usage_stats.model_price_style_openai')}</option>
@@ -371,12 +372,12 @@ export function ModelPricingEditor({ open, initialConfig, modelOptions, timezone
             (value) => editRule(rule.id, 'value', value))}
           {field(`conditional_multipliers[${index}].multiplier`, t('usage_stats.model_price_rules_multiplier'), rule.multiplier,
             (value) => editRule(rule.id, 'multiplier', value), 'number')}
-          <Button type="button" variant="ghost" appearance="action" disabled={saving} aria-label={t('usage_stats.pricing_settings_delete_condition')}
+          <Button type="button" variant="ghost" appearance="action" disabled={saving || locked} aria-label={t('usage_stats.pricing_settings_delete_condition')}
             onClick={() => { setDraft((current) => ({ ...current, rules: current.rules.filter((item) => item.id !== rule.id) })); setErrors({}) }}>
             {t('common.delete')}
           </Button>
         </div>)}
-        <Button type="button" variant="secondary" appearance="action" disabled={saving}
+        <Button type="button" variant="secondary" appearance="action" disabled={saving || locked}
           onClick={() => setDraft((current) => ({ ...current, rules: [...current.rules, { id: nextRuleId.current++, key: '', value: '', multiplier: '1' }] }))}>
           {t('usage_stats.pricing_settings_add_condition')}
         </Button>
@@ -400,20 +401,20 @@ export function ModelPricingEditor({ open, initialConfig, modelOptions, timezone
               {t(`usage_stats.pricing_settings_${key}`)}<strong>${branch.prices[key] || '—'}</strong>
             </span>)}</div>
             <div className={styles.branchActions}>
-              <Button type="button" variant="ghost" appearance="action" disabled={saving} data-branch-action="edit"
+              <Button type="button" variant="ghost" appearance="action" disabled={saving || locked} data-branch-action="edit"
                 aria-label={t('usage_stats.pricing_settings_edit_branch_named', { name: branch.name })}
                 onClick={() => openBranch('edit', branch)}>{t('common.edit')}</Button>
-              <Button type="button" variant="ghost" appearance="action" disabled={saving} data-branch-action="copy"
+              <Button type="button" variant="ghost" appearance="action" disabled={saving || locked} data-branch-action="copy"
                 aria-label={t('usage_stats.pricing_settings_copy_branch_named', { name: branch.name })}
                 onClick={() => openBranch('copy', branch)}>{t('usage_stats.pricing_settings_copy_branch')}</Button>
-              <Button type="button" variant="ghost" appearance="action" disabled={saving} data-branch-action="delete"
+              <Button type="button" variant="ghost" appearance="action" disabled={saving || locked} data-branch-action="delete"
                 aria-label={t('usage_stats.pricing_settings_delete_branch_named', { name: branch.name })}
                 onClick={() => { setDraft((current) => ({ ...current, branches: current.branches.filter((item) => item.id !== branch.id) })); setRequestError('') }}>
                 {t('common.delete')}
               </Button>
             </div>
           </article>) : <p className={styles.empty}>{t('usage_stats.pricing_settings_no_branches')}</p>}
-          <Button type="button" variant="secondary" appearance="action" disabled={saving}
+          <Button type="button" variant="secondary" appearance="action" disabled={saving || locked}
             onClick={() => openBranch('add')}>{t('usage_stats.pricing_settings_add_branch')}</Button>
         </div>
       </details>
@@ -425,7 +426,7 @@ export function ModelPricingEditor({ open, initialConfig, modelOptions, timezone
       {requestError ? <p ref={errorRef} tabIndex={-1} className={styles.requestError} role="alert" data-pricing-field="request-error">{requestError}</p> : null}
       <div className={styles.editorFooter}>
         <Button type="button" variant="secondary" appearance="action" disabled={saving} onClick={onClose}>{t('common.cancel')}</Button>
-        <Button type="submit" appearance="action" loading={saving}>{t('common.save')}</Button>
+        <Button type="submit" appearance="action" disabled={locked} loading={saving}>{t('common.save')}</Button>
       </div>
     </form>
     }

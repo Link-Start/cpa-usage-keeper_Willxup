@@ -19,10 +19,12 @@ interface SyncDraft {
 interface CompletePricingSyncModalProps {
   open: boolean
   models: ModelPricingConfig[]
+  locked?: boolean
   onClose: () => void
   onRefreshPricing: () => Promise<boolean>
   onNotice: (message: string) => void
   onAuthRequired?: () => void
+  onPricingBusy?: () => void
 }
 
 // 来源四价转换为独立可编辑字符串；未填与明确免费保持区分。
@@ -46,7 +48,7 @@ const samePrices = (left: PricingBasePrices, right: PricingBasePrices): boolean 
   priceKeys.every((key) => left[key] === right[key])
 
 // 新同步只编辑本次四项基础价；来源草稿与应用状态均只存在当前弹窗中。
-export function CompletePricingSyncModal({ open, models, onClose, onRefreshPricing, onNotice, onAuthRequired }: CompletePricingSyncModalProps) {
+export function CompletePricingSyncModal({ open, models, locked = false, onClose, onRefreshPricing, onNotice, onAuthRequired, onPricingBusy }: CompletePricingSyncModalProps) {
   const { t } = useTranslation()
   const [source, setSource] = useState<PricingSyncSource>(readPricingSyncSource)
   const [preview, setPreview] = useState<PricingSyncFetchResponse | null>(null)
@@ -105,7 +107,7 @@ export function CompletePricingSyncModal({ open, models, onClose, onRefreshPrici
 
   // 来源变化只保存偏好并清空旧预览，等待用户再次点击拉取。
   const chooseSource = (value: string) => {
-    if (applying) return
+    if (applying || locked) return
     const next: PricingSyncSource = value === 'litellm' ? 'litellm' : 'models-dev'
     invalidateFetch()
     clearPreview()
@@ -115,7 +117,7 @@ export function CompletePricingSyncModal({ open, models, onClose, onRefreshPrici
 
   // 仅显式点击拉取创建请求；旧来源或已关闭弹窗的迟到响应由身份与 Abort 双重隔离。
   const loadPreview = async () => {
-    if (fetching || applying) return
+    if (fetching || applying || locked) return
     invalidateFetch()
     clearPreview()
     const controller = new AbortController()
@@ -152,7 +154,7 @@ export function CompletePricingSyncModal({ open, models, onClose, onRefreshPrici
 
   // 整批失败保留全部草稿；响应丢失只读核对当前价格，不重发 POST 或宣称收到提交回执。
   const apply = async () => {
-    if (applying || fetching || !preview) return
+    if (applying || fetching || locked || !preview) return
     const selected = drafts.map((draft, index) => ({ draft, index })).filter(({ draft }) => draft.selected)
     if (!selected.length) return
     const errors: Record<string, string> = {}
@@ -184,6 +186,7 @@ export function CompletePricingSyncModal({ open, models, onClose, onRefreshPrici
       onClose()
     } catch (failure) {
       if (failure instanceof ApiError && failure.status === 401) onAuthRequired?.()
+      if (failure instanceof ApiError && failure.code === 'pricing_busy') onPricingBusy?.()
       if (failure instanceof ApiError && failure.status < 500) {
         const nextErrors: Record<string, string> = {}
         failure.fields?.forEach((field) => {
@@ -221,17 +224,17 @@ export function CompletePricingSyncModal({ open, models, onClose, onRefreshPrici
   return <Modal open={open} width={940} title={t('usage_stats.pricing_settings_sync_title')}
     closeDisabled={applying} onClose={close} footer={<div className={styles.footer}>
       <Button type="button" appearance="action" variant="secondary" disabled={applying} onClick={close}>{t('common.cancel')}</Button>
-      <Button type="button" appearance="action" disabled={applying || fetching || !preview || selectedCount === 0}
+      <Button type="button" appearance="action" disabled={locked || applying || fetching || !preview || selectedCount === 0}
         loading={applying} onClick={() => void apply()}>{t('usage_stats.pricing_settings_sync_apply')}</Button>
     </div>}>
     <div ref={bodyRef} className={styles.body}>
       <div className={styles.toolbar}>
         <label>{t('usage_stats.pricing_settings_sync_source')}
-          <select value={source} data-sync-source disabled={applying} onChange={(event) => chooseSource(event.target.value)}>
+          <select value={source} data-sync-source disabled={locked || applying} onChange={(event) => chooseSource(event.target.value)}>
             <option value="models-dev">Models.dev</option><option value="litellm">LiteLLM</option>
           </select>
         </label>
-        <Button type="button" appearance="action" variant="secondary" disabled={fetching || applying}
+        <Button type="button" appearance="action" variant="secondary" disabled={locked || fetching || applying}
           onClick={() => void loadPreview()}>{t('usage_stats.pricing_settings_sync_fetch')}</Button>
       </div>
       <p className={styles.note}>{t('usage_stats.pricing_settings_sync_scope')}</p>
@@ -242,11 +245,11 @@ export function CompletePricingSyncModal({ open, models, onClose, onRefreshPrici
           <div className={styles.selection}>
             <span>{t('usage_stats.pricing_settings_sync_matches', { matched: drafts.length, selected: selectedCount })}</span>
             <div className={styles.actions}>
-              <Button type="button" appearance="action" variant="ghost" disabled={applying}
+              <Button type="button" appearance="action" variant="ghost" disabled={locked || applying}
                 onClick={() => setDrafts((current) => current.map((draft) => ({ ...draft, selected: true })))}>
                 {t('usage_stats.pricing_settings_sync_select_all')}
               </Button>
-              <Button type="button" appearance="action" variant="ghost" disabled={applying}
+              <Button type="button" appearance="action" variant="ghost" disabled={locked || applying}
                 onClick={() => setDrafts((current) => current.map((draft) => ({ ...draft, selected: false })))}>
                 {t('usage_stats.pricing_settings_sync_clear_selection')}
               </Button>
@@ -257,7 +260,7 @@ export function CompletePricingSyncModal({ open, models, onClose, onRefreshPrici
             const status = !existing ? 'new' : priceKeys.every((key) => parsePrice(draft.prices[key]) === existing.base_prices[key]) ? 'same' : 'changed'
             return <article key={draft.match.model} className={styles.draft} data-sync-model={draft.match.model}>
               <div className={styles.draftHeader}>
-                <label className={styles.checkbox}><input type="checkbox" checked={draft.selected} disabled={applying}
+                <label className={styles.checkbox}><input type="checkbox" checked={draft.selected} disabled={locked || applying}
                   onChange={(event) => setDrafts((current) => current.map((row, rowIndex) => rowIndex === index
                     ? { ...row, selected: event.target.checked } : row))} />
                   <strong>{draft.match.model}</strong>
@@ -272,7 +275,7 @@ export function CompletePricingSyncModal({ open, models, onClose, onRefreshPrici
                 const errorId = `sync-${index}-${key}-error`
                 return <label key={key} className={styles.priceField}>
                   <span>{t(`usage_stats.pricing_settings_${key}`)}</span>
-                  <input type="number" min={0} step="any" value={draft.prices[key]} disabled={applying}
+                  <input type="number" min={0} step="any" value={draft.prices[key]} disabled={locked || applying}
                     data-sync-index={index} data-sync-price={key} aria-invalid={Boolean(error)}
                     aria-describedby={error ? errorId : undefined}
                     onChange={(event) => editPrice(index, key, event.target.value)} />

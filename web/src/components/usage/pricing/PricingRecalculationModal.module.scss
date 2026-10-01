@@ -1,0 +1,301 @@
+.modal :global(.modal-body) {
+  padding: 0;
+}
+
+.body {
+  padding: 24px 24px 0;
+  color: var(--text-primary);
+  font-size: 12px;
+}
+
+.intro {
+  margin: 0 0 20px;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.range,
+.startFields,
+.progressTitle,
+.footer,
+.connection {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.range {
+  align-items: end;
+  min-width: 0;
+}
+
+.startFields {
+  align-items: end;
+  min-width: 0;
+  flex: 1;
+}
+
+.startFields label {
+  position: relative;
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  flex: 1;
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.startFields label::after {
+  content: '';
+  position: absolute;
+  right: 16px;
+  bottom: 17px;
+  width: 7px;
+  height: 7px;
+  border-right: 1.5px solid var(--text-secondary);
+  border-bottom: 1.5px solid var(--text-secondary);
+  transform: rotate(45deg);
+  pointer-events: none;
+}
+
+.startFields select {
+  width: 100%;
+  min-width: 0;
+  min-height: 40px;
+  padding: 8px 34px 8px 12px;
+  border: 1px solid var(--border-color);
+  border-radius: 999px;
+  // WebKit 暗色原生外观会覆盖主题背景，改由主题色绘制控件和箭头。
+  appearance: none;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  color-scheme: light;
+  font: inherit;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.startFields select option {
+  background: var(--bg-primary);
+  color: var(--text-primary);
+}
+
+:global([data-theme='dark']) .startFields select {
+  color-scheme: dark;
+}
+
+.rangeEnd {
+  display: flex;
+  align-items: center;
+  min-height: 40px;
+  padding: 8px 12px;
+  border: 1px solid var(--border-color);
+  border-radius: 999px;
+  background: var(--bg-primary);
+  white-space: nowrap;
+}
+
+.rangeEnd strong {
+  font-weight: 600;
+}
+
+.muted {
+  margin: 10px 0;
+  color: var(--text-secondary);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
+.impact {
+  margin: 18px 0;
+  padding: 12px 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.savedPricing {
+  padding: 14px 0;
+  border-top: 1px solid var(--border-color);
+}
+
+.savedPricing summary {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.savedPricing summary span {
+  color: var(--text-secondary);
+  font-weight: 400;
+}
+
+.modelList {
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
+  padding: 12px 14px;
+  border-radius: 16px;
+  background: var(--bg-primary);
+}
+
+.modelList > .muted {
+  margin: 0;
+}
+
+.model {
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+  padding-top: 10px;
+  border-top: 1px solid var(--border-color);
+}
+
+.model strong {
+  overflow-wrap: anywhere;
+}
+
+.model small {
+  color: var(--text-secondary);
+}
+
+.modelPrices {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  font-size: 11px;
+}
+
+.modelPrices span {
+  min-width: 0;
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+}
+
+.modelPrices b {
+  color: var(--text-primary);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.footer {
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  margin: 18px -24px 0;
+  padding: 16px 24px;
+  border-top: 1px solid var(--border-color);
+}
+
+.progressTitle {
+  justify-content: space-between;
+  flex-wrap: wrap;
+}
+
+.progressTitle h3 {
+  margin: 0;
+  font-size: 14px;
+}
+
+.progressTitle strong {
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: var(--bg-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.progress {
+  height: 6px;
+  margin: 16px 0;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--bg-primary);
+}
+
+.progress > div {
+  height: 100%;
+  background: var(--primary-color);
+  transition: width 200ms ease;
+}
+
+.stages {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 16px 0;
+  padding: 0;
+  list-style: none;
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+
+.stages li[data-current='true'] {
+  color: var(--text-primary);
+  font-weight: 700;
+}
+
+.success,
+.failure,
+.connection {
+  margin: 12px 0 0;
+  padding: 12px;
+  border-radius: 14px;
+}
+
+.success {
+  background: color-mix(in srgb, var(--success-color) 9%, var(--bg-primary));
+  color: var(--success-color);
+}
+
+.failure {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  background: var(--bg-error-light);
+  color: var(--danger-color);
+}
+
+.connection {
+  justify-content: space-between;
+  background: var(--bg-primary);
+}
+
+@media (max-width: 620px) {
+  .range {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .range > span {
+    align-self: flex-start;
+  }
+}
+
+@media (max-width: 399px) {
+  .body {
+    padding-inline: 16px;
+  }
+
+  .startFields {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .modelPrices {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .footer {
+    margin-inline: -16px;
+    padding-inline: 16px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .progress > div {
+    transition: none;
+  }
+}

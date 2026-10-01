@@ -38,6 +38,19 @@
   font-size: 12px;
 }
 
+.recalculationBanner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 16px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--primary-color) 8%, var(--bg-primary));
+  font-size: 12px;
+}
+
 .listLabel strong {
   color: var(--text-primary);
 }

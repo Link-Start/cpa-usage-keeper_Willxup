@@ -181,6 +181,22 @@ describe('CompletePricingSyncModal', () => {
     expect(onRefreshPricing).not.toHaveBeenCalled()
   })
 
+  it('reports a concurrent pricing_busy response so the list can follow the running task', async () => {
+    const onPricingBusy = vi.fn()
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const path = new URL(String(input), 'http://localhost').pathname
+      if (path.endsWith('/sync/fetch')) return Response.json(preview('models-dev'))
+      return Response.json({ code: 'pricing_busy', message: 'Recalculation running' }, { status: 409 })
+    })
+    await act(async () => root.render(<CompletePricingSyncModal open models={[saved]} onClose={onClose}
+      onRefreshPricing={onRefreshPricing} onNotice={onNotice} onPricingBusy={onPricingBusy} />))
+    await act(async () => button('usage_stats.pricing_settings_sync_fetch').click())
+    await act(async () => button('usage_stats.pricing_settings_sync_apply').click())
+    expect(onPricingBusy).toHaveBeenCalledTimes(1)
+    expect(onClose).not.toHaveBeenCalled()
+    expect(document.querySelectorAll('[data-sync-model]')).toHaveLength(2)
+  })
+
   it('maps selected-item errors to the right row and accepts a corrected explicit zero', async () => {
     const posts: unknown[] = []
     vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {

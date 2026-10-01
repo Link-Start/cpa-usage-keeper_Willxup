@@ -3,7 +3,7 @@
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { ModelPricingConfig } from '@/lib/types'
+import type { ModelPricingConfig, PricingRecalculationTask } from '@/lib/types'
 import { PricingSettings } from '../PricingSettings'
 
 vi.mock('react-i18next', () => ({
@@ -28,6 +28,12 @@ const existing: ModelPricingConfig = {
   }],
 }
 
+const runningTask: PricingRecalculationTask = {
+  task_id: 'running-1', status: 'running', stage: 'events', start_at: '2026-09-22T09:30:00+05:30',
+  end_at: '2026-09-23T09:30:00+05:30', config_revision: 7, processed_count: 4,
+  total_count: 8, updated_at: '2026-09-23T09:31:00+05:30', error: null,
+}
+
 const setInput = async (input: HTMLInputElement, value: string) => {
   await act(async () => {
     Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, value)
@@ -47,12 +53,14 @@ describe('PricingSettings', () => {
   let root: Root
   let configs: ModelPricingConfig[]
   let revision: number
+  let currentTask: PricingRecalculationTask | null
   let writes: Array<{ method: string; url: URL; body?: ModelPricingConfig }>
 
   beforeEach(() => {
     globalThis.IS_REACT_ACT_ENVIRONMENT = true
     configs = [structuredClone(existing)]
     revision = 7
+    currentTask = null
     writes = []
     vi.stubGlobal('window', window)
     vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
@@ -60,6 +68,7 @@ describe('PricingSettings', () => {
       if (url.pathname.endsWith('/pricing/model-options')) {
         return Response.json({ models: ['provider/claude-sonnet', 'openai/gpt-5', 'gemini/3'] })
       }
+      if (url.pathname.endsWith('/pricing/recalculations/current')) return Response.json(currentTask)
       if (!url.pathname.endsWith('/pricing/models')) throw new Error(`unexpected pricing request ${url}`)
       if (init?.method === 'PUT') {
         const config = JSON.parse(String(init.body)) as ModelPricingConfig
@@ -390,5 +399,36 @@ describe('PricingSettings', () => {
     expect(writes[0].url.pathname).toBe('/api/v1/pricing/models')
     expect(writes[0].url.searchParams.get('model')).toBe('provider/claude-sonnet')
     expect(document.body.textContent).toContain('usage_stats.model_price_empty')
+  })
+
+  it('keeps the all-model recalculation entry available after every price configuration is deleted', async () => {
+    configs = []
+    await renderSettings()
+    const recalculate = button('usage_stats.pricing_recalculation_title')
+    expect(recalculate.disabled).toBe(false)
+  })
+
+  it('locks every configuration write while the server reports a running recalculation', async () => {
+    currentTask = runningTask
+    await renderSettings()
+    expect(button('usage_stats.pricing_settings_add').disabled).toBe(true)
+    expect(button('usage_stats.pricing_settings_sync_title').disabled).toBe(true)
+    expect(button('usage_stats.pricing_recalculation_title').disabled).toBe(true)
+    expect(button('common.edit').disabled).toBe(true)
+    expect(button('common.delete').disabled).toBe(true)
+    expect(document.body.textContent).toContain('50%')
+    expect(button('usage_stats.pricing_recalculation_view_progress').disabled).toBe(false)
+    expect(writes).toHaveLength(0)
+  })
+
+  it('refreshes the current task when a concurrent editor save receives pricing_busy', async () => {
+    await renderSettings()
+    await act(async () => button('common.edit').click())
+    currentTask = runningTask
+    vi.mocked(globalThis.fetch).mockImplementationOnce(async () => Response.json({ code: 'pricing_busy', message: 'Recalculation running' }, { status: 409 }))
+    await act(async () => button('common.save').click())
+    expect(writes).toHaveLength(0)
+    expect(button('usage_stats.pricing_settings_add').disabled).toBe(true)
+    expect(document.body.textContent).toContain('usage_stats.pricing_recalculation_view_progress')
   })
 })

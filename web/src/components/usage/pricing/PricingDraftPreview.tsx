@@ -13,6 +13,8 @@ interface PricingDraftPreviewProps {
   conditions: Array<{ key: string; value: string; multiplier: string }>
   open: boolean
   onToggle: (open: boolean) => void
+  showBranchMatches?: boolean
+  branchTimezone?: string
 }
 
 // 预览只按模型倍率调整同一草稿的单价；条件倍率仅陈列，不假设某条请求会命中。
@@ -36,10 +38,10 @@ export function PricingBranchMatch({ branch, timezone }: { branch: PricingBranch
 }
 
 // 右侧预览与表单共用草稿，折叠状态由模型弹窗持有以便往返分支编辑。
-export function PricingDraftPreview({ prices, modelMultiplier, branches, conditions, open, onToggle }: PricingDraftPreviewProps) {
+export function PricingDraftPreview({ prices, modelMultiplier, branches, conditions, open, onToggle, showBranchMatches = false, branchTimezone }: PricingDraftPreviewProps) {
   const { t } = useTranslation()
-  const plans = [{ id: 'default', name: t('usage_stats.pricing_settings_default_prices'), prices },
-    ...branches.map((branch) => ({ id: branch.id, name: branch.name || t('usage_stats.pricing_settings_unnamed_branch'), prices: branch.prices }))]
+  const plans = [{ id: 'default', name: t('usage_stats.pricing_settings_default_prices'), prices, branch: null as PricingBranchDraft | null },
+    ...branches.map((branch) => ({ id: branch.id, name: branch.name || t('usage_stats.pricing_settings_unnamed_branch'), prices: branch.prices, branch }))]
 
   return <aside className={styles.previewColumn} aria-label={t('usage_stats.pricing_settings_preview')}>
     <details className={styles.previewDetails} data-pricing-preview open={open} onToggle={(event) => onToggle(event.currentTarget.open)}>
@@ -53,6 +55,7 @@ export function PricingDraftPreview({ prices, modelMultiplier, branches, conditi
         <div aria-live="polite">
           {plans.map((plan) => <section key={plan.id} className={styles.previewPlan} data-preview-plan={plan.id}>
             <h4>{plan.name}</h4>
+            {showBranchMatches && plan.branch ? <PricingBranchMatch branch={plan.branch} timezone={branchTimezone} /> : null}
             <table className={styles.previewTable}>
               <thead><tr><th>{t('usage_stats.pricing_settings_token')}</th><th>{t('usage_stats.pricing_settings_unit_price')}</th></tr></thead>
               <tbody>{priceKeys.map((key) => <tr key={key}>

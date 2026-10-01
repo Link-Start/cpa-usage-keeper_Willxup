@@ -15,6 +15,7 @@ interface ModelPricingBranchEditorProps {
   otherBranches: PricingBranchDraft[]
   mode: 'add' | 'edit' | 'copy'
   timezone?: string
+  locked?: boolean
   initialErrors?: FieldErrors
   initialConflictBranchIds?: string[]
   onCancel: () => void
@@ -30,7 +31,7 @@ function visibleErrorPath(path: string, draft: PricingBranchDraft): string {
 }
 
 // 分支仅编辑本地子草稿；返回或取消不会改动模型配置。
-export function ModelPricingBranchEditor({ initialDraft, otherBranches, mode, timezone, initialErrors = {}, initialConflictBranchIds = [], onCancel, onSave }: ModelPricingBranchEditorProps) {
+export function ModelPricingBranchEditor({ initialDraft, otherBranches, mode, timezone, locked = false, initialErrors = {}, initialConflictBranchIds = [], onCancel, onSave }: ModelPricingBranchEditorProps) {
   const { t } = useTranslation()
   const formId = useId().replaceAll(':', '')
   const formRef = useRef<HTMLFormElement | null>(null)
@@ -66,6 +67,7 @@ export function ModelPricingBranchEditor({ initialDraft, otherBranches, mode, ti
 
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
+    if (locked) return
     const checked = validatePricingBranchDraft(draft, otherBranches)
     if (!checked.branch) {
       setErrors(checked.errors)
@@ -86,7 +88,7 @@ export function ModelPricingBranchEditor({ initialDraft, otherBranches, mode, ti
       <input type={inputType} min={inputType === 'number' ? 0 : undefined}
         step={inputType === 'number' ? (path.startsWith('context.') ? 1 : 'any') : undefined}
         value={value} onChange={(event) => edit(path, event.target.value)}
-        data-pricing-field={path} aria-invalid={Boolean(error)} aria-describedby={error ? descriptionId : undefined} />
+        disabled={locked} data-pricing-field={path} aria-invalid={Boolean(error)} aria-describedby={error ? descriptionId : undefined} />
       {error ? <span id={descriptionId} className={styles.screenReaderOnly}>
         {t(`usage_stats.pricing_settings_error_${['required', 'invalid', 'conflict'].includes(error) ? error : 'invalid'}`)}
       </span> : null}
@@ -99,7 +101,7 @@ export function ModelPricingBranchEditor({ initialDraft, otherBranches, mode, ti
     return <label className={`${styles.field} ${error ? styles.invalid : ''}`}
       data-shake={error && shakeAttempt ? shakeAttempt % 2 ? 'odd' : 'even' : undefined}>
       <span>{label}</span>
-      <select value={value} onChange={(event) => edit(path, event.target.value)} data-pricing-field={path}
+      <select value={value} disabled={locked} onChange={(event) => edit(path, event.target.value)} data-pricing-field={path}
         aria-invalid={Boolean(error)} aria-describedby={error ? descriptionId : undefined}>
         {options.map(([optionValue, optionLabel]) => <option key={optionValue} value={optionValue}>{optionLabel}</option>)}
       </select>
@@ -154,7 +156,7 @@ export function ModelPricingBranchEditor({ initialDraft, otherBranches, mode, ti
       </p> : null}
       <div className={styles.editorFooter}>
         <Button type="button" variant="secondary" appearance="action" onClick={onCancel}>{t('common.cancel')}</Button>
-        <Button type="submit" appearance="action">{t('usage_stats.pricing_settings_save_branch')}</Button>
+        <Button type="submit" appearance="action" disabled={locked}>{t('usage_stats.pricing_settings_save_branch')}</Button>
       </div>
     </form>
   </section>
