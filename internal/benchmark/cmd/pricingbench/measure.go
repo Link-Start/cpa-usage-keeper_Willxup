@@ -84,7 +84,6 @@ type pricingBenchReport struct {
 }
 
 type pricingBenchHardware struct {
-	Hostname       string `json:"hostname"`
 	OS             string `json:"os"`
 	Arch           string `json:"arch"`
 	LogicalCPUs    int    `json:"logical_cpus"`
@@ -290,8 +289,7 @@ func closePricingBenchPools(reader, writer *gorm.DB) {
 }
 
 func pricingBenchmarkHardware(path string) pricingBenchHardware {
-	hostname, _ := os.Hostname()
-	result := pricingBenchHardware{Hostname: hostname, OS: runtime.GOOS, Arch: runtime.GOARCH, LogicalCPUs: runtime.NumCPU()}
+	result := pricingBenchHardware{OS: runtime.GOOS, Arch: runtime.GOARCH, LogicalCPUs: runtime.NumCPU()}
 	if contents, err := os.ReadFile("/proc/meminfo"); err == nil {
 		for _, line := range strings.Split(string(contents), "\n") {
 			if strings.HasPrefix(line, "MemTotal:") {

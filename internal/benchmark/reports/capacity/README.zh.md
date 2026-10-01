@@ -1,5 +1,5 @@
 <p align="center">
-  <a href="./REPORT.md">English</a> ｜ <a href="./REPORT.zh.md"><strong>简体中文</strong></a>
+  <a href="./README.md">English</a> ｜ <a href="./README.zh.md"><strong>简体中文</strong></a>
 </p>
 
 # CPA Usage Keeper 容量 Benchmark 报告
@@ -11,6 +11,9 @@
 数据集：`reference-3m`
 
 平台：Linux amd64
+
+这是最近一次完成的容量测量，执行于费用持久化重构之前，尚未针对当前实现重测。下文的二进制及数据集哈希标识实际测量对象，不能将结果视为当前版本的容量结论。
+
 
 ## 结论摘要
 
@@ -53,34 +56,6 @@ Keeper 分别使用等价于 1、2、4 cores 的 cgroup CPU quota，并绑定到
 
 CPU 利用率按 Keeper 分配的 quota 归一化。通过点平均分别为1C的49.3%、2C的35.7%、4C的27.2%，约等于实际使用0.49、0.71、1.09个逻辑核心。
 
-## 参考数据集
-
-| 项目 | 验证值 |
-| --- | ---: |
-| 数据库大小 | 2,044,776,448 bytes（约 1.90 GiB） |
-| 90 天活跃 events | 3,205,740 |
-| 正式运行 30 天查询窗口 events | 1,201,775 |
-| Archive events | 0 |
-| Failed events | 31,831（0.993%） |
-| Identities | 使用 500 / 总计 500 |
-| Models | 使用 50 / 总计 50 |
-| API keys | 使用 50 / 总计 50 |
-| 孤儿 identity/model/API-key 引用 | 0 / 0 / 0 |
-| `PRAGMA quick_check` | `ok` |
-| Semantic fingerprint | `4b2b14e41bf7aaf91455fc1c3d9a2fe95ca45403d5448e2de17f08d969316f0b` |
-
-活跃表覆盖完整 90 天历史。archive 刻意保持为空，因为本套件覆盖的生产 Dashboard 路径不会查询冷数据。所有 identities、models 和 API keys 都被 events 实际引用。
-
-| API-key 档位 | API keys | Key 数量占比 | Events | Events 占比 |
-| --- | ---: | ---: | ---: | ---: |
-| 大用量 | 15 | 30% | 2,051,847 | 64.01% |
-| 中用量 | 25 | 50% | 1,018,187 | 31.76% |
-| 小用量 | 10 | 20% | 135,706 | 4.23% |
-
-每 Key 生成权重为 10:3:1。最终流量刻意保持不均衡，用于模拟少量高用量 Key，而不是把 events 集中到单一 Key。
-
-每个测试点开始前，套件都会从 canonical 创建新的字节级 clone，完成落盘并从 controller page cache 中清除。失败点不会把 backlog、WAL 或已预热 SQLite 页面带入下一轮。
-
 ## 测试方法与通过条件
 
 - 每个正式点都使用独立数据库 clone 启动全新 Keeper，预热全部 Dashboard 路径后，以选定速率持续运行 300 秒。
@@ -91,62 +66,6 @@ CPU 利用率按 Keeper 分配的 quota 归一化。通过点平均分别为1C�
 - Analysis Latency 的错误和分位数独立判定；诊断错误不会把 ingestion 或核心 Dashboard 容量重新标记为失败。
 - 短测只用于选择候选。容量结论仅使用下方六个五分钟正式边界点。
 - 持续流量建议取最高完整通过点的70%，向下取整到整数 events/s。
-
-## 容量边界
-
-| CPU | 最高通过 | 最低失败 | 通过点 durable | 通过点追平 | 通过点 CPU | 通过点峰值内存 | 失败证据 |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |
-| 1C | 150 | 200 | 45,000 / 45,000 | 5.37s | 49.3% | 472.9 MiB | 200 仅落库 53,969 / 60,000 |
-| 2C | 200 | 250 | 60,000 / 60,000 | 3.24s | 35.7% | 522.2 MiB | 250 仅落库 71,597 / 75,000 |
-| 4C | 500 | 600 | 149,998 / 150,000 | 14.63s | 27.2% | 995.7 MiB | 600 在 30.07s 后仍有 12,266 checkpoint lag |
-
-所有正式点均未 OOM。单独增加内存不能解决这些实测边界：1C/2C失败来自durable throughput，4C失败来自派生状态追平。
-
-## 核心 Dashboard 评估
-
-| CPU | 通过速率 | 样本数 | 整体 p50 | 整体 p95 | 整体 p99 | 最慢接口 p99 |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| 1C | 150 events/s | 299 | 299.9ms | 639.4ms | 858.4ms | Overview 30d：961.8ms |
-| 2C | 200 events/s | 299 | 297.9ms | 532.1ms | 627.1ms | Analysis 30d：649.7ms |
-| 4C | 500 events/s | 299 | 339.6ms | 938.2ms | 1323.0ms | Overview 30d：1469.6ms |
-
-### 各通过边界的接口延迟
-
-| 接口 | 1C/150 p50 / p95 / p99 | 2C/200 p50 / p95 / p99 | 4C/500 p50 / p95 / p99 |
-| --- | ---: | ---: | ---: |
-| Realtime Overview 60m | 204.5 / 585.3 / 668.9ms | 202.6 / 389.0 / 438.5ms | 422.0 / 895.9 / 1160.1ms |
-| Overview 30d | 353.7 / 710.3 / 961.8ms | 338.0 / 565.5 / 592.8ms | 604.8 / 1165.5 / 1469.6ms |
-| Activity 30d | 262.9 / 523.4 / 582.2ms | 309.0 / 345.4 / 364.7ms | 309.9 / 348.6 / 393.3ms |
-| Analysis 30d | 454.5 / 771.9 / 889.3ms | 497.5 / 623.0 / 649.7ms | 504.7 / 578.0 / 593.3ms |
-| Request Events 30d | 148.2 / 333.2 / 444.5ms | 146.6 / 173.2 / 247.4ms | 152.8 / 182.7 / 190.1ms |
-
-本轮核心 Dashboard 不是限制门槛。所有通过和失败 ingestion 边界的核心 p99 都明显低于3秒。
-
-## Analysis Latency 诊断
-
-| CPU / 通过速率 | 成功样本 | 错误 | 状态 | p50 | p95 | p99 | Max |
-| --- | ---: | ---: | --- | ---: | ---: | ---: | ---: |
-| 1C / 150 | 9 | 0 | 通过 | 4453.6ms | 5109.1ms | 5109.1ms | 5109.1ms |
-| 2C / 200 | 9 | 0 | 通过 | 2706.1ms | 3075.9ms | 3075.9ms | 3075.9ms |
-| 4C / 500 | 9 | 0 | 通过 | 2802.1ms | 3044.6ms | 3044.6ms | 3044.6ms |
-
-Analysis Latency 刻意不参与核心 Dashboard 的3秒门槛。该接口会在所选30天范围内合并已保留的Latency sketches与抽样点，因此在当前数据规模下明显重于其它 Dashboard 路径。
-
-每个五分钟点按30秒间隔只能完成9个诊断请求。nearest-rank p95与p99因此等于最大观测值，应作为本轮有界证据理解，而不是统计上精确的生产SLO。
-
-## Identity 基数方向（探索性）
-
-另一次五分钟1C对照使用3,205,740条活跃events、50个models、50个API keys、内存不设上限及1 event/s，并将identities从500降至50。两次运行因时间锚点不同，30天查询窗口的数据量相差约1%。该测试早于当前正式诊断查询频率，因此只作为方向性证据，不构成新的容量边界。
-
-| 指标 | 500 identities | 50 identities | 观测变化 |
-| --- | ---: | ---: | ---: |
-| 核心 Dashboard 整体 p99 | 521.3ms | 277.4ms | -46.8% |
-| Analysis 30d p99 | 557.6ms | 223.0ms | -60.0% |
-| Analysis Latency 30d p99 | 3384.8ms | 3225.9ms | -4.7% |
-| CPU 利用率（按1C归一化） | 64.4% | 56.0% | -8.5个百分点 |
-| 峰值内存 | 310.8 MiB | 251.3 MiB | -59.5 MiB |
-
-较低的identity基数可以明显减少轻量部署的核心Dashboard开销与内存占用。Analysis Latency改善较小，因为其保留统计按API group而非identity分桶。这个方向不改变上方正式容量边界与硬件建议。
 
 ## 边界证据
 
@@ -159,15 +78,6 @@ Analysis Latency 刻意不参与核心 Dashboard 的3秒门槛。该接口会在
 | 4C | 500 | 是 | 是 | 通过 | 149,998 / 150,000 | 14.63s | 995.7 MiB | 1323.0ms | — |
 | 4C | 600 | 否 | 否 | 通过 | 179,998 / 180,000 | 30.07s | 1044.3 MiB | 1415.4ms | `drain_lag`、`checkpoint_lag` |
 
-## 容量规划建议
-
-- **轻量部署：**1C / 768 MiB，持续流量不超过 105 events/s。
-- **中等部署：**2C / 1 GiB，持续流量不超过 140 events/s。
-- **较高吞吐部署：**4C / 2 GiB，持续流量不超过 350 events/s。
-- 内存按实测cgroup峰值加部署余量配置；这些不是有限hard-cap启动测试。
-- 不要把单独增加内存视为吞吐升级；本轮没有容量失败来自OOM。
-- 不要从4C或500 events/s继续线性外推；SQLite写入、Redis到SQLite的持久化、派生状态追平和共享负载器会先限制扩展。
-
 ## 限制
 
 - 每个报告边界点只有一次五分钟正式运行；本轮没有重复全部边界或执行24小时soak。
@@ -177,7 +87,6 @@ Analysis Latency 刻意不参与核心 Dashboard 的3秒门槛。该接口会在
 - 生成数据库覆盖90天活跃数据；Dashboard负载查询生产使用的30天和realtime路径，archive/冷表性能不在范围内。
 - 预装历史数据库上的五分钟 sustained events/s 不能直接乘以时间，作为契约型月容量。
 - 早期把Analysis Latency按核心接口频率回放的测试仍保留为压力证据，但不再用于生产容量建议。
-- Identity基数对照属于探索性测试，不修改正式容量边界。
 
 ## 可复现信息
 
@@ -188,3 +97,6 @@ Analysis Latency 刻意不参与核心 Dashboard 的3秒门槛。该接口会在
 - `benchctl` binary SHA-256：`9b2b8bb5bfcbd57d78ef4bdf95f714203718a5a84d495428ced3757896d89c6c`
 - Manifest SHA-256：`e6513ff3cb50d352a2b1c325daec2d5cec57ea862af3837cdf75789e0419afa2`
 - Expanded plan SHA-256：`0976acf6a94518f536ac84f1b6d7fb0502a1e2c8344966ec11c8241755117323`
+
+
+[容量运行指南](../../guides/capacity.zh.md) · [全部 Benchmark](../../README.zh.md)

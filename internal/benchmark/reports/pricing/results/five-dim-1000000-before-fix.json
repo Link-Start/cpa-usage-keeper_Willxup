@@ -12,7 +12,6 @@
   "generator_version": "production-v10-pricing-storage",
   "generated_fingerprint": "5c42fe20785cb4a04a41b1aecf1403657d0b63eb8c00b3bd66a6a0f36936b6f6",
   "hardware": {
-    "hostname": "geelinx-my",
     "os": "linux",
     "arch": "amd64",
     "logical_cpus": 6,
@@ -30,7 +29,7 @@
   "observed_phases_seconds": {
     "data_complete": 547.998359621,
     "events_backfilled": 345.250764058,
-    "opening": 0.00003947,
+    "opening": 3.947e-05,
     "overview_backfilling": 345.400252755,
     "protected": 22.801167641,
     "schema_complete": 279.350257276
