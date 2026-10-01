@@ -15,7 +15,6 @@ import (
 	"cpa-usage-keeper/internal/auth"
 	"cpa-usage-keeper/internal/entities"
 	"cpa-usage-keeper/internal/pricing"
-	"cpa-usage-keeper/internal/service"
 	servicedto "cpa-usage-keeper/internal/service/dto"
 )
 
@@ -38,7 +37,7 @@ func TestPricingSyncFetchHTTPUsesNormalizedMetadata(t *testing.T) {
 	if err := db.Create(&entities.UsageEvent{EventKey: "used-claude", Model: "claude-sonnet"}).Error; err != nil {
 		t.Fatal(err)
 	}
-	provider := service.NewPricingService(db, pricing.NewCatalog(pricing.EmptySnapshot()))
+	provider := newAPIPricingProvider(t, db, pricing.NewCatalog(pricing.EmptySnapshot()))
 	router := keeperapi.NewRouter(nil, nil, nil, provider, keeperapi.AuthConfig{}, nil, "")
 	response := httptest.NewRecorder()
 	router.ServeHTTP(response, newPricingRequest(http.MethodGet, "/api/v1/pricing/sync/fetch?source=models-dev", ""))
@@ -53,7 +52,7 @@ func TestPricingSyncFetchHTTPUsesNormalizedMetadata(t *testing.T) {
 
 func TestPricingSyncApplyHTTPPreservesExistingConfigurationAndStoredEvent(t *testing.T) {
 	db := openAPITestDatabase(t)
-	provider := service.NewPricingService(db, pricing.NewCatalog(pricing.EmptySnapshot()))
+	provider := newAPIPricingProvider(t, db, pricing.NewCatalog(pricing.EmptySnapshot()))
 	threshold := int64(100)
 	initial := pricing.ModelPricingConfig{Model: "claude-sonnet", PricingStyle: "claude", BasePrices: pricing.BasePrices{Input: 1, Output: 2}, ModelMultiplier: 0.5,
 		ConditionalMultipliers: []pricing.RuleConfig{{Key: "service_tier", Value: "priority", Multiplier: 2}},
@@ -110,7 +109,7 @@ func TestPricingSyncApplyHTTPRejectsInvalidItemsWithoutRevision(t *testing.T) {
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			db := openAPITestDatabase(t)
-			provider := service.NewPricingService(db, pricing.NewCatalog(pricing.EmptySnapshot()))
+			provider := newAPIPricingProvider(t, db, pricing.NewCatalog(pricing.EmptySnapshot()))
 			router := keeperapi.NewRouter(nil, nil, nil, provider, keeperapi.AuthConfig{}, nil, "")
 			response := httptest.NewRecorder()
 			router.ServeHTTP(response, newPricingRequest(http.MethodPost, "/api/v1/pricing/sync/apply", testCase.body))
@@ -131,7 +130,7 @@ func TestPricingSyncApplyHTTPRejectsInvalidItemsWithoutRevision(t *testing.T) {
 
 func TestPricingSyncApplyHTTPValidatesAgainstCurrentMultiplierAndRollsBackBatch(t *testing.T) {
 	db := openAPITestDatabase(t)
-	provider := service.NewPricingService(db, pricing.NewCatalog(pricing.EmptySnapshot()))
+	provider := newAPIPricingProvider(t, db, pricing.NewCatalog(pricing.EmptySnapshot()))
 	for _, config := range []pricing.ModelPricingConfig{
 		{Model: "free-model", PricingStyle: "openai", BasePrices: pricing.BasePrices{Input: 1}, ModelMultiplier: 0, ConditionalMultipliers: []pricing.RuleConfig{}, Branches: []pricing.PriceBranch{}},
 		{Model: "paid-model", PricingStyle: "openai", BasePrices: pricing.BasePrices{Input: 1}, ModelMultiplier: 2, ConditionalMultipliers: []pricing.RuleConfig{}, Branches: []pricing.PriceBranch{}},
@@ -195,7 +194,7 @@ func TestPricingSyncFetchHTTPMapsTimeoutCancellationAndInternalFailure(t *testin
 			if err := db.Create(&entities.UsageEvent{EventKey: "used-model", Model: "model-a"}).Error; err != nil {
 				t.Fatal(err)
 			}
-			provider := service.NewPricingService(db, pricing.NewCatalog(pricing.EmptySnapshot()))
+			provider := newAPIPricingProvider(t, db, pricing.NewCatalog(pricing.EmptySnapshot()))
 			router := keeperapi.NewRouter(nil, nil, nil, provider, keeperapi.AuthConfig{}, nil, "")
 			response := httptest.NewRecorder()
 			router.ServeHTTP(response, newPricingRequest(http.MethodGet, "/api/v1/pricing/sync/fetch?source=models-dev", ""))

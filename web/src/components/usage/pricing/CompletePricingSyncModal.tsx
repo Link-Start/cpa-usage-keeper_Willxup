@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/Button'
 import { Modal } from '@/components/ui/Modal'
 import { ApiError, applyPricingSync, fetchPricingModels, fetchPricingSync } from '@/lib/api'
 import type { ModelPricingConfig, PricingBasePrices, PricingSyncFetchMatch, PricingSyncFetchResponse, PricingSyncSource } from '@/lib/types'
-import { readPricingSyncSource, storePricingSyncSource } from './pricingDrafts'
+import { readPricingSyncSource, storePricingSyncSource } from './pricingSyncSource'
 import styles from './PricingSyncModal.module.scss'
 
 type PriceKey = keyof PricingBasePrices

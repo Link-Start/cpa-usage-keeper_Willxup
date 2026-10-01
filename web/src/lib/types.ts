@@ -962,79 +962,6 @@ export interface StartPricingRecalculationResponse {
   task: PricingRecalculationTask
 }
 
-export interface ModelPrice {
-	style: PricingStyle
-	prompt: number
-	completion: number
-	cacheRead: number
-	cacheWrite: number
-	multiplier: number
-}
-
-export interface PricingSaveFailure {
-  model: string
-  message: string
-  error?: unknown
-}
-
-export interface PricingSaveResult {
-  successModels: string[]
-  failures: PricingSaveFailure[]
-}
-
-export interface PricingEntry {
-  model: string
-	pricing_style: PricingStyle
-	prompt_price_per_1m: number
-	completion_price_per_1m: number
-	cache_read_price_per_1m: number
-	cache_write_price_per_1m: number
-	price_multiplier: number
-}
-
-export interface UsedModelsResponse {
-  models: string[]
-}
-
-export interface PricingResponse {
-  pricing: PricingEntry[]
-}
-
-export interface PricingRule {
-  key: string
-  value: string
-  multiplier: number
-}
-
-export interface ReplacePricingRuleInput {
-  key: string
-  value: string
-  multiplier?: number
-}
-
-export interface PricingRulesResponse {
-  model: string
-  rules: PricingRule[]
-}
-
-export interface ReplacePricingRulesRequest {
-  model: string
-  rules: ReplacePricingRuleInput[]
-}
-
-export interface PricingSyncMatch {
-  model: string
-  matched_model: string
-  match_type: string
-  source_provider_id: string
-  source_provider_name: string
-	pricing_style: PricingStyle
-	prompt_price_per_1m: number
-	completion_price_per_1m: number
-	cache_read_price_per_1m: number
-	cache_write_price_per_1m: number
-}
-
 export type PricingSyncSource = 'models-dev' | 'litellm'
 
 export interface PricingSyncFetchMatch {
@@ -1066,15 +993,6 @@ export interface PricingSyncApplyRequest {
 export interface PricingSyncApplyResponse {
   models: ModelPricingConfig[]
   config_revision: number
-}
-
-export interface PricingSyncPreviewResponse {
-  source_id: PricingSyncSource
-  source: string
-  source_url: string
-  metadata_models: number
-  matches: PricingSyncMatch[]
-  unmatched_models: string[]
 }
 
 export type UsageRollingHourTimeRange = `${number}h`

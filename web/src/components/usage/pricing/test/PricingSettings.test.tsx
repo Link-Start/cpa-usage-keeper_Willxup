@@ -93,12 +93,13 @@ describe('PricingSettings', () => {
   afterEach(async () => {
     await act(async () => root.unmount())
     container.remove()
+    vi.useRealTimers()
     vi.restoreAllMocks()
     vi.unstubAllGlobals()
   })
 
-  const renderSettings = async () => {
-    await act(async () => root.render(<PricingSettings />))
+  const renderSettings = async (props: Partial<Parameters<typeof PricingSettings>[0]> = {}) => {
+    await act(async () => root.render(<PricingSettings {...props} />))
   }
 
   it('loads complete saved prices and adds a model with free-text conditions in one save', async () => {
@@ -430,5 +431,20 @@ describe('PricingSettings', () => {
     expect(writes).toHaveLength(0)
     expect(button('usage_stats.pricing_settings_add').disabled).toBe(true)
     expect(document.body.textContent).toContain('usage_stats.pricing_recalculation_view_progress')
+  })
+
+  it('rereads the visible price list and retires outer quota responses only after the observed task settles', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    currentTask = runningTask
+    const onRecalculationSettled = vi.fn()
+    await renderSettings({ onRecalculationSettled })
+    const modelReads = () => vi.mocked(globalThis.fetch).mock.calls
+      .filter(([input]) => new URL(String(input), 'http://localhost').pathname.endsWith('/pricing/models')).length
+    expect(modelReads()).toBe(1)
+    currentTask = { ...runningTask, status: 'completed', stage: 'finalizing', processed_count: 8 }
+    await act(async () => vi.advanceTimersByTimeAsync(2000))
+    expect(modelReads()).toBe(2)
+    expect(onRecalculationSettled).toHaveBeenCalledTimes(1)
+    expect(onRecalculationSettled).toHaveBeenCalledWith(currentTask)
   })
 })

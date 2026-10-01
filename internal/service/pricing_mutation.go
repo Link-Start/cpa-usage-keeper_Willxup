@@ -10,12 +10,6 @@ import (
 	"gorm.io/gorm"
 )
 
-// mutatePricing 串行完成写事务、事务内候选编译和提交后的原子发布。
-func (s *pricingService) mutatePricing(ctx context.Context, callback func(*gorm.DB) error) (*pricing.Snapshot, error) {
-	candidate, _, err := s.mutatePricingRevision(ctx, callback)
-	return candidate, err
-}
-
 // mutatePricingRevision 串行完成完整价格事务、修订递增和提交后发布。
 // 该锁只保护配置/修订的一致读取，不等待已经取得旧 Resolver 的事件批次。
 func (s *pricingService) mutatePricingRevision(ctx context.Context, callback func(*gorm.DB) error) (*pricing.Snapshot, int64, error) {

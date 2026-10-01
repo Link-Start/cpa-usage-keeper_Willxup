@@ -51,7 +51,7 @@ func TestAttachWindowUsageStatsKeepsStoredCostAcrossPricingChanges(t *testing.T)
 		t.Fatal(err)
 	}
 	assertStored()
-	if err := repository.DeleteModelPriceSetting(db, "priced-model"); err != nil {
+	if err := repository.DeleteModelPriceSettingRequired(db, "priced-model"); err != nil {
 		t.Fatal(err)
 	}
 	assertStored()

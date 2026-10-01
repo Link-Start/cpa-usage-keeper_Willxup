@@ -113,39 +113,51 @@ func OpenDatabase(cfg config.Config) (*gorm.DB, error) {
 			closeDatabasePool(db)
 		}
 	}()
-	// 空文件和新文件都按新库处理，直接 AutoMigrate 到当前 schema 后标记历史迁移已完成。
+	// 空文件和新文件先固定 fresh 身份，再沿与 App 相同的建表完成合同初始化。
 	hasTables, err := sqliteDatabaseHasTables(db)
 	if err != nil {
 		return nil, err
 	}
 	if !databaseExists || !hasTables {
-		if err := db.AutoMigrate(entities.All()...); err != nil {
-			return nil, fmt.Errorf("auto migrate fresh database: %w", err)
+		if _, err := BootstrapPricingInitialization(context.Background(), db); err != nil {
+			return nil, err
 		}
-		if err := migration.MarkAllAsApplied(db); err != nil {
-			return nil, fmt.Errorf("mark schema migrations applied: %w", err)
+		if err := EnsurePricingBootstrapInbox(context.Background(), db); err != nil {
+			return nil, err
+		}
+		if err := InitializeFreshPricingDatabase(context.Background(), db); err != nil {
+			return nil, err
 		}
 		closeOnError = false
 		return db, nil
 	}
-	// 现有同步入口维持原行为；未迁移引导调用 OpenUnmigratedDatabasePools，备份前不进入此路径。
-	migrationBackupWriter := backup.NewWriter(cfg.BackupDir)
-	sqlDB, err := db.DB()
-	if err != nil {
-		return nil, fmt.Errorf("configure sqlite database: %w", err)
+	// 现有同步入口维持原行为；App 的未迁移入口必须先完成 M1 再调用同一 migration helper。
+	if err := RunDatabaseMigrationsWithBackup(context.Background(), db, db, cfg.BackupDir); err != nil {
+		return nil, fmt.Errorf("run schema migrations: %w", err)
 	}
-	if err := migration.Run(db, migration.RunOptions{BeforeDestructiveMigration: func(ctx context.Context, version string) error {
-		backupPath, err := migrationBackupWriter.WriteDatabase(ctx, sqlDB, time.Now())
+	closeOnError = false
+	return db, nil
+}
+
+// RunDatabaseMigrationsWithBackup 在旧数据保护完成后补齐仍 pending 的已注册版本。
+// 文件库 App 传独立 reader 生成一致备份；原同步入口保持单池备份合同。
+func RunDatabaseMigrationsWithBackup(ctx context.Context, writer, backupSource *gorm.DB, backupDir string) error {
+	if writer == nil || backupSource == nil {
+		return fmt.Errorf("database migration pools are missing")
+	}
+	sqlDB, err := backupSource.DB()
+	if err != nil {
+		return fmt.Errorf("open database migration backup source: %w", err)
+	}
+	migrationBackupWriter := backup.NewWriter(backupDir)
+	return migration.Run(writer.WithContext(ctx), migration.RunOptions{BeforeDestructiveMigration: func(hookCtx context.Context, version string) error {
+		backupPath, err := migrationBackupWriter.WriteDatabase(hookCtx, sqlDB, time.Now())
 		if err != nil {
 			return err
 		}
 		logrus.WithFields(logrus.Fields{"version": version, "backup_path": backupPath}).Info("database backed up before destructive migration")
 		return nil
-	}}); err != nil {
-		return nil, fmt.Errorf("run schema migrations: %w", err)
-	}
-	closeOnError = false
-	return db, nil
+	}})
 }
 
 // OpenDatabaseConnection 只打开唯一 writer 并设置连接级 SQLite 约束，不执行建表或业务迁移。

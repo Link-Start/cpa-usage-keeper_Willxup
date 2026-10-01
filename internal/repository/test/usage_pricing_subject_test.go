@@ -37,8 +37,8 @@ func TestUsageEventPricingSubjectMapsAllNineFieldsAndFourTokenSegments(t *testin
 		{Key: "reasoning_effort", Value: "xhigh", Multiplier: 3},
 	})
 	assertPricingSubject(t, subject)
-	result := resolver.Calculate(subject)
-	if !result.Available || result.RuleMultiplier != 6 || math.Abs(result.Cost.TotalCostUSD-0.000018) > 1e-12 {
+	result := resolver.CalculateFee(subject)
+	if !result.Available || math.Abs(result.TotalCostUSD-0.000018) > 1e-12 {
 		t.Errorf("event subject pricing mismatch: %+v", result)
 	}
 }

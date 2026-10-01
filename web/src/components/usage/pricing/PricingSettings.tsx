@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { forwardRef, useImperativeHandle, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/Button'
 import { Modal } from '@/components/ui/Modal'
@@ -21,11 +21,28 @@ export interface PricingSettingsProps {
   onRecalculationSettled?: (task: PricingRecalculationTask) => void
 }
 
+export interface PricingSettingsHandle {
+  refresh: () => Promise<void>
+}
+
 // 完整模型配置列表负责添加、编辑与删除；写成功后重读配置，不改写历史费用。
-export function PricingSettings({ enabled = true, onAuthRequired, timezone, onRecalculationSettled }: PricingSettingsProps) {
+export const PricingSettings = forwardRef<PricingSettingsHandle, PricingSettingsProps>(function PricingSettings(
+  { enabled = true, onAuthRequired, timezone, onRecalculationSettled }: PricingSettingsProps,
+  ref,
+) {
   const { t } = useTranslation()
   const pricing = useModelPricingData({ enabled, onAuthRequired })
-  const recalculation = usePricingRecalculation({ enabled, onAuthRequired, onSettled: onRecalculationSettled })
+  const recalculation = usePricingRecalculation({ enabled, onAuthRequired, onSettled: (task) => {
+    // 本页观测终态后实际重读当前价格列表；额度的旧本地响应由外层页面一并退休。
+    void pricing.loadPricing()
+    onRecalculationSettled?.(task)
+  } })
+  const { loadPricing } = pricing
+  const { refreshCurrent } = recalculation
+  // 顶部“刷新”沿用页面唯一动作，同时重读价格快照及别页可能启动的当前任务。
+  useImperativeHandle(ref, () => ({
+    refresh: async () => { await Promise.all([loadPricing(), refreshCurrent()]) },
+  }), [loadPricing, refreshCurrent])
   const recalculationRunning = recalculation.task?.status === 'running'
   const pricingLocked = !enabled || recalculationRunning || Boolean(recalculation.connectionError) ||
     (recalculation.loading && !recalculation.task)
@@ -162,4 +179,4 @@ export function PricingSettings({ enabled = true, onAuthRequired, timezone, onRe
       {deleteError ? <p className={styles.listError} role="alert">{deleteError}</p> : null}
     </Modal>
   </section>
-}
+})

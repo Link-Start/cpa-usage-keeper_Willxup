@@ -21,32 +21,29 @@ func TestUsageCostResolverPrefersModelPricingOverAliasWhenBothPriced(t *testing.
 
 	resolver := newUsageCostResolverForTest(t, db)
 
-	result := resolver.Calculate(pricing.NewCostSubject(
+	result := resolver.CalculateFee(pricing.NewCostSubject(
 		pricing.UsageDimensions{Model: "base-model", ModelAlias: "alias-model"},
 		helper.UsageTokenCostInput{InputTokens: 1_000_000},
 	))
 	assertUsageCostResolverResult(t, result, 10, true)
-	if result.MatchedModel != "base-model" || result.MatchedBy != "model" {
-		t.Fatalf("expected resolver to match real model pricing, got %+v", result)
-	}
 }
 
 func TestUsageCostResolverCostAvailabilityForMissingPrices(t *testing.T) {
 	db := openTestDatabase(t)
 	resolver := newUsageCostResolverForTest(t, db)
 
-	billable := resolver.Calculate(pricing.NewCostSubject(
+	billable := resolver.CalculateFee(pricing.NewCostSubject(
 		pricing.UsageDimensions{Model: "missing-model"},
 		helper.UsageTokenCostInput{InputTokens: 1},
 	))
 	if billable.Available {
 		t.Fatalf("expected missing billable price to be unavailable, got %+v", billable)
 	}
-	if billable.Cost.TotalCostUSD != 0 {
-		t.Fatalf("expected missing billable price to cost 0, got %+v", billable.Cost)
+	if billable.TotalCostUSD != 0 {
+		t.Fatalf("expected missing billable price to cost 0, got %+v", billable)
 	}
 
-	empty := resolver.Calculate(pricing.NewCostSubject(pricing.UsageDimensions{Model: "missing-model"}, helper.UsageTokenCostInput{}))
+	empty := resolver.CalculateFee(pricing.NewCostSubject(pricing.UsageDimensions{Model: "missing-model"}, helper.UsageTokenCostInput{}))
 	assertUsageCostResolverResult(t, empty, 0, true)
 }
 
@@ -55,15 +52,12 @@ func TestUsageCostResolverFallsBackToAliasWhenModelPriceIsMissing(t *testing.T) 
 	upsertUsageCostResolverPrice(t, db, "alias-model", 2)
 
 	resolver := newUsageCostResolverForTest(t, db)
-	result := resolver.Calculate(pricing.NewCostSubject(
+	result := resolver.CalculateFee(pricing.NewCostSubject(
 		pricing.UsageDimensions{Model: "missing-model", ModelAlias: "alias-model"},
 		helper.UsageTokenCostInput{InputTokens: 1_000_000},
 	))
 
 	assertUsageCostResolverResult(t, result, 2, true)
-	if result.MatchedModel != "alias-model" || result.MatchedBy != "model_alias" {
-		t.Fatalf("expected resolver to fall back to alias pricing, got %+v", result)
-	}
 }
 
 func TestUsageCostResolverTreatsZeroMultiplierAsMatchedAvailableCost(t *testing.T) {
@@ -76,7 +70,7 @@ func TestUsageCostResolverTreatsZeroMultiplierAsMatchedAvailableCost(t *testing.
 		model     string
 		available bool
 	}{{"free-model", true}, {"missing-model", false}} {
-		result := resolver.Calculate(pricing.NewCostSubject(pricing.UsageDimensions{Model: test.model}, helper.UsageTokenCostInput{InputTokens: 1_000_000}))
+		result := resolver.CalculateFee(pricing.NewCostSubject(pricing.UsageDimensions{Model: test.model}, helper.UsageTokenCostInput{InputTokens: 1_000_000}))
 		assertUsageCostResolverResult(t, result, 0, test.available)
 	}
 }
@@ -95,7 +89,7 @@ func TestUsageCostResolverChargesOpenAICacheReadAndWritePrices(t *testing.T) {
 	}
 
 	resolver := newUsageCostResolverForTest(t, db)
-	result := resolver.Calculate(pricing.NewCostSubject(
+	result := resolver.CalculateFee(pricing.NewCostSubject(
 		pricing.UsageDimensions{Model: "gpt-5.6-terra"},
 		helper.UsageTokenCostInput{
 			InputTokens:         1_000_000,
@@ -105,14 +99,10 @@ func TestUsageCostResolverChargesOpenAICacheReadAndWritePrices(t *testing.T) {
 		},
 	))
 
-	if !result.Available || result.PricingStyle != entities.ModelPricingStyleOpenAI {
+	if !result.Available {
 		t.Fatalf("expected available OpenAI pricing result, got %+v", result)
 	}
-	assertUsageCostClose(t, result.Cost.UncachedInputCostUSD, 0.7*3)
-	assertUsageCostClose(t, result.Cost.CacheReadCostUSD, 0.2*0.3)
-	assertUsageCostClose(t, result.Cost.CacheWriteCostUSD, 0.1*3.75)
-	assertUsageCostClose(t, result.Cost.OutputCostUSD, 0.5*15)
-	assertUsageCostClose(t, result.Cost.TotalCostUSD, 0.7*3+0.5*15+0.2*0.3+0.1*3.75)
+	assertUsageCostClose(t, result.TotalCostUSD, 0.7*3+0.5*15+0.2*0.3+0.1*3.75)
 }
 
 func TestListUsageEventsWithFilterPreservesStoredModelAndAliasCosts(t *testing.T) {
@@ -582,17 +572,17 @@ func upsertUsageCostResolverPriceWithMultiplier(t *testing.T, db *gorm.DB, model
 	}
 }
 
-func assertUsageCostResolverResult(t *testing.T, result pricing.CostResult, wantCost float64, wantAvailable bool) {
+func assertUsageCostResolverResult(t *testing.T, result pricing.FeeResult, wantCost float64, wantAvailable bool) {
 	t.Helper()
 	if result.Available != wantAvailable {
 		t.Fatalf("expected available=%v, got %+v", wantAvailable, result)
 	}
-	assertUsageCostClose(t, result.Cost.TotalCostUSD, wantCost)
+	assertUsageCostClose(t, result.TotalCostUSD, wantCost)
 }
 
 func assertUsageCostClose(t *testing.T, got, want float64) {
 	t.Helper()
-	if math.Abs(got-want) > 0.000000001 {
+	if !(math.Abs(got-want) <= 0.000000001) {
 		t.Fatalf("expected cost %.8f, got %.8f", want, got)
 	}
 }

@@ -87,7 +87,7 @@ func TestUsageServiceAnalysisKeepsStoredCostsAcrossViewsAndPricingChanges(t *tes
 	assertViews()
 	for _, remove := range []bool{false, true} {
 		if remove {
-			err = repository.DeleteModelPriceSetting(db, "analysis-model")
+			err = repository.DeleteModelPriceSettingRequired(db, "analysis-model")
 		} else {
 			_, err = repository.UpsertModelPriceSetting(db, repodto.ModelPriceSettingInput{Model: "analysis-model", PromptPricePer1M: 90})
 		}

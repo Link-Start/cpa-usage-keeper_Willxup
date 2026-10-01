@@ -29,8 +29,8 @@ func TestLoadPricingSnapshotBuildsResolverFromPricesAndRules(t *testing.T) {
 		t.Fatalf("LoadPricingSnapshot: %v", err)
 	}
 	resolver := pricing.NewCatalog(snapshot).NewResolver()
-	result := resolver.Calculate(pricing.NewCostSubject(pricing.UsageDimensions{Model: "model-a", ServiceTier: "priority", ReasoningEffort: "xhigh"}, helper.UsageTokenCostInput{InputTokens: 1_000_000}))
-	if !result.Available || result.Cost.TotalCostUSD != 6 || result.RuleMultiplier != 6 {
+	result := resolver.CalculateFee(pricing.NewCostSubject(pricing.UsageDimensions{Model: "model-a", ServiceTier: "priority", ReasoningEffort: "xhigh"}, helper.UsageTokenCostInput{InputTokens: 1_000_000}))
+	if !result.Available || result.TotalCostUSD != 6 {
 		t.Fatalf("unexpected snapshot calculation: %+v", result)
 	}
 }
@@ -47,8 +47,8 @@ func TestLoadPricingSnapshotInsideTransactionSeesUncommittedRules(t *testing.T) 
 		if err != nil {
 			return err
 		}
-		result := pricing.NewCatalog(snapshot).NewResolver().Calculate(pricing.NewCostSubject(pricing.UsageDimensions{Model: "model-a", ServiceTier: "priority"}, helper.UsageTokenCostInput{InputTokens: 1_000_000}))
-		if result.Cost.TotalCostUSD != 4 {
+		result := pricing.NewCatalog(snapshot).NewResolver().CalculateFee(pricing.NewCostSubject(pricing.UsageDimensions{Model: "model-a", ServiceTier: "priority"}, helper.UsageTokenCostInput{InputTokens: 1_000_000}))
+		if result.TotalCostUSD != 4 {
 			t.Fatalf("expected transaction-local candidate cost 4, got %+v", result)
 		}
 		return rollback

@@ -3,6 +3,7 @@
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { ApiError } from '@/lib/api'
 import type { UsageCredentialHealth } from '@/lib/types'
 import type { AiProviderCredentialRow, AuthFileCredentialRow, CredentialDetailSelection } from '../credentialViewModels'
 import { CredentialDetailDrawer } from '../CredentialDetailDrawer'
@@ -399,6 +400,20 @@ describe('CredentialDetailDrawer', () => {
       },
     )
     expect(document.body.textContent).toContain('model-2')
+  })
+
+  it('keeps the same credential request rows visible while stored costs are busy', async () => {
+    fetchUsageEvents.mockReset()
+      .mockResolvedValueOnce(response('1'))
+      .mockRejectedValueOnce(new ApiError('busy', 503, 'costs_busy'))
+    await renderDrawer()
+    await act(async () => document.body.querySelector<HTMLButtonElement>('[data-credential-detail-tab="requests"]')!.click())
+    expect(document.body.textContent).toContain('model-1')
+    await act(async () => document.body.querySelector<HTMLButtonElement>('[data-credential-detail-tab="overview"]')!.click())
+    await act(async () => document.body.querySelector<HTMLButtonElement>('[data-credential-detail-tab="requests"]')!.click())
+    expect(fetchUsageEvents).toHaveBeenCalledTimes(2)
+    expect(document.body.textContent).toContain('model-1')
+    expect(document.body.textContent).toContain('usage_stats.costs_busy')
   })
 
   it('clears the previous credential request state before the drawer reopens', async () => {

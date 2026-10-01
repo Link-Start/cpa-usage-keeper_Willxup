@@ -105,7 +105,7 @@ func TestUsageServiceComparisonsKeepStoredFeesAcrossPricingMutations(t *testing.
 	}
 	catalog.Replace(snapshot)
 	assertComparison()
-	if err := repository.DeleteModelPriceSetting(db, "model-a"); err != nil {
+	if err := repository.DeleteModelPriceSettingRequired(db, "model-a"); err != nil {
 		t.Fatal(err)
 	}
 	snapshot, err = repository.LoadPricingSnapshot(context.Background(), db)

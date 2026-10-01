@@ -9,10 +9,10 @@ import (
 	"gorm.io/gorm"
 )
 
-// NewPricingBootstrapIngestRunner 只构造 CPA 原始消息接收链路，不打开业务 worker 或访问业务表。
-// 升级期间仍过滤 metadata 控制消息，但没有 observer，因而不会触发业务 metadata 同步。
-func NewPricingBootstrapIngestRunner(cfg config.Config, db *gorm.DB) *poller.RedisIngestRunner {
-	return newUsageIngestRunner(cfg, poller.NewPricingBootstrapInboxWriter(db), nil)
+// newPricingBootstrapIngestRunner 在同一接收生命周期内先写实际旧 inbox 列，业务就绪后移交标准写列与通知。
+func newPricingBootstrapIngestRunner(cfg config.Config, db *gorm.DB) (*poller.RedisIngestRunner, *UsageIngestBridge) {
+	bridge := NewUsageIngestBridge(poller.NewPricingBootstrapInboxWriter(db))
+	return newUsageIngestRunner(cfg, bridge, bridge), bridge
 }
 
 // newUsageIngestRunner 复用订阅、Redis pull 和 HTTP pull 的既有优先级及降级合同。

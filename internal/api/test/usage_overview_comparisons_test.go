@@ -189,7 +189,7 @@ func TestOverviewComparisonAPIUsesAliasesAndViewerScope(t *testing.T) {
 	catalog.Replace(snapshot)
 	for _, mutate := range []bool{false, true} {
 		if mutate {
-			if err := repository.DeleteModelPriceSetting(db, "my-model"); err != nil {
+			if err := repository.DeleteModelPriceSettingRequired(db, "my-model"); err != nil {
 				t.Fatal(err)
 			}
 			snapshot, err = repository.LoadPricingSnapshot(context.Background(), db)

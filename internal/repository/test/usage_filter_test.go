@@ -604,7 +604,7 @@ func TestBuildUsageOverviewWithFilterKeepsCalendarRangeWindowMinutes(t *testing.
 	}
 }
 
-func TestCalculateUsageTokenCostBreakdownDoesNotDoubleChargeReasoningTokens(t *testing.T) {
+func TestCalculateUsageTokenCostDoesNotDoubleChargeReasoningTokens(t *testing.T) {
 	input := helper.UsageTokenCostInput{
 		InputTokens:     1_000_000,
 		OutputTokens:    2_000_000,
@@ -616,7 +616,7 @@ func TestCalculateUsageTokenCostBreakdownDoesNotDoubleChargeReasoningTokens(t *t
 		CacheReadPricePer1M:  1,
 	}
 
-	cost := helper.CalculateUsageTokenCostBreakdown(input, pricing).TotalCostUSD
+	cost := helper.CalculateUsageTokenCost(input, pricing)
 
 	if math.Abs(cost-46.4) > 0.000000001 {
 		t.Fatalf("expected reasoning tokens not to be added to completion cost, got %f", cost)

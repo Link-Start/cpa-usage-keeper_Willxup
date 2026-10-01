@@ -141,11 +141,6 @@ func normalizeModelPricingStyle(style string) (string, error) {
 	}
 }
 
-func DeleteModelPriceSetting(db *gorm.DB, model string) error {
-	_, err := deleteModelPriceSetting(db, model)
-	return err
-}
-
 // DeleteModelPriceSettingRequired 删除完整配置及级联规则，返回不存在以供新合同映射 404。
 func DeleteModelPriceSettingRequired(db *gorm.DB, model string) error {
 	deleted, err := deleteModelPriceSetting(db, model)

@@ -14,7 +14,6 @@ import (
 	"cpa-usage-keeper/internal/auth"
 	"cpa-usage-keeper/internal/entities"
 	"cpa-usage-keeper/internal/pricing"
-	"cpa-usage-keeper/internal/service"
 	servicedto "cpa-usage-keeper/internal/service/dto"
 )
 
@@ -22,7 +21,7 @@ const completePricingHTTPBody = `{"model":"openai/gpt-5.6","pricing_style":"open
 
 func TestPricingModelsHTTPPersistsCompleteConfiguration(t *testing.T) {
 	db := openAPITestDatabase(t)
-	provider := service.NewPricingService(db, pricing.NewCatalog(pricing.EmptySnapshot()))
+	provider := newAPIPricingProvider(t, db, pricing.NewCatalog(pricing.EmptySnapshot()))
 	router := keeperapi.NewRouter(nil, nil, nil, provider, keeperapi.AuthConfig{}, nil, "")
 	put := newPricingRequest(http.MethodPut, "/api/v1/pricing/models", completePricingHTTPBody)
 	response := httptest.NewRecorder()
@@ -64,7 +63,7 @@ func TestPricingModelsHTTPPersistsCompleteConfiguration(t *testing.T) {
 
 func TestPricingModelsHTTPRoundTripsContextAndPeriodBranch(t *testing.T) {
 	db := openAPITestDatabase(t)
-	provider := service.NewPricingService(db, pricing.NewCatalog(pricing.EmptySnapshot()))
+	provider := newAPIPricingProvider(t, db, pricing.NewCatalog(pricing.EmptySnapshot()))
 	router := keeperapi.NewRouter(nil, nil, nil, provider, keeperapi.AuthConfig{}, nil, "")
 	branch := `{"id":"night","name":"Night","context":{"type":"gt","threshold":200000},"period":{"type":"window","start":"20:00","end":"08:00"},"prices":{"input":2.5,"output":15,"cache_read":0.25,"cache_write":1}}`
 	body := strings.Replace(completePricingHTTPBody, `"branches":[]`, `"branches":[`+branch+`]`, 1)
@@ -160,7 +159,7 @@ func TestPricingModelsHTTPReturnsStructuredValidationErrorsWithoutWriting(t *tes
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			db := openAPITestDatabase(t)
-			provider := service.NewPricingService(db, pricing.NewCatalog(pricing.EmptySnapshot()))
+			provider := newAPIPricingProvider(t, db, pricing.NewCatalog(pricing.EmptySnapshot()))
 			router := keeperapi.NewRouter(nil, nil, nil, provider, keeperapi.AuthConfig{}, nil, "")
 			response := httptest.NewRecorder()
 			router.ServeHTTP(response, newPricingRequest(http.MethodPut, "/api/v1/pricing/models", testCase.body))

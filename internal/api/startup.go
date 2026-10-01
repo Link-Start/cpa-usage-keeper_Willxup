@@ -37,7 +37,7 @@ type startupTarget struct {
 }
 
 // StartupShell 始终只替换完整 http.Handler 指针，从不并发修改 Gin 路由树。
-// 当前 App 的同步初始化流程继续直接运行完整 Router；后续启动阶段才将此外壳交给 HTTP server。
+// App 在业务库尚未就绪时先发布启动外壳，完成数据与运行初始化后原子切换到完整 Router。
 type StartupShell struct {
 	target atomic.Pointer[startupTarget]
 }

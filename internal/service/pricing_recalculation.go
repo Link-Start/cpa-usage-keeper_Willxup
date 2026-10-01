@@ -10,6 +10,7 @@ import (
 
 	"cpa-usage-keeper/internal/poller"
 	"cpa-usage-keeper/internal/pricing"
+	"cpa-usage-keeper/internal/pricingmetadata"
 	"cpa-usage-keeper/internal/quota"
 	"cpa-usage-keeper/internal/repository"
 	servicedto "cpa-usage-keeper/internal/service/dto"
@@ -22,7 +23,6 @@ var (
 	ErrPricingBusy                      = errors.New("pricing recalculation is running")
 	ErrPricingChanged                   = errors.New("pricing configuration changed")
 	ErrInvalidPricingRecalculationStart = errors.New("invalid pricing recalculation start")
-	ErrPricingRecalculationUnavailable  = errors.New("pricing recalculation is not configured")
 )
 
 // PricingRecalculationDependencies 显式提供重算需要的停稳许可、缓存和 App 生命周期。
@@ -46,17 +46,16 @@ func NewPricingServiceWithRecalculation(db *gorm.DB, catalog *pricing.Catalog, o
 	if opts.Now == nil {
 		opts.Now = time.Now
 	}
-	s := newPricingService(db, catalog, modelsFetcher...)
-	s.recalculation = &opts
+	s := &pricingService{db: db, catalog: requirePricingCatalog(catalog), metadataClient: pricingmetadata.NewClient(nil), recalculation: opts}
+	if len(modelsFetcher) > 0 {
+		s.modelsFetcher = modelsFetcher[0]
+	}
 	return s
 }
 
 // GetPricingRecalculationOptions 从真实热表与最近 30×24 小时的交集给出合法绝对小时，不按本地 HH:00 伪造边界。
 // 配置修订在价格锁内读取；返回的选项仅供显示，Start 会在新的受理时刻重新验证。
 func (s *pricingService) GetPricingRecalculationOptions(ctx context.Context) (servicedto.RecalculationOptions, error) {
-	if s == nil || s.recalculation == nil {
-		return servicedto.RecalculationOptions{}, ErrPricingRecalculationUnavailable
-	}
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -77,9 +76,6 @@ func (s *pricingService) GetPricingRecalculationOptions(ctx context.Context) (se
 // StartPricingRecalculation 在配置锁内固定当前版本、S/T 和只读价格快照，再由 App 生命周期异步执行。
 // 运行中重复请求直接取得现行任务，不检查旧修订或入队；受理后 HTTP 断开不会取消任务。
 func (s *pricingService) StartPricingRecalculation(ctx context.Context, request servicedto.StartRecalculationRequest) (servicedto.StartRecalculationResponse, error) {
-	if s == nil || s.recalculation == nil {
-		return servicedto.StartRecalculationResponse{}, ErrPricingRecalculationUnavailable
-	}
 	s.mutationMu.Lock()
 	if s.recalculationRunning {
 		current := clonePricingRecalculationTask(s.recalculationTask)
@@ -107,7 +103,7 @@ func (s *pricingService) StartPricingRecalculation(ctx context.Context, request 
 		return servicedto.StartRecalculationResponse{Started: false, Task: *clonePricingRecalculationTask(s.recalculationTask)}, nil
 	}
 	if err := s.recalculation.LifecycleCtx.Err(); err != nil {
-		return servicedto.StartRecalculationResponse{}, fmt.Errorf("%w: %w", ErrPricingRecalculationUnavailable, err)
+		return servicedto.StartRecalculationResponse{}, fmt.Errorf("pricing recalculation lifecycle ended: %w", err)
 	}
 	now := timeutil.NormalizeStorageTime(s.recalculation.Now())
 	if err := validatePricingRecalculationStart(request, pricingRecalculationOptions(now, hotEarliest, 0), now); err != nil {
@@ -135,9 +131,6 @@ func (s *pricingService) StartPricingRecalculation(ctx context.Context, request 
 
 // CurrentPricingRecalculation 只返回当前进程的任务副本；没有任务或重启后返回 nil。
 func (s *pricingService) CurrentPricingRecalculation(ctx context.Context) (*servicedto.RecalculationTask, error) {
-	if s == nil || s.recalculation == nil {
-		return nil, ErrPricingRecalculationUnavailable
-	}
 	if ctx != nil {
 		if err := ctx.Err(); err != nil {
 			return nil, err
@@ -150,12 +143,10 @@ func (s *pricingService) CurrentPricingRecalculation(ctx context.Context) (*serv
 
 // WaitPricingRecalculation 供 App 取消生命周期后等待唯一 worker 退出，避免关库早于批次回滚和许可释放。
 func (s *pricingService) WaitPricingRecalculation() {
-	if s != nil {
-		// 与受理的 WaitGroup.Add 共用配置锁，避免 App 关库与最后一刻的新任务交错。
-		s.mutationMu.Lock()
-		s.mutationMu.Unlock()
-		s.recalculationWG.Wait()
-	}
+	// 与受理的 WaitGroup.Add 共用配置锁，避免 App 关库与最后一刻的新任务交错。
+	s.mutationMu.Lock()
+	s.mutationMu.Unlock()
+	s.recalculationWG.Wait()
 }
 
 // pricingRecalculationOptions 以真实 instant 求合法绝对小时，不把半小时时区的本地分钟归零。

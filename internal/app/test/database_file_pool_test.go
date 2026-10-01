@@ -472,12 +472,7 @@ func closeDatabasePoolTestDB(t *testing.T, db interface{ DB() (*sql.DB, error) }
 
 func newDatabasePoolTestApp(t *testing.T, cfg config.Config) *keeperapp.App {
 	t.Helper()
-	application, err := keeperapp.NewWithConfig(cfg)
-	if err != nil {
-		t.Fatalf("NewWithConfig returned error: %v", err)
-	}
-	t.Cleanup(func() { _ = application.Close() })
-	return application
+	return newInitializedApp(t, cfg)
 }
 
 // storedAppUsageEventFee 明确保留直插事件当时的费用结果，不修改待迁移的 NULL 语义。

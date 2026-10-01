@@ -10,18 +10,9 @@ import (
 	"cpa-usage-keeper/internal/entities"
 	"cpa-usage-keeper/internal/pricing"
 	"cpa-usage-keeper/internal/pricingmetadata"
-	servicedto "cpa-usage-keeper/internal/service/dto"
 )
 
-func (s *pricingService) PreviewPricingSync(ctx context.Context, sourceID string) (servicedto.PricingSyncPreview, error) {
-	models, catalog, err := s.loadPricingSyncCatalog(ctx, sourceID)
-	if err != nil {
-		return servicedto.PricingSyncPreview{}, err
-	}
-	return buildPricingSyncPreviewFromCatalog(models, catalog)
-}
-
-// loadPricingSyncCatalog 让旧预览和新拉取共享来源下载与本地模型列表，避免两套匹配来源。
+// loadPricingSyncCatalog 获取当前模型标识和所选来源目录，供审核基础价格使用。
 func (s *pricingService) loadPricingSyncCatalog(ctx context.Context, sourceID string) ([]string, pricingmetadata.Catalog, error) {
 	if _, err := pricingmetadata.SourceByID(sourceID); err != nil {
 		return nil, pricingmetadata.Catalog{}, err
@@ -48,43 +39,17 @@ type pricingCatalogIndex struct {
 
 type pricingSyncCandidate struct {
 	entry         pricingmetadata.Entry
-	matchType     string
 	score         int
 	idMatchLength int
 }
 
-// pricingSyncMatchedPrice 是来源匹配后的内部事实，两个 API 投影各自选择公开字段。
+// pricingSyncMatchedPrice 是来源匹配后的内部事实，新拉取接口只公开审核基础价所需字段。
 type pricingSyncMatchedPrice struct {
-	Model, MatchedModel, MatchType, SourceProviderID, SourceProviderName, PricingStyle string
-	BasePrices                                                                         pricing.BasePrices
+	Model, MatchedModel, SourceProviderName, PricingStyle string
+	BasePrices                                            pricing.BasePrices
 }
 
-func buildPricingSyncPreviewFromCatalog(
-	models []string,
-	catalog pricingmetadata.Catalog,
-) (servicedto.PricingSyncPreview, error) {
-	matches, unmatched := collectPricingSyncMatches(models, catalog)
-	legacyMatches := make([]servicedto.PricingSyncMatch, 0, len(matches))
-	for _, match := range matches {
-		legacyMatches = append(legacyMatches, servicedto.PricingSyncMatch{
-			Model: match.Model, MatchedModel: match.MatchedModel, MatchType: match.MatchType,
-			SourceProviderID: match.SourceProviderID, SourceProviderName: match.SourceProviderName,
-			PricingStyle:     match.PricingStyle,
-			PromptPricePer1M: match.BasePrices.Input, CompletionPricePer1M: match.BasePrices.Output,
-			CacheReadPricePer1M: match.BasePrices.CacheRead, CacheWritePricePer1M: match.BasePrices.CacheWrite,
-		})
-	}
-	return servicedto.PricingSyncPreview{
-		SourceID:        catalog.Source.ID,
-		Source:          catalog.Source.Name,
-		SourceURL:       catalog.Source.URL,
-		MetadataModels:  len(catalog.Entries),
-		Matches:         legacyMatches,
-		UnmatchedModels: unmatched,
-	}, nil
-}
-
-// collectPricingSyncMatches 保持旧匹配优先级和去重结果，供两个暂时并存的响应投影复用。
+// collectPricingSyncMatches 保持已确认的匹配优先级和去重结果，供新同步拉取使用。
 func collectPricingSyncMatches(models []string, catalog pricingmetadata.Catalog) ([]pricingSyncMatchedPrice, []string) {
 	entries := catalog.Entries
 	index := buildPricingCatalogIndex(entries)
@@ -129,7 +94,6 @@ func buildPricingSyncMatchFromCandidates(model string, candidates []pricingSyncC
 		match, ok := buildPricingSyncMatch(
 			model,
 			candidate.entry.Model,
-			candidate.matchType,
 			candidate.entry.ProviderID,
 			candidate.entry.ProviderName,
 		)
@@ -182,11 +146,10 @@ func matchPricingCatalogCandidates(model string, index pricingCatalogIndex) []pr
 	}
 
 	var candidates []pricingSyncCandidate
-	add := func(entries []pricingmetadata.Entry, matchType string, score int) {
+	add := func(entries []pricingmetadata.Entry, score int) {
 		for _, entry := range entries {
 			candidates = append(candidates, pricingSyncCandidate{
 				entry:         entry,
-				matchType:     matchType,
 				score:         score,
 				idMatchLength: pricingModelIDMatchLength(model, entry.Model.ID),
 			})
@@ -197,13 +160,13 @@ func matchPricingCatalogCandidates(model string, index pricingCatalogIndex) []pr
 	if suffix != model {
 		// CPA 前缀可由用户自由配置，价格匹配先使用去前缀后的真实模型 ID；
 		// 完整 ID 仅作为低优先级兜底，不能用于推断 Models.dev 供应商。
-		add(index.exact[strings.ToLower(suffix)], "index_suffix", 100)
-		add(index.normalized[normalizePricingModelKey(suffix)], "index_normalized_suffix", 96)
-		add(index.exact[strings.ToLower(model)], "index_exact", 92)
-		add(index.normalized[normalizePricingModelKey(model)], "index_normalized", 90)
+		add(index.exact[strings.ToLower(suffix)], 100)
+		add(index.normalized[normalizePricingModelKey(suffix)], 96)
+		add(index.exact[strings.ToLower(model)], 92)
+		add(index.normalized[normalizePricingModelKey(model)], 90)
 	} else {
-		add(index.exact[strings.ToLower(model)], "index_exact", 100)
-		add(index.normalized[normalizePricingModelKey(model)], "index_normalized", 92)
+		add(index.exact[strings.ToLower(model)], 100)
+		add(index.normalized[normalizePricingModelKey(model)], 92)
 	}
 
 	return sortedUniquePricingCandidates(model, candidates)
@@ -478,7 +441,7 @@ func normalizePricingModelKey(value string) string {
 	return builder.String()
 }
 
-func buildPricingSyncMatch(model string, metadataModel pricingmetadata.Model, matchType string, providerID string, providerName string) (pricingSyncMatchedPrice, bool) {
+func buildPricingSyncMatch(model string, metadataModel pricingmetadata.Model, providerID string, providerName string) (pricingSyncMatchedPrice, bool) {
 	if metadataModel.Cost.Input == nil || metadataModel.Cost.Output == nil {
 		return pricingSyncMatchedPrice{}, false
 	}
@@ -511,8 +474,7 @@ func buildPricingSyncMatch(model string, metadataModel pricingmetadata.Model, ma
 		providerName = strings.TrimSpace(providerID)
 	}
 	return pricingSyncMatchedPrice{
-		Model: model, MatchedModel: matchedModel, MatchType: matchType,
-		SourceProviderID: strings.TrimSpace(providerID), SourceProviderName: providerName, PricingStyle: pricingStyle,
+		Model: model, MatchedModel: matchedModel, SourceProviderName: providerName, PricingStyle: pricingStyle,
 		BasePrices: pricing.BasePrices{Input: input, Output: output, CacheRead: cacheRead, CacheWrite: cacheWrite},
 	}, true
 }
