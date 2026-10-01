@@ -15,7 +15,6 @@ import (
 	"cpa-usage-keeper/internal/config"
 	"cpa-usage-keeper/internal/entities"
 	"cpa-usage-keeper/internal/repository"
-	repodto "cpa-usage-keeper/internal/repository/dto"
 	"gorm.io/gorm"
 )
 
@@ -172,45 +171,7 @@ func TestPricingCompletedStartupRunsPendingSchemaVersion(t *testing.T) {
 // TestPricingLegacyStartupProtectsAndBackfillsOldPhysicalColumns 验证旧库先备份，再按固定价格回填明细及既有桶。
 func TestPricingLegacyStartupProtectsAndBackfillsOldPhysicalColumns(t *testing.T) {
 	cfg := testAppConfig(t)
-	seed, err := repository.OpenDatabase(cfg)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := repository.UpsertModelPriceSetting(seed, repodto.ModelPriceSettingInput{Model: "old-model", PromptPricePer1M: 2}); err != nil {
-		t.Fatal(err)
-	}
-	zero, available := 0.0, true
-	event := entities.UsageEvent{EventKey: "old-usage", APIGroupKey: "old-key", Model: "old-model", Timestamp: time.Date(2026, 9, 23, 10, 15, 0, 0, time.Local), InputTokens: 100, TotalTokens: 100, CostUSD: &zero, CostAvailable: &available}
-	if _, _, err := repository.InsertUsageEvents(seed, []entities.UsageEvent{event}); err != nil {
-		t.Fatal(err)
-	}
-	if err := repository.AggregateUsageOverviewStats(context.Background(), seed, time.Now()); err != nil {
-		t.Fatal(err)
-	}
-	for _, table := range []string{"usage_events", "usage_events_archive"} {
-		for _, column := range []string{"cost_usd", "cost_available"} {
-			if err := seed.Exec("ALTER TABLE " + table + " DROP COLUMN " + column).Error; err != nil {
-				t.Fatalf("restore old %s.%s: %v", table, column, err)
-			}
-		}
-	}
-	for _, table := range []string{"usage_overview_hourly_stats", "usage_overview_daily_stats"} {
-		for _, column := range []string{"cost_usd", "unavailable_cost_count"} {
-			if err := seed.Exec("ALTER TABLE " + table + " DROP COLUMN " + column).Error; err != nil {
-				t.Fatalf("restore old %s.%s: %v", table, column, err)
-			}
-		}
-	}
-	for _, statement := range []string{
-		"ALTER TABLE model_price_settings DROP COLUMN branches_json",
-		"DROP TABLE pricing_state",
-		"DROP TABLE pricing_migration_state",
-		"DELETE FROM schema_migrations WHERE version = '20260923_pricing_storage_structure'",
-	} {
-		if err := seed.Exec(statement).Error; err != nil {
-			t.Fatalf("restore old physical schema with %q: %v", statement, err)
-		}
-	}
+	seed := seedPublishedPricingRuntime(t, cfg)
 	closePricingStartupPools(t, seed, seed)
 
 	application := newInitializedApp(t, cfg)

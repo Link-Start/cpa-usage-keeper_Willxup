@@ -79,6 +79,8 @@ CPA Usage Keeper 是面向 [CLIProxyAPI（CPA）](https://github.com/router-for-
 - 支持 Docker/Docker Compose、Homebrew、二进制和 systemd 部署，并可启用密码保护
 - 通过 CPA 插件将 Keeper Dashboard 嵌入 CPAMC
 
+模型价格在用量事件入库时计入并保存。修改价格或应用来源价格只影响新事件，历史费用须手动重算；配置、首次升级恢复和 API 变化见[价格与升级指南](./docs/pricing-upgrade.zh.md)。
+
 ## 赞助与特别感谢
 
 - 感谢 [CLIProxyAPI（CPA）](https://github.com/router-for-me/CLIProxyAPI) 提供本项目所依赖的上游 CPA 基础与数据来源。

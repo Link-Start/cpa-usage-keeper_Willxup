@@ -15,7 +15,7 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// registerPricingSyncContractRoutes 暴露审核来源价格和整批应用两个管理员操作，旧预览供尚未切换的界面使用。
+// registerPricingSyncContractRoutes 暴露审核来源价格和整批应用两个管理员操作。
 func registerPricingSyncContractRoutes(router gin.IRoutes, provider service.PricingProvider) {
 	// 拉取只读取来源元数据与本地模型，不改已保存配置或费用。
 	router.GET("/pricing/sync/fetch", func(c *gin.Context) {
