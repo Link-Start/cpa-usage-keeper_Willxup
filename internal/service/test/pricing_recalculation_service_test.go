@@ -388,7 +388,12 @@ func TestPricingRecalculationFailureKeepsCommittedPageAndRetriesFromStart(t *tes
 
 func newPricingRecalculationTestProvider(t *testing.T, db *gorm.DB, now time.Time) (service.PricingProvider, *service.CostReadGate, *service.SyncService, *poller.UsageAggregationRunner, func()) {
 	t.Helper()
-	catalog := pricing.NewCatalog(pricing.EmptySnapshot())
+	// 与 App 启动一致，从已保存配置构建目录；文件库重开不能把现有模型当成缺价。
+	snapshot, err := repository.LoadPricingSnapshot(context.Background(), db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	catalog := pricing.NewCatalog(snapshot)
 	recent, err := repository.NewUsageRecentEventCache(db, repository.UsageRecentEventCacheOptions{Now: func() time.Time { return now }})
 	if err != nil {
 		t.Fatal(err)
