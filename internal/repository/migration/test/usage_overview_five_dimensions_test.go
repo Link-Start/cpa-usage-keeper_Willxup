@@ -86,12 +86,12 @@ func TestUsageOverviewFiveDimensionsMigrationRestartsCleanlyAfterBatchFailure(t 
 	db := openUnmigratedTestDatabase(t)
 	db.NowFunc = func() time.Time { return timeutil.NormalizeStorageTime(time.Now()) }
 	createLegacyUsageOverviewFiveDimensionSchema(t, db)
-	seedUsageOverviewFiveDimensionBatchEvents(t, db, 1001)
+	seedUsageOverviewFiveDimensionBatchEvents(t, db, 101)
 
-	// 最后一条事件单独形成第二批 row，并由 trigger 强制让该事务失败。
+	// 最后一条事件单独形成第二页，并由 trigger 强制让该事务失败。
 	if err := db.Exec(`CREATE TRIGGER fail_usage_overview_second_batch
 		BEFORE UPDATE ON usage_overview_aggregation_checkpoints
-		WHEN NEW.last_aggregated_usage_event_id > 1000
+		WHEN NEW.last_aggregated_usage_event_id > 100
 		BEGIN
 			SELECT RAISE(FAIL, 'forced usage overview second batch failure');
 		END`).Error; err != nil {
@@ -107,10 +107,10 @@ func TestUsageOverviewFiveDimensionsMigrationRestartsCleanlyAfterBatchFailure(t 
 	if err := migration.Run(db); err == nil {
 		t.Fatal("expected second five-dimension batch to fail")
 	}
-	assertUsageOverviewMigrationCheckpoint(t, db, 1000)
+	assertUsageOverviewMigrationCheckpoint(t, db, 100)
 	assertUsageOverviewMigrationVersionCount(t, db, 0)
-	assertUsageOverviewMigrationRequestCount(t, db, "usage_overview_hourly_stats", 1000)
-	assertUsageOverviewMigrationRequestCount(t, db, "usage_overview_daily_stats", 1000)
+	assertUsageOverviewMigrationRequestCount(t, db, "usage_overview_hourly_stats", 100)
+	assertUsageOverviewMigrationRequestCount(t, db, "usage_overview_daily_stats", 100)
 	assertNoFuturePricingColumns(t, db, "usage_overview_hourly_stats", "cost_usd", "unavailable_cost_count")
 	assertNoFuturePricingColumns(t, db, "usage_overview_daily_stats", "cost_usd", "unavailable_cost_count")
 
@@ -121,10 +121,10 @@ func TestUsageOverviewFiveDimensionsMigrationRestartsCleanlyAfterBatchFailure(t 
 	if err := migration.Run(db); err != nil {
 		t.Fatalf("rerun five-dimension migration: %v", err)
 	}
-	assertUsageOverviewMigrationCheckpoint(t, db, 1001)
+	assertUsageOverviewMigrationCheckpoint(t, db, 101)
 	assertUsageOverviewMigrationVersionCount(t, db, 1)
-	assertUsageOverviewMigrationRequestCount(t, db, "usage_overview_hourly_stats", 1001)
-	assertUsageOverviewMigrationRequestCount(t, db, "usage_overview_daily_stats", 1001)
+	assertUsageOverviewMigrationRequestCount(t, db, "usage_overview_hourly_stats", 101)
+	assertUsageOverviewMigrationRequestCount(t, db, "usage_overview_daily_stats", 101)
 	assertNoFuturePricingColumns(t, db, "usage_overview_hourly_stats", "cost_usd", "unavailable_cost_count")
 	assertNoFuturePricingColumns(t, db, "usage_overview_daily_stats", "cost_usd", "unavailable_cost_count")
 }

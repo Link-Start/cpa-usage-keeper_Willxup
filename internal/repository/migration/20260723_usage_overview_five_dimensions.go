@@ -11,8 +11,8 @@ import (
 )
 
 const (
-	// usageOverviewFiveDimensionsBatchSize 用短事务重放 raw events，避免长期占用 SQLite writer。
-	usageOverviewFiveDimensionsBatchSize = 1000
+	// usageOverviewFiveDimensionsBatchSize 缩短旧五维回放的单页事务，让持续接收的 inbox 在页间取得唯一 writer。
+	usageOverviewFiveDimensionsBatchSize = 100
 	// usageOverviewMigrationCheckpointName 与运行时继续共享既有 Overview cursor。
 	usageOverviewMigrationCheckpointName = "overview"
 )

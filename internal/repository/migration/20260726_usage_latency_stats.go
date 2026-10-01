@@ -13,8 +13,8 @@ import (
 )
 
 const (
-	// usageLatencyMigrationBatchSize 与运行时事件页上限一致，避免回填长时间占用唯一 writer。
-	usageLatencyMigrationBatchSize = 1000
+	// usageLatencyMigrationBatchSize 缩短旧 Latency 回放的单页事务，让持续接收的 inbox 在页间取得唯一 writer。
+	usageLatencyMigrationBatchSize = 100
 )
 
 // usageLatencyStatsMigration 从当前仍保留的 usage_events 回填 hour/day Latency 聚合。
