@@ -257,7 +257,7 @@ func TestApplyUsageHeaderSnapshotUpdatesRecentCompletedCacheAndRefreshesWindowUs
 		t.Fatal("expected recent newer header to update completed cache")
 	}
 	if priceQueries != 0 {
-		t.Fatalf("expected cached pricing to avoid model price queries, got %d", priceQueries)
+		t.Fatalf("expected stored window costs to avoid model price queries, got %d", priceQueries)
 	}
 	task := refreshTasks(service)["codex-auth"]
 	if task.Quota == nil || len(task.Quota.Quota) != 1 || task.Quota.Quota[0].UsedPercent == nil || *task.Quota.Quota[0].UsedPercent != 4 {
@@ -287,7 +287,7 @@ func TestApplyUsageHeaderSnapshotsDoesNotDependOnPriceTableQueries(t *testing.T)
 	})
 
 	if _, err := service.GetRefreshTaskByAuthIndex(context.Background(), "codex-auth"); err != nil {
-		t.Fatalf("expected cached pricing to avoid injected price-query failure, got err=%v", err)
+		t.Fatalf("expected stored window costs to be independent of injected price-query failure, got err=%v", err)
 	}
 }
 
@@ -1157,7 +1157,7 @@ func TestTryAppendUsageHeaderSnapshotsFlushesDifferentAuthIndexesTogether(t *tes
 		t.Fatalf("expected history and cache runners to each batch identity lookup once, got %d", identityQueries)
 	}
 	if priceQueries != 0 {
-		t.Fatalf("expected flush to use cached pricing without DB queries, got %d", priceQueries)
+		t.Fatalf("expected flush to use stored window costs without model price queries, got %d", priceQueries)
 	}
 }
 

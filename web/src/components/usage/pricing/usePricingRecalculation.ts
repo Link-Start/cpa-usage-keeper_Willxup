@@ -48,7 +48,7 @@ export function usePricingRecalculation(options: UsePricingRecalculationOptions 
   onAuthRequiredRef.current = onAuthRequired
   onSettledRef.current = onSettled
 
-  // applyTask 仅发布仍有效的请求结果；旧 completed 不触发完成提示，快速 POST 终态仍可触发。
+  // applyTask 仅发布仍有效的请求结果；旧终态不触发刷新回调，已确认的新任务终态只通知一次。
   const applyTask = useCallback((next: PricingRecalculationTask | null, confirmedStart = false) => {
     taskRef.current = next
     setTask(next)

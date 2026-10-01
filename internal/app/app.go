@@ -183,9 +183,6 @@ func buildReadyApp(cfg config.Config, db, readDB *gorm.DB, logCloser io.Closer, 
 	// metadataSyncRunner 提前创建，保证控制消息和后台任务使用同一个调度器实例。
 	metadataSyncRunner := NewMetadataSyncRunner(syncService, cfg.MetadataSyncInterval)
 	// 同一接收 runner 在迁移与业务阶段存活；桥接的 writer/observer 在库就绪后一次移交。
-	if ingestRunner == nil {
-		ingestRunner = newNormalUsageIngestRunner(cfg, db, metadataSyncRunner)
-	}
 	// redisProcessRunner 仍然只处理本地 inbox 到 usage_events 的消费。
 	redisProcessRunner := poller.NewRedisProcessRunner(syncService)
 	// errorEventService 同时承担 Errors runner 的直接写入和详情 API 的分页读取。

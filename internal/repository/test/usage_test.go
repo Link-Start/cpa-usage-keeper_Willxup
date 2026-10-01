@@ -56,10 +56,10 @@ func TestListUsageEventsWithFilterPreservesEventFields(t *testing.T) {
 func TestUsageOverviewDailyBucketUsesLocalTime(t *testing.T) {
 	withRepositoryTestLocation(t, "Asia/Shanghai")
 
-	bucketKey, bucketMinutes := usageOverviewBucket(time.Date(2026, 4, 16, 23, 30, 0, 0, time.UTC), true)
+	bucketKey := usageOverviewBucket(time.Date(2026, 4, 16, 23, 30, 0, 0, time.UTC), true)
 
-	if bucketKey != "2026-04-17" || bucketMinutes != 24*60 {
-		t.Fatalf("expected local day bucket 2026-04-17/1440, got %s/%d", bucketKey, bucketMinutes)
+	if bucketKey != "2026-04-17" {
+		t.Fatalf("expected local day bucket 2026-04-17, got %s", bucketKey)
 	}
 }
 

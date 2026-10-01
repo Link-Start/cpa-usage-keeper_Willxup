@@ -356,15 +356,6 @@ func applyUsageOverviewQuery(query *gorm.DB, filter dto.UsageQueryFilter) *gorm.
 	return query
 }
 
-// Analysis Tab 第一步：应用时间窗口和全局 API-Key 条件，避免 Request Event Log 的筛选污染聚合。
-func applyUsageAnalysisTabQuery(query *gorm.DB, filter dto.UsageQueryFilter) *gorm.DB {
-	query = applyUsageQueryWindow(query, filter)
-	if apiGroupKey := strings.TrimSpace(filter.APIGroupKey); apiGroupKey != "" {
-		query = query.Where("api_group_key = ?", apiGroupKey)
-	}
-	return query
-}
-
 // Request Event Log 筛选项第一步：只应用时间窗口，不叠加当前列表筛选。
 func applyUsageEventFilterOptionsQuery(query *gorm.DB, filter dto.UsageQueryFilter) *gorm.DB {
 	return applyUsageQueryWindow(query, filter)
@@ -1317,7 +1308,7 @@ func applyUsageOverviewStatToSnapshotTotals(snapshot *dto.StatisticsSnapshot, re
 }
 
 // applyUsageOverviewStatToSeries 只累计主序列分子，派生指标在整个 bucket 完成后统一计算。
-func applyUsageOverviewStatToSeries(series *dto.UsageOverviewSeriesRecord, requestCount, inputTokens, cacheReadTokens, totalTokens int64, cost float64, bucketKey string, _ int64) {
+func applyUsageOverviewStatToSeries(series *dto.UsageOverviewSeriesRecord, requestCount, inputTokens, cacheReadTokens, totalTokens int64, cost float64, bucketKey string) {
 	series.Requests[bucketKey] += requestCount
 	series.Tokens[bucketKey] += totalTokens
 	series.Cost[bucketKey] += cost
@@ -2051,7 +2042,7 @@ func newUsageOverviewSeriesRecord() dto.UsageOverviewSeriesRecord {
 }
 
 // applyUsageEventToOverviewSeries 把单条事件写入主序列。
-func applyUsageEventToOverviewSeries(series *dto.UsageOverviewSeriesRecord, event entities.UsageEvent, cost float64, bucketKey string, _ int64) {
+func applyUsageEventToOverviewSeries(series *dto.UsageOverviewSeriesRecord, event entities.UsageEvent, cost float64, bucketKey string) {
 	// 主序列按 bucket 累计请求、token、成本，派生值在 finalize 阶段一次生成。
 	series.Requests[bucketKey]++
 	series.Tokens[bucketKey] += event.TotalTokens
@@ -2071,8 +2062,8 @@ func applyUsageEventToOverview(overview *dto.UsageOverviewRecord, event entities
 	overview.Summary.TotalCost += cost
 
 	// 主序列使用页面当前粒度，缓存率同桶累计后即时刷新。
-	bucketKey, bucketMinutes := usageOverviewBucket(timeutil.NormalizeStorageTime(event.Timestamp), bucketByDay)
-	applyUsageEventToOverviewSeries(&overview.Series, event, cost, bucketKey, bucketMinutes)
+	bucketKey := usageOverviewBucket(timeutil.NormalizeStorageTime(event.Timestamp), bucketByDay)
+	applyUsageEventToOverviewSeries(&overview.Series, event, cost, bucketKey)
 }
 
 func updateUsageOverviewSeriesCacheReadRate(series *dto.UsageOverviewSeriesRecord, bucketKey string, inputTokens, cacheReadTokens int64) {
@@ -2166,10 +2157,10 @@ func shouldBucketUsageOverviewByDay(filter dto.UsageQueryFilter, windowMinutes i
 	return windowMinutes >= usageOverviewDailyBucketThresholdMinutes
 }
 
-// usageOverviewBucket 返回序列 bucket key 以及该 bucket 对应的分钟数。
-func usageOverviewBucket(timestamp time.Time, byDay bool) (string, int64) {
+// usageOverviewBucket 返回日或小时序列键；RPM/TPM 分母由序列收尾阶段统一计算。
+func usageOverviewBucket(timestamp time.Time, byDay bool) string {
 	if byDay {
-		return timeutil.NormalizeStorageTime(timestamp).Format("2006-01-02"), 24 * 60
+		return timeutil.NormalizeStorageTime(timestamp).Format("2006-01-02")
 	}
-	return timeutil.FormatStorageTime(timeutil.NormalizeStorageTime(timestamp).Truncate(time.Hour)), 60
+	return timeutil.FormatStorageTime(timeutil.NormalizeStorageTime(timestamp).Truncate(time.Hour))
 }

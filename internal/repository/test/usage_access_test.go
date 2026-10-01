@@ -37,7 +37,7 @@ func finalizeUsageOverview(overview *dto.UsageOverviewRecord)
 func applyUsageOverviewQuery(query *gorm.DB, filter dto.UsageQueryFilter) *gorm.DB
 
 //go:linkname usageOverviewBucket cpa-usage-keeper/internal/repository.usageOverviewBucket
-func usageOverviewBucket(timestamp time.Time, byDay bool) (string, int64)
+func usageOverviewBucket(timestamp time.Time, byDay bool) string
 
 //go:linkname usageOverviewRealtimeWindow cpa-usage-keeper/internal/repository.usageOverviewRealtimeWindow
 func usageOverviewRealtimeWindow(value string) (time.Duration, time.Duration)

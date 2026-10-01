@@ -11,7 +11,7 @@ import (
 	"gorm.io/gorm"
 )
 
-// InsertPricingBootstrapInboxRawMessages 只在首次升级尚未完成时保存 CPA 原始消息。
+// InsertPricingBootstrapInboxRawMessages 在每次启动业务就绪前保存 CPA 原始消息。
 // 每批在唯一 writer 事务内识别实际旧/新列并插入，历史 DDL 不会插在列检查与写入之间。
 // 正常业务接收继续使用 InsertRedisUsageInboxRawMessages；这里不解码、不去重、不消费事件。
 func InsertPricingBootstrapInboxRawMessages(ctx context.Context, db *gorm.DB, source string, messages []string, receivedAt time.Time) (int, error) {

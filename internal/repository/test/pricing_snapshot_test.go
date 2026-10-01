@@ -61,8 +61,8 @@ func TestLoadPricingSnapshotInsideTransactionSeesUncommittedRules(t *testing.T) 
 	if err != nil {
 		t.Fatalf("load snapshot after rollback: %v", err)
 	}
-	configs := snapshot.ModelConfigs()
-	if len(configs) != 1 || len(configs[0].Rules) != 0 {
+	configs := snapshot.PricingModelConfigs()
+	if len(configs) != 1 || len(configs[0].ConditionalMultipliers) != 0 {
 		t.Fatalf("expected rolled-back rules to stay absent, got %+v", configs)
 	}
 }

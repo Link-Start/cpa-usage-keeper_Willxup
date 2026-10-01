@@ -265,41 +265,6 @@ func cloneRules(input []RuleConfig) []RuleConfig {
 	return result
 }
 
-// ModelConfigs 返回稳定排序的深拷贝，调用方不能修改 Snapshot 内部集合。
-func (s *Snapshot) ModelConfigs() []ModelConfig {
-	if s == nil {
-		return []ModelConfig{}
-	}
-	result := make([]ModelConfig, len(s.modelConfigs))
-	for index := range s.modelConfigs {
-		result[index] = ModelConfig{
-			Pricing: cloneModelPriceSetting(s.modelConfigs[index].Pricing),
-			Rules:   cloneRules(s.modelConfigs[index].Rules),
-		}
-	}
-	return result
-}
-
-// ModelConfig 返回指定模型配置的深拷贝。
-func (s *Snapshot) ModelConfig(model string) (ModelConfig, bool) {
-	if s == nil {
-		return ModelConfig{}, false
-	}
-	compiled, ok := s.modelsByName[strings.TrimSpace(model)]
-	if !ok {
-		return ModelConfig{}, false
-	}
-	for index := range s.modelConfigs {
-		if s.modelConfigs[index].Pricing.Model == compiled.pricing.Model {
-			return ModelConfig{
-				Pricing: cloneModelPriceSetting(s.modelConfigs[index].Pricing),
-				Rules:   cloneRules(s.modelConfigs[index].Rules),
-			}, true
-		}
-	}
-	return ModelConfig{}, false
-}
-
 // PricingStyleForModel 只从本次固定的当前配置读取展示风格，优先真实 model，缺配置才回退 alias；不计算费用。
 func (s *Snapshot) PricingStyleForModel(model, alias string) string {
 	if s == nil {

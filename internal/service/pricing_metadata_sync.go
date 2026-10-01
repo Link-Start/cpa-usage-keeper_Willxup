@@ -457,7 +457,7 @@ func buildPricingSyncMatch(model string, metadataModel pricingmetadata.Model, pr
 		cacheRead = *metadataModel.Cost.CacheRead
 	}
 	cacheWrite := 0.0
-	// Keeper 当前保存单组基础价格；这里只映射 来源提供的基础缓存写入价格，长上下文 tiers 留待独立价格模型支持。
+	// 同步只导入来源的默认基础价，不导入长上下文 tiers，也不覆盖模型已有价格分支。
 	if metadataModel.Cost.CacheWrite != nil {
 		cacheWrite = *metadataModel.Cost.CacheWrite
 	}

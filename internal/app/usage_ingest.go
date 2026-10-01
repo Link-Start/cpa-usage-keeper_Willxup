@@ -38,8 +38,3 @@ func newUsageIngestRunner(cfg config.Config, writer poller.RedisInboxWriter, obs
 	}
 	return runner
 }
-
-// newNormalUsageIngestRunner 在完整业务 App 中保留原标准 source 写入与 metadata 通知。
-func newNormalUsageIngestRunner(cfg config.Config, db *gorm.DB, observer poller.RedisControlMessageObserver) *poller.RedisIngestRunner {
-	return newUsageIngestRunner(cfg, poller.NewRedisInboxWriter(db), observer)
-}

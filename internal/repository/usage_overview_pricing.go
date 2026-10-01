@@ -128,7 +128,7 @@ func applyUsageOverviewStatToOverview(overview *dto.UsageOverviewRecord, row usa
 	rowCost := *row.CostUSD
 	applyUsageOverviewStatToSummary(overview, row.InputTokens, row.CacheReadTokens, row.CacheCreationTokens, row.ReasoningTokens, rowCost)
 
-	bucketKey, bucketMinutes := usageOverviewBucket(timeutil.NormalizeStorageTime(row.BucketStart), bucketByDay)
-	applyUsageOverviewStatToSeries(&overview.Series, row.RequestCount, row.InputTokens, row.CacheReadTokens, row.TotalTokens, rowCost, bucketKey, bucketMinutes)
+	bucketKey := usageOverviewBucket(timeutil.NormalizeStorageTime(row.BucketStart), bucketByDay)
+	applyUsageOverviewStatToSeries(&overview.Series, row.RequestCount, row.InputTokens, row.CacheReadTokens, row.TotalTokens, rowCost, bucketKey)
 	return nil
 }

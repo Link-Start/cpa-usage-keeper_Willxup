@@ -667,7 +667,7 @@ func (s *Service) applyUsageHeaderSnapshotWithIdentity(ctx context.Context, snap
 	if !s.shouldProcessUsageHeaderQuotaSnapshot(authIndex, observedAt, generation) {
 		return false
 	}
-	// 批量路径传入 statsProvider，用同一统计器复用 price/settings 查询。
+	// 批量路径传入 statsProvider，复用窗口统计器汇总已存 Token 与费用，不查询价格配置。
 	if statsProvider != nil {
 		response = s.attachWindowUsageStatsWithProvider(ctx, authIndex, response, observedAt, statsProvider)
 	} else {
