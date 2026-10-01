@@ -18,8 +18,7 @@
   "query_comparison_1000000_cgroup_memory_peak_bytes": 2196881408,
   "memory_note": "cgroup peaks include preparation and charged file cache; per-phase RSS is reported separately in each benchmark JSON",
   "latest_10000000_cgroup_memory_peak_bytes": 7349907456,
-  "five_dim_1000000_before_fix_cgroup_memory_peak_bytes": 2947739648,
   "five_dim_1000000_cgroup_memory_peak_bytes": 2981462016,
   "five_dim_fixed_binary_sha256": "b13fd8a21aef71175cd3ee8445e4fc2367e1d78ebc681acd6525e3aa49f74012",
-  "five_dim_fixed_source_note": "Product baseline plus 100-row replay batches in the two legacy migrations; exact changed-source hashes are in five-dim-1000000-source.sha256."
+  "five_dim_fixed_source_note": "Exact measured migration source hashes are recorded in five-dim-1000000-source.sha256; migration implementation committed in 94eef02c."
 }

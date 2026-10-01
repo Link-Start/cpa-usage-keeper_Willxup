@@ -31,6 +31,6 @@ internal/benchmark/
 
 Run into a fresh directory outside the repository. Keep databases, WAL, binaries and raw logs there. After the complete run is checked, replace the corresponding report and its result files together. Keep the previous report until the replacement is complete; Git retains the published history. Do not create date, release or run-number directories in `reports/`.
 
-Each report includes the conclusion, environment and limits, dataset, measured code or binary identity, results, and reproduction steps. Keep English and Chinese versions aligned. Retain a failed measurement when it is evidence for the reported comparison; do not present unexecuted fields as successful zero values.
+Each report includes the conclusion, environment and limits, dataset, measured code or binary identity, results, and reproduction steps. Keep English and Chinese versions aligned. Report measured outcomes and limitations accurately; keep investigation notes and superseded intermediate runs in local records. Do not present unexecuted fields as successful zero values.
 
 Publish only reviewed Markdown, structured measurements and source checksums. Remove hostnames, SSH aliases, private addresses, usernames and local absolute paths. Preserve hardware specifications, software versions, workload parameters and measured values. Source inventories describe the original run, not later documentation or privacy-only edits.

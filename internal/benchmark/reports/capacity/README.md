@@ -1,8 +1,6 @@
-<p align="center">
-  <a href="./README.md"><strong>English</strong></a> ｜ <a href="./README.zh.md">简体中文</a>
-</p>
-
 # CPA Usage Keeper Capacity Benchmark Report
+
+[简体中文](README.zh.md) · [Run guide](../../guides/capacity.md) · [All benchmarks](../../README.md)
 
 Test date: 2026-08-10 (Asia/Shanghai)
 
@@ -14,6 +12,10 @@ Platform: Linux amd64
 
 ## Executive Summary
 
+> **Highest measured five-minute pass: 500 events/s with 4 CPUs.**
+> **Planning rate: 350 events/s**, calculated as 70% of that pass; this is not a separately tested memory-capped deployment.
+> **Scope: this measurement predates persisted pricing and is not current-version capacity.**
+
 These are the latest completed capacity measurements, taken before the persisted-pricing refactor. They have not been rerun for the current implementation. Binary and dataset hashes below identify the measured build; do not interpret them as current-version capacity.
 
 
@@ -23,9 +25,9 @@ Capacity uses five Core Dashboard endpoints under a three-second aggregate p99 g
 
 | Keeper CPU | Five-minute pass / lowest fail | 70% sustained recommendation | Core Dashboard p99 at pass | Analysis Latency p99 at pass | Peak memory at pass | Deployment guidance |
 | --- | ---: | ---: | ---: | ---: | ---: | --- |
-| 1C | 150 / 200 events/s | 105 events/s | 858.4ms | 5109.1ms | 472.9 MiB | 1C / 768 MiB, up to 105 sustained events/s |
-| 2C | 200 / 250 events/s | 140 events/s | 627.1ms | 3075.9ms | 522.2 MiB | 2C / 1 GiB, up to 140 sustained events/s |
-| 4C | 500 / 600 events/s | 350 events/s | 1323.0ms | 3044.6ms | 995.7 MiB | 4C / 2 GiB, up to 350 sustained events/s |
+| 1C | **150 / 200 events/s** | **105 events/s** | 858.4ms | 5109.1ms | 472.9 MiB | 1C / 768 MiB, up to 105 sustained events/s |
+| 2C | **200 / 250 events/s** | **140 events/s** | 627.1ms | 3075.9ms | 522.2 MiB | 2C / 1 GiB, up to 140 sustained events/s |
+| 4C | **500 / 600 events/s** | **350 events/s** | 1323.0ms | 3044.6ms | 995.7 MiB | 4C / 2 GiB, up to 350 sustained events/s |
 
 The strongest verified profile is **4C / 2 GiB at no more than 350 sustained events/s**. The measured 500 events/s point durably stored 149,998 of 150,000 offered events and caught up in 14.63 seconds. At 600 events/s, all 179,998 published events were durable, but 12,266 aggregation checkpoint rows remained after the full 30-second drain window.
 

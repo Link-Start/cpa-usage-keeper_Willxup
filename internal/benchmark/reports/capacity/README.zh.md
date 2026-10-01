@@ -1,8 +1,6 @@
-<p align="center">
-  <a href="./README.md">English</a> ｜ <a href="./README.zh.md"><strong>简体中文</strong></a>
-</p>
-
 # CPA Usage Keeper 容量 Benchmark 报告
+
+[English](README.md) · [运行指南](../../guides/capacity.zh.md) · [全部 Benchmark](../../README.zh.md)
 
 测试日期：2026-08-10（Asia/Shanghai）
 
@@ -17,15 +15,19 @@
 
 ## 结论摘要
 
+> **最高实测五分钟通过档位：4 核、每秒 500 条。**
+> **建议规划流量：每秒 350 条**，取通过档位的 70%；不是另行验证过的限内存部署结果。
+> **适用范围：费用持久化重构前的测量，不代表当前版本容量。**
+
 每个正式点均复用同一份已验证 SQLite 数据库，只改变 Keeper 可用 CPU：1C、2C 或 4C。数据库包含最近 90 天的 3,205,740 条活跃 events；本轮数据校验锚点对应的 30 天查询窗口包含 1,201,775 条 events。Keeper 内存不设上限，报告中的 cgroup 峰值包含 Keeper、SQLite 页面以及归入该 cgroup 的数据库缓存。
 
 容量门槛只覆盖五个核心 Dashboard 接口，整体 p99 上限为 3 秒。Analysis Latency 30d 属于更重的诊断查询，每 30 秒独立测量一次；其延迟不决定核心 Dashboard 容量，但错误、OOM、panic 与 SQLite 故障仍会明确记录。
 
 | Keeper CPU | 五分钟通过 / 最低失败 | 70% 持续流量建议 | 通过点核心 Dashboard p99 | 通过点 Analysis Latency p99 | 通过点峰值内存 | 部署建议 |
 | --- | ---: | ---: | ---: | ---: | ---: | --- |
-| 1C | 150 / 200 events/s | 105 events/s | 858.4ms | 5109.1ms | 472.9 MiB | 1C / 768 MiB，持续流量不超过 105 events/s |
-| 2C | 200 / 250 events/s | 140 events/s | 627.1ms | 3075.9ms | 522.2 MiB | 2C / 1 GiB，持续流量不超过 140 events/s |
-| 4C | 500 / 600 events/s | 350 events/s | 1323.0ms | 3044.6ms | 995.7 MiB | 4C / 2 GiB，持续流量不超过 350 events/s |
+| 1C | **150 / 200 events/s** | **105 events/s** | 858.4ms | 5109.1ms | 472.9 MiB | 1C / 768 MiB，持续流量不超过 105 events/s |
+| 2C | **200 / 250 events/s** | **140 events/s** | 627.1ms | 3075.9ms | 522.2 MiB | 2C / 1 GiB，持续流量不超过 140 events/s |
+| 4C | **500 / 600 events/s** | **350 events/s** | 1323.0ms | 3044.6ms | 995.7 MiB | 4C / 2 GiB，持续流量不超过 350 events/s |
 
 本轮最强的已验证档位为 **4C / 2 GiB，持续流量不超过 350 events/s**。实测 500 events/s 在 150,000 条目标 events 中发布并持久化 149,998 条，14.63 秒内完成追平。600 events/s 虽然 179,998 条已发布 events 全部持久化，但完整 30 秒 drain 后仍有 12,266 条聚合 checkpoint lag。
 
