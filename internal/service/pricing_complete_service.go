@@ -39,7 +39,7 @@ func (s *pricingService) ListPricingModels(ctx context.Context) (servicedto.Pric
 func (s *pricingService) SavePricingModel(ctx context.Context, input pricing.ModelPricingConfig) (servicedto.SavePricingModelResponse, error) {
 	// 全量保存必须保留默认价作为兜底；读取已有配置不加此限制，避免阻断旧数据启动。
 	for index, branch := range input.Branches {
-		if branch.Context.Type == pricing.ContextAll && branch.Period.Type == pricing.PeriodAll {
+		if (branch.Days == "" || branch.Days == pricing.DaysAll) && branch.Context.Type == pricing.ContextAll && branch.Period.Type == pricing.PeriodAll {
 			return servicedto.SavePricingModelResponse{}, fmt.Errorf("%w: %w", ErrInvalidPricingInput, &pricing.ValidationError{
 				Path: fmt.Sprintf("branches[%d].context", index), Code: "default_conflict", Reason: "an unconditional branch replaces the default price",
 			})

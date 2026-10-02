@@ -35,6 +35,15 @@ func TestCompletePricingCompilerRejectsInvalidBoundsAndAmounts(t *testing.T) {
 		{"equal clock", func(c *pricing.ModelPricingConfig) {
 			c.Branches[0].Period = pricing.PeriodCondition{Type: pricing.PeriodWindow, Start: stringPointer("08:00"), End: stringPointer("08:00")}
 		}},
+		{"invalid days", func(c *pricing.ModelPricingConfig) { c.Branches[0].Days = "holiday" }},
+		{"weekday cross midnight", func(c *pricing.ModelPricingConfig) {
+			c.Branches[0].Days = pricing.DaysWeekday
+			c.Branches[0].Period = pricing.PeriodCondition{Type: pricing.PeriodWindow, Start: stringPointer("20:00"), End: stringPointer("08:00")}
+		}},
+		{"weekend cross midnight", func(c *pricing.ModelPricingConfig) {
+			c.Branches[0].Days = pricing.DaysWeekend
+			c.Branches[0].Period = pricing.PeriodCondition{Type: pricing.PeriodWindow, Start: stringPointer("20:00"), End: stringPointer("08:00")}
+		}},
 		{"duplicate branch ID", func(c *pricing.ModelPricingConfig) {
 			c.Branches = append(c.Branches, branch("branch", pricing.ContextCondition{Type: pricing.ContextAll}, pricing.PeriodCondition{Type: pricing.PeriodAll}, 2))
 		}},
@@ -53,6 +62,30 @@ func TestCompletePricingCompilerRejectsInvalidBoundsAndAmounts(t *testing.T) {
 	}
 	if _, err := pricing.CompilePricingSnapshot([]pricing.ModelPricingConfig{completePricing("model")}, nil); err == nil {
 		t.Fatal("deployment timezone is required")
+	}
+}
+
+func TestCompletePricingCompilerAllowsDateOnlyBranch(t *testing.T) {
+	config := completePricing("model")
+	item := branch("weekday", pricing.ContextCondition{Type: pricing.ContextAll}, pricing.PeriodCondition{Type: pricing.PeriodAll}, 2)
+	item.Days = pricing.DaysWeekday
+	config.Branches = []pricing.PriceBranch{item}
+	if _, err := pricing.CompilePricingSnapshot([]pricing.ModelPricingConfig{config}, time.UTC); err != nil {
+		t.Fatal(err)
+	}
+	item.Days = pricing.DaysWeekend
+	config.Branches = append(config.Branches, item)
+	config.Branches[1].ID = "weekend"
+	if _, err := pricing.CompilePricingSnapshot([]pricing.ModelPricingConfig{config}, time.UTC); err != nil {
+		t.Fatal(err)
+	}
+	config.Branches[1].Days = pricing.DaysWeekday
+	if _, err := pricing.CompilePricingSnapshot([]pricing.ModelPricingConfig{config}, time.UTC); err == nil {
+		t.Fatal("same weekday conditions should conflict")
+	}
+	config.Branches[1].Days = pricing.DaysAll
+	if _, err := pricing.CompilePricingSnapshot([]pricing.ModelPricingConfig{config}, time.UTC); err == nil {
+		t.Fatal("all days and weekday should conflict")
 	}
 }
 

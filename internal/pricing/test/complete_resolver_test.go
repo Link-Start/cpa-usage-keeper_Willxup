@@ -114,6 +114,29 @@ func TestCompleteResolverUsesDeploymentClockAcrossMidnightAndDST(t *testing.T) {
 	}
 }
 
+func TestCompleteResolverMatchesWeekdaysInDeploymentTimezone(t *testing.T) {
+	config := completePricing("model")
+	weekday := branch("weekday", pricing.ContextCondition{Type: pricing.ContextAll}, pricing.PeriodCondition{Type: pricing.PeriodAll}, 2)
+	weekday.Days = pricing.DaysWeekday
+	weekend := branch("weekend", pricing.ContextCondition{Type: pricing.ContextAll}, pricing.PeriodCondition{Type: pricing.PeriodAll}, 3)
+	weekend.Days = pricing.DaysWeekend
+	config.Branches = []pricing.PriceBranch{weekday, weekend}
+	resolver := pricing.NewCatalog(mustPricingSnapshot(t, "Asia/Shanghai", config)).NewResolver()
+	for _, tc := range []struct {
+		timestamp string
+		want      float64
+	}{
+		{"2026-09-25T15:59:00Z", 2}, // 周五 23:59
+		{"2026-09-25T16:00:00Z", 3}, // 周六 00:00
+		{"2026-09-27T15:59:00Z", 3}, // 周日 23:59
+		{"2026-09-27T16:00:00Z", 2}, // 周一 00:00
+	} {
+		subject := pricing.NewCostSubject(pricing.UsageDimensions{Model: "model"}, helper.UsageTokenCostInput{InputTokens: 1_000_000})
+		subject.Timestamp = mustTimestamp(t, tc.timestamp)
+		assertFee(t, resolver.CalculateFee(subject), tc.want, true)
+	}
+}
+
 func TestCompleteResolverRejectsOnlyJointlyOverlappingBranches(t *testing.T) {
 	config := completePricing("model")
 	config.Branches = []pricing.PriceBranch{
@@ -122,7 +145,7 @@ func TestCompleteResolverRejectsOnlyJointlyOverlappingBranches(t *testing.T) {
 	}
 	_, err := pricing.CompilePricingSnapshot([]pricing.ModelPricingConfig{config}, time.UTC)
 	var conflict *pricing.BranchConflictError
-	if !errors.As(err, &conflict) || conflict.BranchIDs != [2]string{"a", "b"} || len(conflict.FieldPaths) != 4 {
+	if !errors.As(err, &conflict) || conflict.BranchIDs != [2]string{"a", "b"} || len(conflict.FieldPaths) != 6 {
 		t.Fatalf("expected branch conflict with both IDs and field paths, got %v", err)
 	}
 	config.Branches[1].Period = pricing.PeriodCondition{Type: pricing.PeriodWindow, Start: stringPointer("02:00"), End: stringPointer("03:00")}

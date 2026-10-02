@@ -55,11 +55,14 @@ func TestCompletePricingConfigKeepsExplicitZeroAndArrays(t *testing.T) {
 	if config.ModelMultiplier != 0 || config.ConditionalMultipliers[0].Multiplier != 0 || *config.Branches[0].Context.Threshold != 0 {
 		t.Fatalf("explicit zero was lost: %+v", config)
 	}
+	if config.Branches[0].Days != pricing.DaysAll {
+		t.Fatalf("legacy branch days should default to all: %+v", config.Branches[0])
+	}
 	encoded, err := json.Marshal(config)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, field := range []string{`"conditional_multipliers"`, `"branches"`, `"model_multiplier":0`, `"threshold":0`} {
+	for _, field := range []string{`"conditional_multipliers"`, `"branches"`, `"model_multiplier":0`, `"threshold":0`, `"days":"all"`} {
 		if !strings.Contains(string(encoded), field) {
 			t.Fatalf("round-trip lost %s: %s", field, encoded)
 		}

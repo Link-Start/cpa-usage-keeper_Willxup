@@ -385,3 +385,21 @@ func TestCompletePricingRejectsUnconditionalBranch(t *testing.T) {
 		t.Fatalf("invalid save changed config: %+v %v", result, err)
 	}
 }
+
+func TestCompletePricingSavesDateOnlyBranch(t *testing.T) {
+	db := openUsageServiceTestDatabase(t)
+	provider, _ := newCatalogPricingService(t, db)
+	config := completeServiceConfig("date-only", 1)
+	config.Branches = []pricing.PriceBranch{{
+		ID: "weekday", Name: "Weekday", Days: pricing.DaysWeekday,
+		Context: pricing.ContextCondition{Type: pricing.ContextAll}, Period: pricing.PeriodCondition{Type: pricing.PeriodAll},
+		Prices: pricing.BasePrices{Input: 2},
+	}}
+	if _, err := provider.SavePricingModel(context.Background(), config); err != nil {
+		t.Fatalf("date-only branch should keep default fallback: %v", err)
+	}
+	listed, err := provider.ListPricingModels(context.Background())
+	if err != nil || len(listed.Models) != 1 || len(listed.Models[0].Branches) != 1 || listed.Models[0].Branches[0].Days != pricing.DaysWeekday {
+		t.Fatalf("date-only branch round trip: %+v, %v", listed, err)
+	}
+}

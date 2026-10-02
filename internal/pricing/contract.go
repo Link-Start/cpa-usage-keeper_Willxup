@@ -107,10 +107,11 @@ func (c *ModelPricingConfig) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// PriceBranch 对一条请求选出整组单价；非默认分支按上下文与每日时段共同匹配。
+// PriceBranch 对一条请求选出整组单价；非默认分支按日期、上下文与每日时段共同匹配。
 type PriceBranch struct {
 	ID      string           `json:"id"`
 	Name    string           `json:"name"`
+	Days    DaysCondition    `json:"days,omitempty"`
 	Context ContextCondition `json:"context"`
 	Period  PeriodCondition  `json:"period"`
 	Prices  BasePrices       `json:"prices"`
@@ -121,6 +122,7 @@ func (b *PriceBranch) UnmarshalJSON(data []byte) error {
 	var wire struct {
 		ID      *string         `json:"id"`
 		Name    *string         `json:"name"`
+		Days    json.RawMessage `json:"days"`
 		Context json.RawMessage `json:"context"`
 		Period  json.RawMessage `json:"period"`
 		Prices  json.RawMessage `json:"prices"`
@@ -140,6 +142,15 @@ func (b *PriceBranch) UnmarshalJSON(data []byte) error {
 		}
 	}
 	var context ContextCondition
+	days := DaysAll
+	if len(wire.Days) != 0 {
+		if bytes.Equal(bytes.TrimSpace(wire.Days), []byte("null")) {
+			return invalidPricingField("days", "invalid", "days must be all, weekday, or weekend")
+		}
+		if err := json.Unmarshal(wire.Days, &days); err != nil || days == "" {
+			return invalidPricingField("days", "invalid", "days must be all, weekday, or weekend")
+		}
+	}
 	if err := json.Unmarshal(wire.Context, &context); err != nil {
 		return prefixPricingValidationError("context", err)
 	}
@@ -151,9 +162,17 @@ func (b *PriceBranch) UnmarshalJSON(data []byte) error {
 	if err := json.Unmarshal(wire.Prices, &prices); err != nil {
 		return prefixPricingValidationError("prices", err)
 	}
-	*b = PriceBranch{ID: *wire.ID, Name: *wire.Name, Context: context, Period: period, Prices: prices}
+	*b = PriceBranch{ID: *wire.ID, Name: *wire.Name, Days: days, Context: context, Period: period, Prices: prices}
 	return nil
 }
+
+type DaysCondition string
+
+const (
+	DaysAll     DaysCondition = "all"
+	DaysWeekday DaysCondition = "weekday"
+	DaysWeekend DaysCondition = "weekend"
+)
 
 type ContextConditionType string
 

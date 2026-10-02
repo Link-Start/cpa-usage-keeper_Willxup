@@ -138,6 +138,7 @@ func TestPricingModelsHTTPInternalErrorDoesNotExposeSQL(t *testing.T) {
 func TestPricingModelsHTTPReturnsStructuredValidationErrorsWithoutWriting(t *testing.T) {
 	base := completePricingHTTPBody
 	branch := `{"id":"night","name":"Night","context":{"type":"gt","threshold":9007199254740991},"period":{"type":"all"},"prices":{"input":1,"output":0,"cache_read":0,"cache_write":0}}`
+	validBranch := strings.Replace(branch, `"threshold":9007199254740991`, `"threshold":1`, 1)
 	conflictBranches := `[{"id":"a","name":"A","context":{"type":"gt","threshold":0},"period":{"type":"all"},"prices":{"input":1,"output":0,"cache_read":0,"cache_write":0}},{"id":"b","name":"B","context":{"type":"gt","threshold":0},"period":{"type":"all"},"prices":{"input":2,"output":0,"cache_read":0,"cache_write":0}}]`
 	for _, testCase := range []struct {
 		name, body, code, path, fieldCode string
@@ -148,6 +149,9 @@ func TestPricingModelsHTTPReturnsStructuredValidationErrorsWithoutWriting(t *tes
 		{"null rule multiplier", strings.Replace(base, `"multiplier":0`, `"multiplier":null`, 1), "invalid_pricing", "conditional_multipliers[0].multiplier", "required"},
 		{"missing cache write price", strings.Replace(base, `,"cache_write":0`, "", 1), "invalid_pricing", "base_prices.cache_write", "required"},
 		{"missing branch price", strings.Replace(base, `"branches":[]`, `"branches":[`+strings.Replace(branch, `,"cache_write":0`, "", 1)+`]`, 1), "invalid_pricing", "branches[0].prices.cache_write", "required"},
+		{"invalid days", strings.Replace(base, `"branches":[]`, `"branches":[`+strings.Replace(validBranch, `"period":{"type":"all"}`, `"days":"holiday","period":{"type":"all"}`, 1)+`]`, 1), "invalid_pricing", "branches[0].days", "invalid"},
+		{"null days", strings.Replace(base, `"branches":[]`, `"branches":[`+strings.Replace(branch, `"period":{"type":"all"}`, `"days":null,"period":{"type":"all"}`, 1)+`]`, 1), "invalid_pricing", "branches[0].days", "invalid"},
+		{"weekday cross midnight", strings.Replace(base, `"branches":[]`, `"branches":[`+strings.Replace(validBranch, `"period":{"type":"all"}`, `"days":"weekday","period":{"type":"window","start":"20:00","end":"08:00"}`, 1)+`]`, 1), "invalid_pricing", "branches[0].period.end", "cross_day"},
 		{"negative branch price", strings.Replace(base, `"branches":[]`, `"branches":[`+strings.Replace(strings.Replace(branch, "9007199254740991", "200000", 1), `"output":0`, `"output":-1`, 1)+`]`, 1), "invalid_pricing", "branches[0].prices.output", "invalid"},
 		{"unconditional branch", strings.Replace(base, `"branches":[]`, `"branches":[`+strings.Replace(branch, `"context":{"type":"gt","threshold":9007199254740991}`, `"context":{"type":"all"}`, 1)+`]`, 1), "invalid_pricing", "branches[0].context", "default_conflict"},
 		{"invalid branch period end", strings.Replace(base, `"branches":[]`, `"branches":[`+strings.Replace(strings.Replace(branch, "9007199254740991", "200000", 1), `"period":{"type":"all"}`, `"period":{"type":"window","start":"20:00","end":"25:00"}`, 1)+`]`, 1), "invalid_pricing", "branches[0].period.end", "invalid"},

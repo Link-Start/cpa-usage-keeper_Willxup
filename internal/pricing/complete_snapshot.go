@@ -17,16 +17,17 @@ type minuteInterval struct{ start, end int }
 
 type compiledBranch struct {
 	prices  BasePrices
+	days    uint8
 	context tokenInterval
 	periods []minuteInterval
 	allDay  bool
 }
 
-// BranchConflictError 让保存接口能指出同时在上下文和时段上重叠的两条分支。
-// FieldPaths 指向双方的两个条件，接口层可映射为结构化字段错误。
+// BranchConflictError 让保存接口能指出日期、上下文和时段同时重叠的两条分支。
+// FieldPaths 指向双方的三个条件，接口层可映射为结构化字段错误。
 type BranchConflictError struct {
 	BranchIDs  [2]string
-	FieldPaths [4]string
+	FieldPaths [6]string
 }
 
 func (e *BranchConflictError) Error() string {
@@ -87,12 +88,12 @@ func CompilePricingSnapshot(configs []ModelPricingConfig, location *time.Locatio
 			}
 			seen[normalized.ID] = struct{}{}
 			for earlierIndex, earlier := range compiled.branches {
-				if intervalsOverlap(earlier.context, candidate.context) && periodsOverlap(earlier.periods, candidate.periods) {
+				if earlier.days&candidate.days != 0 && intervalsOverlap(earlier.context, candidate.context) && periodsOverlap(earlier.periods, candidate.periods) {
 					return nil, &BranchConflictError{
 						BranchIDs: [2]string{normalizedBranches[earlierIndex].ID, normalized.ID},
-						FieldPaths: [4]string{
-							fmt.Sprintf("branches[%d].context", earlierIndex), fmt.Sprintf("branches[%d].period", earlierIndex),
-							fmt.Sprintf("branches[%d].context", branchIndex), fmt.Sprintf("branches[%d].period", branchIndex),
+						FieldPaths: [6]string{
+							fmt.Sprintf("branches[%d].days", earlierIndex), fmt.Sprintf("branches[%d].context", earlierIndex), fmt.Sprintf("branches[%d].period", earlierIndex),
+							fmt.Sprintf("branches[%d].days", branchIndex), fmt.Sprintf("branches[%d].context", branchIndex), fmt.Sprintf("branches[%d].period", branchIndex),
 						},
 					}
 				}
@@ -131,6 +132,20 @@ func compilePriceBranch(input PriceBranch, modelPricing entities.ModelPriceSetti
 	if err != nil {
 		return compiledBranch{}, PriceBranch{}, prefixPricingValidationError("period", err)
 	}
+	if normalized.Days == "" {
+		normalized.Days = DaysAll
+	}
+	days, err := compileDays(normalized.Days)
+	if err != nil {
+		return compiledBranch{}, PriceBranch{}, err
+	}
+	if normalized.Days != DaysAll && normalized.Period.Type == PeriodWindow {
+		start, _ := parseClockMinute(*normalized.Period.Start)
+		end, _ := parseClockMinute(*normalized.Period.End)
+		if start > end {
+			return compiledBranch{}, PriceBranch{}, invalidPricingField("period.end", "cross_day", "weekday and weekend windows cannot cross midnight")
+		}
+	}
 	pricing := modelPricing
 	pricing.PromptPricePer1M = normalized.Prices.Input
 	pricing.CompletionPricePer1M = normalized.Prices.Output
@@ -142,7 +157,21 @@ func compilePriceBranch(input PriceBranch, modelPricing entities.ModelPriceSetti
 	if err := validateWorstCaseCost(pricing, rules); err != nil {
 		return compiledBranch{}, PriceBranch{}, branchPricingValidationError(err)
 	}
-	return compiledBranch{prices: normalized.Prices, context: context, periods: periods, allDay: normalized.Period.Type == PeriodAll}, normalized, nil
+	return compiledBranch{prices: normalized.Prices, days: days, context: context, periods: periods, allDay: normalized.Period.Type == PeriodAll}, normalized, nil
+}
+
+// 日期条件编译为一周位图，匹配与冲突检查均只需一次位运算。
+func compileDays(condition DaysCondition) (uint8, error) {
+	switch condition {
+	case DaysAll:
+		return 0x7f, nil
+	case DaysWeekday:
+		return 0x3e, nil // 周一至周五
+	case DaysWeekend:
+		return 0x41, nil // 周日与周六
+	default:
+		return 0, invalidPricingField("days", "invalid", "days must be all, weekday, or weekend")
+	}
 }
 
 // compileContext 把安全整数条件化为闭区间，便于完整交集校验和 O(1) 事件匹配。
@@ -240,16 +269,22 @@ func periodsOverlap(left, right []minuteInterval) bool {
 	return false
 }
 
-// matches 按已归一化输入量和 CPA 事件时间判断分支；全天分支不需要时间字段。
+// matches 按已归一化输入量和 CPA 事件在部署时区的星期、时刻判断分支；日期及时段均不限时不读取时间字段。
 func (b compiledBranch) matches(subject CostSubject, location *time.Location) bool {
 	inputTokens := max(subject.Tokens.InputTokens, 0)
 	if inputTokens < b.context.min || inputTokens > b.context.max {
 		return false
 	}
-	if b.allDay {
+	if b.days == 0x7f && b.allDay {
 		return true
 	}
 	local := subject.Timestamp.In(location)
+	if b.days&(1<<local.Weekday()) == 0 {
+		return false
+	}
+	if b.allDay {
+		return true
+	}
 	minute := local.Hour()*60 + local.Minute()
 	for _, period := range b.periods {
 		if minute >= period.start && minute < period.end {
