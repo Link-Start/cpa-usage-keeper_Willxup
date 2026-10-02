@@ -232,7 +232,7 @@
   border-radius: 999px;
   background: color-mix(in srgb, var(--border-color) 48%, transparent);
   color: var(--text-secondary);
-  font-size: 12px;
+  font-size: 10px;
   overflow-wrap: anywhere;
 }
 
@@ -366,6 +366,33 @@
   font-weight: 700;
 }
 
+.daysField {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  margin-top: 4px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border-color);
+  color: var(--text-secondary);
+  font-size: 12px;
+
+  > span {
+    font-weight: 600;
+  }
+}
+
+.daysSwitcher {
+  display: flex;
+  width: max-content;
+  max-width: 100%;
+  min-width: 0;
+
+  > button {
+    flex: 0 0 auto;
+    white-space: nowrap;
+  }
+}
+
 .branchEditorPair,
 .branchPriceGrid {
   display: grid;
@@ -377,6 +404,7 @@
 .styleField,
 .field {
   display: grid;
+  align-content: start;
   gap: 6px;
   min-width: 0;
   color: var(--text-secondary);
@@ -416,6 +444,7 @@
 .styleField select {
   box-sizing: border-box;
   width: 100%;
+  height: 38px;
   min-height: 38px;
   min-width: 0;
   padding: 7px 12px;
@@ -460,12 +489,12 @@
 .multiplierRow {
   display: flex;
   align-items: end;
-  gap: 14px;
+  gap: 12px;
 }
 
 .multiplierRow .field {
-  width: 150px;
-  flex: 0 0 150px;
+  width: calc((100% - 36px) / 4);
+  flex: 0 0 calc((100% - 36px) / 4);
 }
 
 .multiplierRow > span,
@@ -589,8 +618,23 @@
 }
 
 @container pricing-editor (max-width: 599px) {
+  .daysSwitcher {
+    width: 100%;
+
+    > button {
+      flex: 1 1 0;
+      min-width: 0;
+      padding-inline: 4px;
+    }
+  }
+
   .priceGrid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .multiplierRow .field {
+    width: calc((100% - 12px) / 2);
+    flex-basis: calc((100% - 12px) / 2);
   }
 
   .conditionRow {
@@ -715,7 +759,7 @@
   }
 
   .multiplierRow .field {
-    width: 100%;
+    width: calc((100% - 12px) / 2);
     flex-basis: auto;
   }
 }

@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/Button'
 import type { PricingBasePrices, PricingPriceBranch } from '@/lib/types'
 import { validatePricingBranchDraft, type PricingBranchDraft } from './pricingBranchDraft'
 import styles from './PricingSettings.module.scss'
+import realtimeStyles from '@/pages/UsagePage.module.scss'
 
 type FieldErrors = Record<string, string>
 type PriceKey = keyof PricingBasePrices
@@ -54,12 +55,14 @@ export function ModelPricingBranchEditor({ formId, initialDraft, otherBranches, 
   const edit = (path: string, value: string) => {
     setDraft((current) => {
       if (path === 'name') return { ...current, name: value }
+      if (path === 'days') return { ...current, days: value as PricingBranchDraft['days'] }
       const [group, key] = path.split('.') as ['context' | 'period' | 'prices', string]
       return { ...current, [group]: { ...current[group], [key]: value } }
     })
     setErrors((current) => {
       const next = { ...current }
       delete next[path]
+      if (path === 'days' || path.startsWith('period.')) delete next['period.end']
       delete next[path.split('.')[0]]
       return next
     })
@@ -146,6 +149,19 @@ export function ModelPricingBranchEditor({ formId, initialDraft, otherBranches, 
             {field('context.min', t('usage_stats.pricing_settings_branch_min'), draft.context.min, 'number')}
             {field('context.max', t('usage_stats.pricing_settings_branch_max'), draft.context.max, 'number')}
           </div> : null}
+          <div className={styles.daysField}>
+            <span id={`${formId}-days-label`}>{t('usage_stats.pricing_settings_branch_days')}</span>
+            <div className={`${realtimeStyles.overviewRealtimeWindowSwitcher} ${styles.daysSwitcher}`}
+              role="group" aria-labelledby={`${formId}-days-label`}>
+              {(['all', 'weekday', 'weekend'] as const).map((days) => <button key={days} type="button"
+                className={`${realtimeStyles.overviewRealtimeWindowButton} ${draft.days === days ? realtimeStyles.overviewRealtimeWindowButtonActive : ''}`.trim()}
+                data-pricing-field="days" aria-pressed={draft.days === days} aria-invalid={Boolean(errors.days)}
+                disabled={locked} onClick={() => edit('days', days)}>
+                {t(`usage_stats.pricing_settings_days_${days}`)}
+              </button>)}
+            </div>
+            <p className={styles.hint}>{t('usage_stats.pricing_settings_days_hint')}</p>
+          </div>
           {select('period.type', t('usage_stats.pricing_settings_branch_period', { timezone: timezone ? ` · ${timezone}` : '' }), draft.period.type, [
             ['all', t('usage_stats.pricing_settings_period_all')],
             ['window', t('usage_stats.pricing_settings_period_window')],
@@ -154,6 +170,9 @@ export function ModelPricingBranchEditor({ formId, initialDraft, otherBranches, 
             {field('period.start', t('usage_stats.pricing_settings_branch_start'), draft.period.start, 'time')}
             {field('period.end', t('usage_stats.pricing_settings_branch_end'), draft.period.end, 'time')}
           </div> : null}
+          {errors['period.end'] === 'cross_day' ? <p role="alert" className={styles.requestError}>
+            {t('usage_stats.pricing_settings_error_cross_day')}
+          </p> : null}
         </fieldset>
         <fieldset className={styles.branchEditorSection}>
           <legend>{t('usage_stats.pricing_settings_branch_prices')}</legend>

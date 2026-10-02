@@ -1,5 +1,6 @@
 import { IconGitBranch } from '@/components/ui/icons'
 import { useTranslation } from 'react-i18next'
+import { formatCompactTokenValue } from '@/utils/usage'
 import type { PricingBasePrices } from '@/lib/types'
 import type { PricingBranchDraft } from './pricingBranchDraft'
 import styles from './PricingSettings.module.scss'
@@ -30,12 +31,13 @@ function displayedPrice(raw: string, multiplier: string): string {
 export function PricingBranchMatch({ branch, timezone }: { branch: PricingBranchDraft; timezone?: string }) {
   const { t } = useTranslation()
   const context = branch.context.type === 'all' ? t('usage_stats.pricing_settings_context_all')
-    : branch.context.type === 'gt' ? `> ${branch.context.threshold} Token`
-      : branch.context.type === 'lte' ? `≤ ${branch.context.threshold} Token`
-        : `${branch.context.min}–${branch.context.max} Token`
+    : branch.context.type === 'gt' ? `> ${formatCompactTokenValue(Number(branch.context.threshold))} Token`
+      : branch.context.type === 'lte' ? `≤ ${formatCompactTokenValue(Number(branch.context.threshold))} Token`
+        : `${formatCompactTokenValue(Number(branch.context.min))}–${formatCompactTokenValue(Number(branch.context.max))} Token`
   const period = branch.period.type === 'all' ? t('usage_stats.pricing_settings_period_all')
     : `${branch.period.start}–${branch.period.end}${timezone ? ` · ${timezone}` : ''}`
-  return <div className={styles.branchChips}><span>{context}</span><span>{period}</span></div>
+  const days = t(`usage_stats.pricing_settings_days_${branch.days}`)
+  return <div className={styles.branchChips}><span>{context}</span><span>{days}</span><span>{period}</span></div>
 }
 
 // 右侧预览与表单共用草稿，折叠状态由模型弹窗持有以便往返分支编辑。

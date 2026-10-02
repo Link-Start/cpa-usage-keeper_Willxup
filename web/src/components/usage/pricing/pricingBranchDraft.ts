@@ -1,4 +1,4 @@
-import type { PricingBasePrices, PricingContextCondition, PricingPeriodCondition, PricingPriceBranch } from '@/lib/types'
+import type { PricingBasePrices, PricingContextCondition, PricingDaysCondition, PricingPeriodCondition, PricingPriceBranch } from '@/lib/types'
 
 type PriceKey = keyof PricingBasePrices
 const priceKeys: PriceKey[] = ['input', 'output', 'cache_read', 'cache_write']
@@ -6,6 +6,7 @@ const priceKeys: PriceKey[] = ['input', 'output', 'cache_read', 'cache_write']
 export interface PricingBranchDraft {
   id: string
   name: string
+  days: PricingDaysCondition
   context: { type: PricingContextCondition['type']; threshold: string; min: string; max: string }
   period: { type: PricingPeriodCondition['type']; start: string; end: string }
   prices: Record<PriceKey, string>
@@ -36,6 +37,7 @@ export function makePricingBranchDraft(
   return {
     id,
     name: branch?.name ?? '',
+    days: branch?.days ?? 'all',
     context: {
       type: context?.type ?? 'all',
       threshold: context && 'threshold' in context ? String(context.threshold) : '',
@@ -104,8 +106,8 @@ const clockMinute = (value: string): number | null => {
   return Number(value.slice(0, 2)) * 60 + Number(value.slice(3, 5))
 }
 
-// 全天不附带时刻；窗口起止必须不同，跨午夜留给交集算法拆段。
-function parsePeriod(draft: PricingBranchDraft['period'], errors: Record<string, string>): PricingPeriodCondition | null {
+// 日期不限保留跨午夜窗口；工作日和周末窗口必须在同一天结束。
+function parsePeriod(draft: PricingBranchDraft['period'], days: PricingDaysCondition, errors: Record<string, string>): PricingPeriodCondition | null {
   if (draft.type === 'all') return { type: 'all' }
   if (draft.type !== 'window') {
     errors['period.type'] = 'invalid'
@@ -118,6 +120,10 @@ function parsePeriod(draft: PricingBranchDraft['period'], errors: Record<string,
   if (start === null || end === null) return null
   if (start === end) {
     errors['period.end'] = 'invalid'
+    return null
+  }
+  if (days !== 'all' && start > end) {
+    errors['period.end'] = 'cross_day'
     return null
   }
   return { type: 'window', start: draft.start, end: draft.end }
@@ -163,11 +169,12 @@ function minuteIntervals(period: PricingPeriodCondition): MinuteInterval[] {
   return [{ start, end: 1440 }, { start: 0, end }]
 }
 
-// 仅当闭区间 Token 条件和半开每日时段同时相交时，两分支才冲突。
+// 日期、闭区间 Token 和半开每日时段三项均相交时，分支才冲突。
 function branchesOverlap(
-  left: Pick<PricingPriceBranch, 'context' | 'period'>,
-  right: Pick<PricingPriceBranch, 'context' | 'period'>,
+  left: Pick<PricingPriceBranch, 'days' | 'context' | 'period'>,
+  right: Pick<PricingPriceBranch, 'days' | 'context' | 'period'>,
 ): boolean {
+  if (left.days && right.days && left.days !== 'all' && right.days !== 'all' && left.days !== right.days) return false
   const a = contextInterval(left.context)
   const b = contextInterval(right.context)
   if (a.min > b.max || b.min > a.max) return false
@@ -175,7 +182,7 @@ function branchesOverlap(
     first.start < second.end && second.start < first.end))
 }
 
-// 主保存对已解析分支做完整二维交集预检；默认基础价不在分支集合内。
+// 主保存对已解析分支做日期、上下文和时段交集预检；默认基础价不在分支集合内。
 export function findPricingBranchConflicts(branches: PricingPriceBranch[]): PricingBranchConflict[] {
   const conflicts: PricingBranchConflict[] = []
   for (let first = 0; first < branches.length; first += 1) {
@@ -202,9 +209,10 @@ export function validatePricingBranchDraft(
   if (!name) errors.name = 'required'
   if (id && otherBranches.some((other) => other.id.trim() === id)) errors.id = 'duplicate'
   const context = parseContext(draft.context, errors)
-  const period = parsePeriod(draft.period, errors)
+  if (!['all', 'weekday', 'weekend'].includes(draft.days)) errors.days = 'invalid'
+  const period = parsePeriod(draft.period, draft.days, errors)
   const prices = parsePrices(draft.prices, errors)
-  if (context?.type === 'all' && period?.type === 'all') {
+  if (draft.days === 'all' && context?.type === 'all' && period?.type === 'all') {
     errors.context = 'default_conflict'
     errors.period = 'default_conflict'
   }
@@ -212,8 +220,8 @@ export function validatePricingBranchDraft(
   if (context && period) {
     for (const other of otherBranches) {
       const otherContext = parseContext(other.context, {})
-      const otherPeriod = parsePeriod(other.period, {})
-      if (!otherContext || !otherPeriod || !branchesOverlap({ context, period }, { context: otherContext, period: otherPeriod })) continue
+      const otherPeriod = parsePeriod(other.period, other.days, {})
+      if (!otherContext || !otherPeriod || !branchesOverlap({ days: draft.days, context, period }, { days: other.days, context: otherContext, period: otherPeriod })) continue
       conflictBranchIds.add(id)
       conflictBranchIds.add(other.id.trim())
       errors.context = 'conflict'
@@ -221,7 +229,7 @@ export function validatePricingBranchDraft(
     }
   }
   return {
-    branch: Object.keys(errors).length ? null : { id, name, context: context!, period: period!, prices: prices! },
+    branch: Object.keys(errors).length ? null : { id, name, days: draft.days, context: context!, period: period!, prices: prices! },
     errors,
     conflictBranchIds: [...conflictBranchIds],
   }

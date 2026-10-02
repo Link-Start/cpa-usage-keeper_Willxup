@@ -879,9 +879,12 @@ export type PricingPeriodCondition =
   | { type: 'all' }
   | { type: 'window'; start: string; end: string }
 
+export type PricingDaysCondition = 'all' | 'weekday' | 'weekend'
+
 export interface PricingPriceBranch {
   id: string
   name: string
+  days?: PricingDaysCondition
   context: PricingContextCondition
   period: PricingPeriodCondition
   prices: PricingBasePrices

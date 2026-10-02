@@ -154,7 +154,7 @@ describe('PricingSettings', () => {
     expect(writes).toHaveLength(1)
     expect(writes[0].body?.base_prices.input).toBe(4.5)
     expect(writes[0].body?.conditional_multipliers).toEqual(existing.conditional_multipliers)
-    expect(writes[0].body?.branches).toEqual(existing.branches)
+    expect(writes[0].body?.branches).toEqual([{ ...existing.branches[0], days: 'all' }])
   })
 
   it('keeps an unsaved price while switching new-model candidates and discards it on cancel', async () => {
@@ -297,9 +297,33 @@ describe('PricingSettings', () => {
     await act(async () => button('common.save').click())
     expect(writes).toHaveLength(1)
     expect(writes[0].body?.branches).toHaveLength(2)
-    expect(writes[0].body?.branches[0]).toEqual(existing.branches[0])
+    expect(writes[0].body?.branches[0]).toEqual({ ...existing.branches[0], days: 'all' })
     expect(writes[0].body?.branches[1].id).not.toBe(existing.branches[0].id)
     expect(writes[0].body?.branches[1].context).toEqual({ type: 'lte', threshold: 200_000 })
+  })
+
+  it('edits and copies applicable days, rejects a cross-midnight weekday window, and saves both branches', async () => {
+    await renderSettings()
+    await act(async () => button('common.edit').click())
+    await act(async () => document.querySelector<HTMLButtonElement>('[data-branch-action="edit"]')!.click())
+    await act(async () => button('usage_stats.pricing_settings_days_weekday').click())
+    expect(button('usage_stats.pricing_settings_days_weekday').getAttribute('aria-pressed')).toBe('true')
+    await selectOption(document.querySelector<HTMLButtonElement>('[data-pricing-field="period.type"]')!, 'usage_stats.pricing_settings_period_window')
+    await selectOption(document.querySelector<HTMLButtonElement>('[data-pricing-field="period.start"]')!, '20')
+    await selectOption(document.querySelector<HTMLButtonElement>('[data-pricing-field="period.end"]')!, '08')
+    await act(async () => button('usage_stats.pricing_settings_save_branch').click())
+    expect(document.body.textContent).toContain('usage_stats.pricing_settings_error_cross_day')
+    expect(document.querySelector('[data-pricing-branch-editor]')).not.toBeNull()
+    await selectOption(document.querySelector<HTMLButtonElement>('[data-pricing-field="period.end"]')!, '22')
+    await act(async () => button('usage_stats.pricing_settings_save_branch').click())
+    expect(document.querySelector('[data-pricing-branch-editor]')).toBeNull()
+    await act(async () => document.querySelector<HTMLButtonElement>('[data-branch-action="copy"]')!.click())
+    expect(button('usage_stats.pricing_settings_days_weekday').getAttribute('aria-pressed')).toBe('true')
+    await act(async () => button('usage_stats.pricing_settings_days_weekend').click())
+    await act(async () => button('usage_stats.pricing_settings_save_branch').click())
+    await act(async () => button('common.save').click())
+    expect(writes).toHaveLength(1)
+    expect(writes[0].body?.branches.map((branch) => branch.days)).toEqual(['weekday', 'weekend'])
   })
 
   it('adds a range and overnight branch with four independent prices in the same model save', async () => {

@@ -34,12 +34,14 @@ describe('pricingBranchDraft', () => {
   it('creates an independent draft and preserves the stable saved ID and all four prices', () => {
     const saved: PricingPriceBranch = {
       id: 'saved', name: '夜间', context: { type: 'range', min: 0, max: 20 },
+      days: 'weekday',
       period: { type: 'window', start: '20:00', end: '08:00' },
       prices: { input: 0, output: 3, cache_read: 0.5, cache_write: 1.25 },
     }
     const draft = makePricingBranchDraft(saved, defaultPrices, saved.id)
     expect(draft).toEqual({
       id: 'saved', name: '夜间',
+      days: 'weekday',
       context: { type: 'range', threshold: '', min: '0', max: '20' },
       period: { type: 'window', start: '20:00', end: '08:00' },
       prices: { input: '0', output: '3', cache_read: '0.5', cache_write: '1.25' },
@@ -48,6 +50,23 @@ describe('pricingBranchDraft', () => {
     expect(saved.prices.input).toBe(0)
     expect(makePricingBranchDraft(null, defaultPrices, 'new').prices).toEqual(defaultPrices)
     expect(makePricingBranchDraft(saved, defaultPrices, 'copy').id).toBe('copy')
+    expect(makePricingBranchDraft(saved, defaultPrices, 'copy').days).toBe('weekday')
+    expect(makePricingBranchDraft(null, defaultPrices, 'new').days).toBe('all')
+  })
+
+  it('allows date-only branches, keeps weekday and weekend disjoint, and rejects a cross-midnight date window', () => {
+    const weekday = makeDraft('weekday')
+    weekday.days = 'weekday'; weekday.context.type = 'all'; weekday.period.type = 'all'
+    const weekend = makeDraft('weekend')
+    weekend.days = 'weekend'; weekend.context.type = 'all'; weekend.period.type = 'all'
+    expect(findPricingBranchConflicts([validBranch(weekday), validBranch(weekend)])).toEqual([])
+    expect(validBranch(weekday).days).toBe('weekday')
+    const all = makeDraft('all')
+    expect(findPricingBranchConflicts([validBranch(weekday), validBranch(all)])).toHaveLength(1)
+    weekday.period = { type: 'window', start: '20:00', end: '08:00' }
+    expect(validatePricingBranchDraft(weekday, []).errors).toEqual({ 'period.end': 'cross_day' })
+    weekday.period.end = '20:01'
+    expect(validBranch(weekday).period).toEqual({ type: 'window', start: '20:00', end: '20:01' })
   })
 
   it('accepts safe closed context bounds and rejects gt plus one outside safe integers', () => {
