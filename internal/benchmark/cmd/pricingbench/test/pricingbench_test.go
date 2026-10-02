@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -17,6 +18,10 @@ import (
 
 // TestPricingBenchCLIExercisesRealOldSchemas 验证专用文件确实从旧物理结构升级，且冷热/历史五维场景均跑完重算与追赶。
 func TestPricingBenchCLIExercisesRealOldSchemas(t *testing.T) {
+	// 正式压测工具依赖 Linux；通用迁移与恢复用例仍由三平台 CI 执行。
+	if runtime.GOOS != "linux" {
+		t.Skip("formal pricing benchmark CLI requires Linux")
+	}
 	for _, scenario := range []string{"latest", "five-dim"} {
 		t.Run(scenario, func(t *testing.T) {
 			root := filepath.Join(t.TempDir(), scenario)

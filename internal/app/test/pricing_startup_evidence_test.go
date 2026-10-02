@@ -20,6 +20,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"testing/fstest"
 	"time"
 
 	keeperapp "cpa-usage-keeper/internal/app"
@@ -27,6 +28,7 @@ import (
 	"cpa-usage-keeper/internal/entities"
 	"cpa-usage-keeper/internal/repository"
 	repodto "cpa-usage-keeper/internal/repository/dto"
+	webui "cpa-usage-keeper/web"
 	"gorm.io/gorm"
 )
 
@@ -96,6 +98,12 @@ func waitPricingEvidencePhase(t *testing.T, client *http.Client, baseURL, phase 
 
 // TestPricingStartupTLSHandshakeServesBasePathAndReady 验证生产RunContext的TLS分支可完成握手并切换业务路由。
 func TestPricingStartupTLSHandshakeServesBasePathAndReady(t *testing.T) {
+	// 使用独立页面验证真实 TLS 与路由切换，不依赖开发目录里的前端构建产物。
+	// 本测试不并行；恢复 Static 的清理先注册，确保运行时完全停止后才恢复。
+	const page = "<html><body>pricing TLS fixture</body></html>"
+	previousStatic := webui.Static
+	webui.Static = fstest.MapFS{"index.html": &fstest.MapFile{Data: []byte(page)}}
+	t.Cleanup(func() { webui.Static = previousStatic })
 	cfg := pricingRuntimeConfig(t)
 	certificate, key := pricingEvidenceCertificate(t)
 	cfg.TLSEnabled = true
@@ -122,7 +130,7 @@ func TestPricingStartupTLSHandshakeServesBasePathAndReady(t *testing.T) {
 		}
 		body, readErr := io.ReadAll(response.Body)
 		_ = response.Body.Close()
-		if readErr != nil || response.StatusCode != http.StatusOK || (path == "/" && len(body) == 0) {
+		if readErr != nil || response.StatusCode != http.StatusOK || (path == "/" && !strings.Contains(string(body), "pricing TLS fixture")) {
 			t.Fatalf("TLS path %s: status=%d body=%q error=%v", path, response.StatusCode, body, readErr)
 		}
 	}
