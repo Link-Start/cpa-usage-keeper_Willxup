@@ -33,9 +33,6 @@ func applyUsageEventToOverview(overview *dto.UsageOverviewRecord, event entities
 //go:linkname finalizeUsageOverview cpa-usage-keeper/internal/repository.finalizeUsageOverview
 func finalizeUsageOverview(overview *dto.UsageOverviewRecord)
 
-//go:linkname applyUsageOverviewQuery cpa-usage-keeper/internal/repository.applyUsageOverviewQuery
-func applyUsageOverviewQuery(query *gorm.DB, filter dto.UsageQueryFilter) *gorm.DB
-
 //go:linkname usageOverviewBucket cpa-usage-keeper/internal/repository.usageOverviewBucket
 func usageOverviewBucket(timestamp time.Time, byDay bool) string
 

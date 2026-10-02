@@ -227,12 +227,6 @@ func (s *Service) beginInspectionRound() uint64 {
 	return s.cacheGeneration
 }
 
-func (s *Service) resetInspectionCompletedAt() {
-	s.refreshMu.Lock()
-	defer s.refreshMu.Unlock()
-	s.inspectionCompletedAt = time.Time{}
-}
-
 // setInspectionRoundAuthIndexes 只激活未被费用清理淘汰的巡检轮次，防止旧扫描复活。
 func (s *Service) setInspectionRoundAuthIndexes(generation uint64, authIndexes []string) bool {
 	s.refreshMu.Lock()

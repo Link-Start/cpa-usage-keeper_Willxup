@@ -347,15 +347,6 @@ func applyUsageQueryWindow(query *gorm.DB, filter dto.UsageQueryFilter) *gorm.DB
 	return query
 }
 
-// Overview Tab 第一步：应用时间窗口和全局 API-Key 条件，后续 Overview 专属条件也从这里加。
-func applyUsageOverviewQuery(query *gorm.DB, filter dto.UsageQueryFilter) *gorm.DB {
-	query = applyUsageQueryWindow(query, filter)
-	if apiGroupKey := strings.TrimSpace(filter.APIGroupKey); apiGroupKey != "" {
-		query = query.Where("api_group_key = ?", apiGroupKey)
-	}
-	return query
-}
-
 // Request Event Log 筛选项第一步：只应用时间窗口，不叠加当前列表筛选。
 func applyUsageEventFilterOptionsQuery(query *gorm.DB, filter dto.UsageQueryFilter) *gorm.DB {
 	return applyUsageQueryWindow(query, filter)
@@ -1402,7 +1393,7 @@ func buildUsageOverviewRealtime(db *gorm.DB, filter dto.UsageQueryFilter, recent
 	aiProviderUsage := map[string]*usageOverviewRealtimeTopAccumulator{}
 
 	for _, realtimeEvent := range events {
-		// 缓存事件已经是最小投影，这里转回 UsageEvent 复用现有 cost/token helper。
+		// 缓存事件已经是最小投影，这里转回 UsageEvent 复用已存金额、Token 和请求统计处理。
 		event := realtimeEvent.event
 		// bucket index 基于 realtime 窗口 start 和固定 span 计算。
 		timestamp := timeutil.NormalizeStorageTime(event.Timestamp)

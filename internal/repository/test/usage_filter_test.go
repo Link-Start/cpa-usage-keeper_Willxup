@@ -66,7 +66,21 @@ func loadUsageOverviewOracleForTest(t *testing.T, db *gorm.DB, filter dto.UsageQ
 	for _, setting := range settings {
 		pricingByModel[strings.TrimSpace(setting.Model)] = setting
 	}
-	query := applyUsageOverviewQuery(db.Model(&entities.UsageEvent{}), filter).Order("timestamp asc")
+	// Oracle 独立筛选原始事件，不在生产代码中保留仅供测试使用的查询入口。
+	query := db.Model(&entities.UsageEvent{}).Order("timestamp asc")
+	if filter.StartTime != nil {
+		query = query.Where("timestamp >= ?", timeutil.FormatStorageTime(*filter.StartTime))
+	}
+	if filter.EndTime != nil {
+		operator := "timestamp <= ?"
+		if filter.EndExclusive {
+			operator = "timestamp < ?"
+		}
+		query = query.Where(operator, timeutil.FormatStorageTime(*filter.EndTime))
+	}
+	if key := strings.TrimSpace(filter.APIGroupKey); key != "" {
+		query = query.Where("api_group_key = ?", key)
+	}
 	var events []entities.UsageEvent
 	if err := query.Find(&events).Error; err != nil {
 		t.Fatalf("load oracle events: %v", err)

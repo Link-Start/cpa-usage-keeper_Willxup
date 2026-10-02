@@ -417,15 +417,6 @@ func (s *Service) stopUsageHeaderSnapshotWorker() {
 	})
 }
 
-func (s *Service) applyUsageHeaderSnapshots(ctx context.Context, snapshots []UsageHeaderSnapshot) {
-	// 值批次只保留给现有定向测试和同步 helper；生产 worker 使用不可变指针版本。
-	pointers := make([]*UsageHeaderSnapshot, 0, len(snapshots))
-	for index := range snapshots {
-		pointers = append(pointers, &snapshots[index])
-	}
-	s.applyUsageHeaderSnapshotPointers(ctx, pointers)
-}
-
 // applyUsageHeaderSnapshotPointers 为批次固定各快照的清理代数，身份和窗口查询在锁外并行完成。
 func (s *Service) applyUsageHeaderSnapshotPointers(ctx context.Context, snapshots []*UsageHeaderSnapshot) {
 	// nil service 或没有快照时直接返回，保持批量 apply 和 flush 空批语义一致。
