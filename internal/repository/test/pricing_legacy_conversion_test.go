@@ -10,6 +10,7 @@ import (
 
 	"cpa-usage-keeper/internal/config"
 	"cpa-usage-keeper/internal/entities"
+	"cpa-usage-keeper/internal/helper"
 	"cpa-usage-keeper/internal/repository"
 	"cpa-usage-keeper/internal/repository/migration"
 	"cpa-usage-keeper/internal/timeutil"
@@ -168,7 +169,7 @@ func TestPricingLegacyConversionNormalizesEarlyOffsetlessEventBeforeRollup(t *te
 	if err := db.Where("id = 1").Take(&stored).Error; err != nil {
 		t.Fatal(err)
 	}
-	backup, err := gorm.Open(sqlite.Open(repository.BuildSQLiteFileURI(*stored.BackupPath)+"?mode=ro&_query_only=on"), &gorm.Config{})
+	backup, err := gorm.Open(sqlite.Open(helper.BuildSQLiteFileURI(*stored.BackupPath)+"?mode=ro&_query_only=on"), &gorm.Config{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -328,7 +329,7 @@ func pricingM2MetadataMigrationFixture(t *testing.T) (*gorm.DB, *gorm.DB, reposi
 	if err := db.Where("id = 1").Take(&stored).Error; err != nil {
 		t.Fatal(err)
 	}
-	backup, err := gorm.Open(sqlite.Open(repository.BuildSQLiteFileURI(*stored.BackupPath)+"?mode=ro&_query_only=on"), &gorm.Config{})
+	backup, err := gorm.Open(sqlite.Open(helper.BuildSQLiteFileURI(*stored.BackupPath)+"?mode=ro&_query_only=on"), &gorm.Config{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -459,7 +460,7 @@ func pricingLegacyConversionFixtureTimes(t *testing.T, first, second time.Time) 
 	if err := db.Where("id = 1").Take(&stored).Error; err != nil {
 		t.Fatal(err)
 	}
-	backup, err := gorm.Open(sqlite.Open(repository.BuildSQLiteFileURI(*stored.BackupPath)+"?mode=ro&_query_only=on"), &gorm.Config{})
+	backup, err := gorm.Open(sqlite.Open(helper.BuildSQLiteFileURI(*stored.BackupPath)+"?mode=ro&_query_only=on"), &gorm.Config{})
 	if err != nil {
 		t.Fatal(err)
 	}

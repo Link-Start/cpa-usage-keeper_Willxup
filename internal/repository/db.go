@@ -12,6 +12,7 @@ import (
 	"cpa-usage-keeper/internal/backup"
 	"cpa-usage-keeper/internal/config"
 	"cpa-usage-keeper/internal/entities"
+	"cpa-usage-keeper/internal/helper"
 	"cpa-usage-keeper/internal/logging"
 	"cpa-usage-keeper/internal/repository/dto"
 	"cpa-usage-keeper/internal/repository/migration"
@@ -292,21 +293,10 @@ func sqliteReadDSN(path string) (string, error) {
 		if err != nil {
 			return "", fmt.Errorf("resolve sqlite file path: %w", err)
 		}
-		uriFilename = BuildSQLiteFileURI(absoluteFilename)
+		uriFilename = helper.BuildSQLiteFileURI(absoluteFilename)
 	}
 	// 返回唯一 query string；SQLite core 处理 mode=ro，驱动处理下划线开头的 PRAGMA 参数。
 	return uriFilename + "?" + query.Encode(), nil
-}
-
-// BuildSQLiteFileURI 把已经绝对化的本地文件名转换成 SQLite file URI，并保留跨平台路径语义。
-func BuildSQLiteFileURI(filename string) string {
-	// Windows 盘符必须位于 URI path 的 /C:/... 中；缺少前导斜杠会被 net/url 误写成 authority。
-	uriPath := filepath.ToSlash(filename)
-	if len(uriPath) >= 2 && uriPath[1] == ':' && ((uriPath[0] >= 'A' && uriPath[0] <= 'Z') || (uriPath[0] >= 'a' && uriPath[0] <= 'z')) {
-		uriPath = "/" + uriPath
-	}
-	// url.URL 继续负责空格、# 等字符的标准转义；Unix 绝对路径和 UNC 路径保持原样。
-	return (&url.URL{Scheme: "file", Path: uriPath}).String()
 }
 
 // sqliteDatabaseRequiresSinglePool 判断路径是否创建连接私有的内存/临时数据库。

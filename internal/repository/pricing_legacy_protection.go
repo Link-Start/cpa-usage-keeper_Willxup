@@ -12,6 +12,7 @@ import (
 
 	"cpa-usage-keeper/internal/backup"
 	"cpa-usage-keeper/internal/entities"
+	"cpa-usage-keeper/internal/helper"
 	"cpa-usage-keeper/internal/pricing"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
@@ -183,7 +184,7 @@ func openVerifiedPricingBackup(ctx context.Context, path string) (*gorm.DB, func
 
 // openPricingBackupReadOnly 供已完成 M1 quick_check 的同次升级读取原备份，不重复全文件校验。
 func openPricingBackupReadOnly(path string) (*gorm.DB, func(), error) {
-	dsn := BuildSQLiteFileURI(path) + "?mode=ro&_query_only=on"
+	dsn := helper.BuildSQLiteFileURI(path) + "?mode=ro&_query_only=on"
 	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
 	if err != nil {
 		return nil, nil, fmt.Errorf("open pricing backup: %w", err)

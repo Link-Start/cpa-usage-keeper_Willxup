@@ -37,7 +37,11 @@ type restoreFixture struct {
 
 func makeRestoreFixture(t *testing.T, oldBackup bool) restoreFixture {
 	t.Helper()
-	dir := t.TempDir()
+	// 文件名中的空格与 # 必须在读取备份和 ATTACH 故障库时保持原义。
+	dir := filepath.Join(t.TempDir(), "restore # files")
+	if err := os.Mkdir(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
 	faultPath := filepath.Join(dir, "fault.db")
 	fault := openRestoreTestDB(t, faultPath)
 	column := "source"

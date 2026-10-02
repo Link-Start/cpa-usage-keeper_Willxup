@@ -6,10 +6,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
+
+	"cpa-usage-keeper/internal/helper"
 )
 
 // PricingRestoreResult 是离线恢复后可对账的 inbox 边界与补回条数。
@@ -160,7 +161,7 @@ func pricingRestorePaths(backupPath, faultPath, outputPath string) (string, stri
 
 // openPricingRestoreReadOnly 不允许 SQLite 自动创建缺失的备份或故障文件。
 func openPricingRestoreReadOnly(path string) (*sql.DB, error) {
-	uri := (&url.URL{Scheme: "file", Path: filepath.ToSlash(path)}).String() + "?mode=ro&_query_only=on"
+	uri := helper.BuildSQLiteFileURI(path) + "?mode=ro&_query_only=on"
 	db, err := sql.Open("sqlite3", uri)
 	if err != nil {
 		return nil, err
@@ -262,7 +263,7 @@ func replayPricingRestoreInbox(ctx context.Context, stagedPath, faultPath string
 		return fmt.Errorf("connect restore staging database: %w", err)
 	}
 	defer conn.Close()
-	faultURI := (&url.URL{Scheme: "file", Path: filepath.ToSlash(faultPath)}).String() + "?mode=ro"
+	faultURI := helper.BuildSQLiteFileURI(faultPath) + "?mode=ro"
 	if _, err := conn.ExecContext(ctx, "ATTACH DATABASE ? AS fault", faultURI); err != nil {
 		return fmt.Errorf("attach read-only fault database: %w", err)
 	}
