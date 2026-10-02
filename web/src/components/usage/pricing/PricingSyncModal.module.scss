@@ -221,7 +221,7 @@
 
 @media (pointer: coarse) { .toolbar button[aria-haspopup="listbox"] { min-height: 44px; } }
 
-.toolbar button[aria-haspopup="listbox"] { border-radius: 999px; box-shadow: none; }
+.toolbar button[aria-haspopup="listbox"] { height: 38px; border-radius: 999px; box-shadow: none; }
 
 // 来源按最长选项 Models.dev 的文本宽度预留，标签不参与压缩换行。
 .toolbar label { flex: 0 0 auto; white-space: nowrap; }

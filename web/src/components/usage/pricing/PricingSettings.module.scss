@@ -818,8 +818,8 @@ details[open] > .conditionSummary > svg { transform: rotate(180deg); }
 
 .clockFields { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 6px; }
 
-// 下拉触发器沿用请求日志的胶囊轮廓，仅改外观，不改变控件尺寸。
-.editorModal button[aria-haspopup='listbox'] { border-radius: 999px; box-shadow: none; }
+// 下拉触发器沿用请求日志的胶囊轮廓，桌面与输入框统一为 38px；触屏保留 44px。
+.editorModal button[aria-haspopup='listbox'] { height: 38px; border-radius: 999px; box-shadow: none; }
 .modelHeading { display: flex; align-items: end; justify-content: space-between; flex-wrap: wrap; gap: 12px 20px; }
 .modelHeading h3 { margin: 0; font-size: 13px; }
 .modelHeading .modelField { flex: 1 1 180px; max-width: 340px; }

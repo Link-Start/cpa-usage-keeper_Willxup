@@ -25,6 +25,8 @@
 }
 
 .range {
+  display: grid;
+  grid-template-columns: minmax(0, 320px) 20px max-content;
   align-items: end;
   min-width: 0;
 }
@@ -51,8 +53,9 @@
 .rangeEnd {
   display: flex;
   align-items: center;
-  min-height: 40px;
-  padding: 8px 12px;
+  box-sizing: border-box;
+  height: 38px;
+  padding: 0 12px;
   border: 1px solid var(--border-color);
   border-radius: 999px;
   background: var(--bg-primary);
@@ -243,7 +246,7 @@
 // 时间输入保留两个字段；箭头按控件高度居中，不参与标签高度计算。
 .startFields label:first-child { flex: 1.55; }
 .startFields label:last-child { flex: 1; }
-.rangeArrow { display: flex; align-items: center; justify-content: center; height: 40px; flex: 0 0 20px; color: var(--text-secondary); font-size: 18px; }
+.rangeArrow { display: flex; align-items: center; justify-content: center; height: 38px; flex: 0 0 20px; color: var(--text-secondary); font-size: 18px; }
 .impact { display: flex; align-items: start; gap: 8px; }
 .impact svg { flex-shrink: 0; }
 .savedPricing summary { list-style: none; }
@@ -251,16 +254,14 @@
 .savedPricing summary > svg { margin-left: auto; }
 .savedPricing[open] > summary > svg { transform: rotate(180deg); }
 .model + .model { padding-top: 10px; border-top: 1px solid var(--border-color); }
+// 窄屏将范围说明与终点放在同一行，避免终点单独占一行后再出现说明。
+.rangeHint { grid-column: 1 / -1; margin: 0; color: var(--text-secondary); font-size: 12px; }
 @media (max-width: 620px) {
-  .range { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: end; gap: 8px; }
-  .startFields { flex-basis: auto; }
-  .range > .rangeArrow { align-self: end; }
-}
-@media (max-width: 479px) {
-  .range { grid-template-columns: minmax(0, 1fr) auto; }
-  .startFields { grid-column: 1 / -1; flex-direction: row; }
-  .rangeArrow { justify-self: end; }
-  .rangeEnd { justify-self: end; }
+  .range { grid-template-columns: minmax(0, 1fr) 20px max-content; gap: 10px 8px; align-items: center; }
+  .startFields { grid-column: 1 / -1; flex-basis: auto; }
+  .rangeHint { grid-column: 1; grid-row: 2; }
+  .rangeArrow { grid-column: 2; grid-row: 2; }
+  .rangeEnd { grid-column: 3; grid-row: 2; }
 }
 @media (pointer: coarse) {
   .startFields button { min-height: 44px; font-size: 14px; }
@@ -276,7 +277,7 @@
 
 }
 
-.startFields button[aria-haspopup="listbox"] { border-radius: 999px; box-shadow: none; }
+.startFields button[aria-haspopup="listbox"] { height: 38px; border-radius: 999px; box-shadow: none; }
 
 .modal :global(.modal-body) { min-height: 0; padding-bottom: 20px; }
 .modal :global(.modal-footer) { flex: 0 0 auto; }

@@ -257,8 +257,8 @@ export function PricingRecalculationModal({
           </div>
           <span className={styles.rangeArrow} aria-hidden="true">→</span>
           <div className={styles.rangeEnd}><strong>{t('usage_stats.pricing_recalculation_until_now')}</strong></div>
+          <p className={styles.rangeHint}>{t('usage_stats.pricing_recalculation_recent_days', { days: options?.max_days ?? 30 })}</p>
         </div>
-        <p className={styles.muted}>{t('usage_stats.pricing_recalculation_recent_days', { days: options?.max_days ?? 30 })}</p>
         <p className={styles.impact}><IconInfo size={16} />{t('usage_stats.pricing_recalculation_impact')}</p>
         <details className={styles.savedPricing}>
           <summary>{t('usage_stats.pricing_recalculation_saved_pricing')} <span>{t('usage_stats.pricing_recalculation_model_count', { count: models.length })}</span><IconChevronDown size={16} /></summary>
