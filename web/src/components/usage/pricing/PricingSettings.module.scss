@@ -1,5 +1,9 @@
 .settings {
   container: pricing-list / inline-size;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  max-height: 780px;
   // 外层宽度跟随设置页，与会话及 API Key 卡片共用左右边界。
   width: 100%;
   min-width: 0;
@@ -8,6 +12,10 @@
   border-radius: 24px;
   background: var(--bg-primary);
   color: var(--text-primary);
+
+  > * {
+    flex-shrink: 0;
+  }
 }
 
 .listHeader,
@@ -60,6 +68,14 @@
 .modelList {
   display: grid;
   gap: 8px;
+  // 仅列表滚动，标题及操作留在卡片顶部；少量模型按内容自然收缩。
+  flex-shrink: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding-right: 4px;
+  padding-bottom: 4px;
+  -webkit-overflow-scrolling: touch;
 }
 
 .modelCard {
