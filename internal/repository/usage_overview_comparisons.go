@@ -8,8 +8,41 @@ import (
 
 	"cpa-usage-keeper/internal/entities"
 	"cpa-usage-keeper/internal/repository/dto"
+	"cpa-usage-keeper/internal/timeutil"
 	"gorm.io/gorm"
 )
+
+// 时间轴和数据共用项目时区，空桶保留为零；完整天用 AddDate 避免 DST 导致日期漂移。
+func newUsageOverviewComparisons(filter dto.UsageQueryFilter, byDay bool) *dto.UsageOverviewComparisonsRecord {
+	result := &dto.UsageOverviewComparisonsRecord{
+		Models: map[string]*dto.UsageComparisonItemRecord{}, APIKeys: map[string]*dto.UsageComparisonItemRecord{},
+		AuthFiles: map[string]*dto.UsageComparisonItemRecord{}, AIProviders: map[string]*dto.UsageComparisonItemRecord{},
+		Buckets: usageOverviewComparisonBuckets(filter, byDay), Granularity: "hourly",
+	}
+	if byDay {
+		result.Granularity = "daily"
+	}
+	return result
+}
+
+func usageOverviewComparisonBuckets(filter dto.UsageQueryFilter, byDay bool) []string {
+	buckets := []string{}
+	start, end := timeutil.NormalizeStorageTime(*filter.StartTime), timeutil.NormalizeStorageTime(*filter.EndTime)
+	cursor := start.Truncate(time.Hour)
+	if byDay {
+		cursor = time.Date(start.Year(), start.Month(), start.Day(), 0, 0, 0, 0, start.Location())
+	}
+	for cursor.Before(end) || (!filter.EndExclusive && cursor.Equal(end)) {
+		bucket := usageOverviewBucket(cursor, byDay)
+		buckets = append(buckets, bucket)
+		if byDay {
+			cursor = cursor.AddDate(0, 0, 1)
+		} else {
+			cursor = cursor.Add(time.Hour)
+		}
+	}
+	return buckets
+}
 
 // applyUsageEventToComparisonOnly 把窄边界事件的已存费用同时归到模型、Key 与已知身份。
 func applyUsageEventToComparisonOnly(comparisons *dto.UsageOverviewComparisonsRecord, event entities.UsageEvent, identityLookup analysisIdentityLookup) error {
@@ -22,6 +55,7 @@ func applyUsageEventToComparisonOnly(comparisons *dto.UsageOverviewComparisonsRe
 		failed = 1
 	}
 	row := dto.UsageComparisonItemRecord{Requests: 1, Failures: failed, InputTokens: event.InputTokens, OutputTokens: event.OutputTokens, CacheReadTokens: event.CacheReadTokens, CacheCreationTokens: event.CacheCreationTokens, ReasoningTokens: event.ReasoningTokens, TotalTokens: event.TotalTokens, CostUSD: cost, CostAvailable: available}
+	row.Bucket = usageOverviewBucket(event.Timestamp, comparisons.Granularity == "daily")
 	applyUsageOverviewComparison(comparisons, event.Model, event.APIGroupKey, row)
 	applyUsageOverviewIdentityComparison(comparisons, identityLookup, event.AuthIndex, row)
 	return nil
@@ -47,7 +81,7 @@ func applyUsageOverviewIdentityComparison(comparisons *dto.UsageOverviewComparis
 func addUsageOverviewComparison(items map[string]*dto.UsageComparisonItemRecord, key string, row dto.UsageComparisonItemRecord) {
 	item := items[key]
 	if item == nil {
-		item = &dto.UsageComparisonItemRecord{Key: key, Label: row.Label, CostAvailable: true}
+		item = &dto.UsageComparisonItemRecord{Key: key, Label: row.Label, CostAvailable: true, TokenBuckets: map[string]int64{}}
 		items[key] = item
 	}
 	if item.Label == "" && row.Label != "" {
@@ -61,11 +95,14 @@ func addUsageOverviewComparison(items map[string]*dto.UsageComparisonItemRecord,
 	item.CacheCreationTokens += row.CacheCreationTokens
 	item.ReasoningTokens += row.ReasoningTokens
 	item.TotalTokens += row.TotalTokens
+	if row.Bucket != "" {
+		item.TokenBuckets[row.Bucket] += row.TotalTokens
+	}
 	item.CostUSD += row.CostUSD
 	item.CostAvailable = item.CostAvailable && row.CostAvailable
 }
 
-// comparison-only 使用无时间桶的独立 rollup projection。
+// 区间汇总直接读取已存费用，Token 趋势单独按时间和分类聚合。
 // 比较查询复用范围规划，边界事件由调用方读取一次并补入比较结果。
 func loadAndApplyUsageOverviewStats(overview *dto.UsageOverviewRecord, db *gorm.DB, filter dto.UsageQueryFilter, start, end time.Time, grain string, bucketByDay bool) error {
 	if filter.ComparisonOnly {
@@ -74,8 +111,8 @@ func loadAndApplyUsageOverviewStats(overview *dto.UsageOverviewRecord, db *gorm.
 			return err
 		}
 		var identityLookup analysisIdentityLookup
-		authIndexes := make([]string, 0, len(rows))
-		seenAuthIndexes := make(map[string]struct{}, len(rows))
+		authIndexes := make([]string, 0)
+		seenAuthIndexes := make(map[string]struct{})
 		for _, row := range rows {
 			if authIndex := strings.TrimSpace(row.AuthIndex); authIndex != "" {
 				if _, seen := seenAuthIndexes[authIndex]; !seen {
@@ -99,7 +136,7 @@ func loadAndApplyUsageOverviewStats(overview *dto.UsageOverviewRecord, db *gorm.
 			applyUsageOverviewComparison(overview.Comparisons, row.Model, row.APIGroupKey, comparison)
 			applyUsageOverviewIdentityComparison(overview.Comparisons, identityLookup, row.AuthIndex, comparison)
 		}
-		return nil
+		return loadUsageOverviewComparisonTokenSeries(db, filter, start, end, grain, bucketByDay, overview.Comparisons, identityLookup)
 	}
 	var model any = &entities.UsageOverviewHourlyStat{}
 	if grain == "daily" {

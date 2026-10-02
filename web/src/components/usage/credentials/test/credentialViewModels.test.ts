@@ -6,6 +6,7 @@ import {
   paginateCredentials,
   selectQuotaEligibleAuthIndexes,
   splitCredentialIdentities,
+  updateCredentialDetailStats,
 } from '../credentialViewModels'
 
 function quotaResponse(authIndex: string, quota: UsageQuotaRow[], rateLimitResetCreditsAvailableCount?: number | null, subscription?: UsageSubscriptionInfo): UsageQuotaCheckResponse {
@@ -61,6 +62,16 @@ function health(overrides: Partial<UsageCredentialHealth> = {}): UsageCredential
 describe('credentialViewModels', () => {
   afterEach(() => vi.useRealTimers())
 
+  it('updates the open detail priority from a fresh identity even if its row left the current page', () => {
+    const original = identity({ auth_type: 2, priority: 4 })
+    const selection = { kind: 'ai-provider' as const, row: buildAiProviderCredentialRows([original])[0] }
+    const updated = updateCredentialDetailStats(selection, identity({ auth_type: 2, priority: -3 }))
+    expect(updated.row.priorityLabel).toBe('P-3')
+    expect(updated.row.identity.priority).toBe(-3)
+    const cleared = updateCredentialDetailStats(updated, identity({ auth_type: 2, priority: 0 }))
+    expect(cleared.row.priorityLabel).toBe('P0')
+  })
+
   it('splits usage identities by auth type while keeping deleted rows for traffic display', () => {
     const groups = splitCredentialIdentities([
       identity({ id: '1', auth_type: 1, identity: 'auth-file' }),
@@ -99,6 +110,8 @@ describe('credentialViewModels', () => {
       ['free-auth', quotaResponse('free-auth', [], undefined, { provider: 'claude', plan: 'free' })],
       ['pro-auth', quotaResponse('pro-auth', [], undefined, { provider: 'claude', plan: 'pro' })],
       ['max-auth', quotaResponse('max-auth', [], undefined, { provider: 'claude', plan: 'max' })],
+      ['max5x-auth', quotaResponse('max5x-auth', [], undefined, { provider: 'claude', plan: 'max-5x' })],
+      ['max20x-auth', quotaResponse('max20x-auth', [], undefined, { provider: 'claude', plan: 'max-20x' })],
       ['team-auth', quotaResponse('team-auth', [], undefined, { provider: 'claude', plan: 'team' })],
     ])
 
@@ -106,6 +119,8 @@ describe('credentialViewModels', () => {
       identity({ identity: 'free-auth', provider: 'claude' }),
       identity({ identity: 'pro-auth', provider: 'claude' }),
       identity({ identity: 'max-auth', provider: 'claude' }),
+      identity({ identity: 'max5x-auth', provider: 'claude' }),
+      identity({ identity: 'max20x-auth', provider: 'claude' }),
       identity({ identity: 'team-auth', provider: 'claude' }),
     ], quotas)
 
@@ -113,6 +128,8 @@ describe('credentialViewModels', () => {
       { kind: 'claude-free', labelKey: 'usage_stats.credentials_subscription_claude_free' },
       { kind: 'claude-pro', labelKey: 'usage_stats.credentials_subscription_claude_pro' },
       { kind: 'claude-max', labelKey: 'usage_stats.credentials_subscription_claude_max' },
+      { kind: 'claude-max5x', labelKey: 'usage_stats.credentials_subscription_claude_max_5x' },
+      { kind: 'claude-max20x', labelKey: 'usage_stats.credentials_subscription_claude_max_20x' },
       { kind: 'claude-team', labelKey: 'usage_stats.credentials_subscription_claude_team' },
     ])
   })

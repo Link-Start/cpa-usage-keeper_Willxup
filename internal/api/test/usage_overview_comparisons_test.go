@@ -71,11 +71,15 @@ func TestOverviewComparisonAPIUsesAliasesAndViewerScope(t *testing.T) {
 		t.Fatalf("admin status %d: %s", response.Code, response.Body.String())
 	}
 	type comparisonItem struct {
-		Key, Label string
-		Requests   int64
-		Cost       *float64
+		Key, Label  string
+		Requests    int64
+		Cost        *float64
+		TokenSeries []int64 `json:"token_series"`
 	}
 	type comparisonPayload struct {
+		Buckets     []string
+		Granularity string
+		Timezone    string
 		Models      []comparisonItem
 		APIKeys     []comparisonItem `json:"api_keys"`
 		AuthFiles   []comparisonItem `json:"auth_files"`
@@ -87,6 +91,19 @@ func TestOverviewComparisonAPIUsesAliasesAndViewerScope(t *testing.T) {
 	}
 	if len(payload.APIKeys) != 4 {
 		t.Fatalf("key count: %d", len(payload.APIKeys))
+	}
+	if len(payload.Buckets) != 1 || payload.Buckets[0] != today.Format(time.DateOnly) || payload.Granularity != "daily" || payload.Timezone != time.Local.String() {
+		t.Fatalf("incorrect comparison time axis: %+v", payload)
+	}
+	for _, items := range [][]comparisonItem{payload.Models, payload.APIKeys, payload.AuthFiles, payload.AIProviders} {
+		for _, item := range items {
+			if len(item.TokenSeries) != 1 {
+				t.Fatalf("missing token timeline: %+v", item)
+			}
+		}
+	}
+	if len(payload.AuthFiles) != 1 || payload.AuthFiles[0].TokenSeries[0] != 1_000_000 || len(payload.AIProviders) != 1 || payload.AIProviders[0].TokenSeries[0] != 1_000_000 {
+		t.Fatal("credential timeline did not preserve identity grouping")
 	}
 	seen := map[string]bool{}
 	foundAlias := false
@@ -177,6 +194,14 @@ func TestOverviewComparisonAPIUsesAliasesAndViewerScope(t *testing.T) {
 	viewerModels := byKey(payload.Models)
 	if len(viewerModels) != 1 || viewerModels["my-model"].Cost == nil || !overviewAPICostClose(*viewerModels["my-model"].Cost, 6.25) || len(payload.AuthFiles) != 0 || len(payload.AIProviders) != 0 {
 		t.Fatalf("viewer scope or stored fee changed: %+v", payload)
+	}
+	for _, restricted := range []string{"auth_files", "ai_providers", "Auth Source", "Provider Source", "auth-one", "provider-one"} {
+		if strings.Contains(response.Body.String(), restricted) {
+			t.Fatalf("viewer received restricted dimension %s", restricted)
+		}
+	}
+	if !strings.Contains(response.Body.String(), `"token_series":[2000000]`) {
+		t.Fatal("viewer timeline is missing its own usage")
 	}
 	// 报价修改和删除都不得改变已经持久化的比较金额。
 	if _, err := repository.UpsertModelPriceSetting(db, repodto.ModelPriceSettingInput{Model: "my-model", PromptPricePer1M: 90}); err != nil {

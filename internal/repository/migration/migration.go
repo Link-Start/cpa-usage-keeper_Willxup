@@ -98,7 +98,10 @@ const (
 	migrationAddUsageEventSessionFields             = "20260912_usage_event_session_fields"
 	migrationAddUsageEventResponseModel             = "20260918_usage_event_response_model"
 	migrationAddUsageEventStreamStatusCode          = "20260919_usage_event_stream_status_code"
-	migrationAddPricingStorageStructure             = "20260923_pricing_storage_structure"
+	migrationNormalizeUsageEventParentSessionNull   = "20260922_normalize_usage_event_parent_session_null"
+	// migrationLimitLatencySamplePoints 缩小已保存散点，事务前必须备份旧 BLOB。
+	migrationLimitLatencySamplePoints   = "20260925_limit_latency_sample_points"
+	migrationAddPricingStorageStructure = "20261002_pricing_storage_structure"
 )
 
 type schemaMigration struct {
@@ -306,6 +309,8 @@ func orderedMigrations() []databaseMigration {
 		{version: migrationAddUsageEventSessionFields, run: addUsageEventSessionFieldsMigration},
 		{version: migrationAddUsageEventResponseModel, run: addUsageEventResponseModelMigration},
 		{version: migrationAddUsageEventStreamStatusCode, run: addUsageEventStreamStatusCodeMigration},
+		{version: migrationNormalizeUsageEventParentSessionNull, run: normalizeUsageEventParentSessionNullMigration},
+		{version: migrationLimitLatencySamplePoints, run: limitLatencySamplePointsMigration, destructive: true},
 		// 费用结构只在全部已发布旧迁移之后增列，旧数据回填由后续启动阶段控制。
 		{version: migrationAddPricingStorageStructure, run: addPricingStorageStructureMigration},
 	}

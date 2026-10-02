@@ -285,6 +285,17 @@ func verifyPricingM2Event(b PricingLegacyBaseline, table string, old, now pricin
 	}
 	for field, oldValue := range old.Values {
 		newValue := now.Values[field]
+		// 已发布迁移只把冷热表的空字符串改为 NULL；既检查正确转换，也拒绝漏转或改写真实父会话。
+		if field == "parent_session_id" && pricingM2MigrationPending(b, "20260922_normalize_usage_event_parent_session_null") {
+			expectedValue := oldValue
+			if oldValue == "''" {
+				expectedValue = "NULL"
+			}
+			if newValue != expectedValue {
+				return fmt.Errorf("%s event %d parent_session_id did not match published null normalization", table, old.ID)
+			}
+			continue
+		}
 		if oldValue == newValue {
 			continue
 		}

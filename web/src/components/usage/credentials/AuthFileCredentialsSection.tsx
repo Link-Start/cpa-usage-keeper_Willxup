@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useId, useRef, useState } from 'react'
+import { useCallback, useEffect, useId, useRef, useState, type Ref } from 'react'
 import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
+import { Button } from '@/components/ui/Button'
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner'
 import { MainActionButton } from '@/components/ui/MainActionButton'
 import { Modal } from '@/components/ui/Modal'
@@ -12,10 +13,11 @@ import styles from './CredentialSections.module.scss'
 import { formatCredentialTimestamp, type AuthFileCredentialRow, type DisplayQuota } from './credentialViewModels'
 import { deleteAuthFiles, fetchQuotaAutoRefreshSettings, fetchUsageQuotaResetCredits, setAuthFilesDisabled, updateQuotaAutoRefreshSettings, type UsageIdentityPageSort } from '@/lib/api'
 import type { QuotaAutoRefreshScheduleUnit, QuotaAutoRefreshSettings, UsageQuotaInspectionResult, UsageQuotaInspectionResultStatus, UsageQuotaInspectionStatusResponse, UsageQuotaResetCreditsResponse } from '@/lib/types'
-import { CredentialAliasEditor, isCredentialAliasEditorDisabled } from './CredentialAliasEditor'
+import { CredentialAliasEditor } from './CredentialAliasEditor'
 import { CredentialHealthPanel } from './CredentialHealthPanel'
 import { CredentialSubscriptionBadge } from './CredentialSubscriptionBadge'
-import { CredentialPriorityBadge, CredentialRowShell, CredentialSectionShell, CredentialTableHeader, CredentialsPagination, MetricPill, RequestMetric, TonePercent, cacheReadRateTone, capitalize, credentialToneClassName, formatCredentialNumber, successRateTone } from './CredentialSectionShell'
+import { CredentialRowShell, CredentialSectionShell, CredentialTableHeader, CredentialsPagination, MetricPill, RequestMetric, TonePercent, cacheReadRateTone, capitalize, credentialToneClassName, formatCredentialNumber, successRateTone } from './CredentialSectionShell'
+import { CredentialPriorityEditor } from './CredentialPriorityEditor'
 import { ProviderBrandIcon, providerBrandIconKey } from '@/components/ProviderBrandIcon'
 import { CredentialStatusToggle } from './CredentialStatusToggle'
 
@@ -113,18 +115,20 @@ interface AuthFileCredentialsSectionProps {
   onRefreshQuota: () => Promise<void>
   onRefreshQuotaForAuthIndex: (authIndex: string) => Promise<void>
   onResetQuotaForAuthIndex: (authIndex: string) => Promise<void>
-  aliasSavingId?: string
-  onSaveAlias?: (id: string, alias: string) => Promise<void>
+  /** 编辑行消失时，焦点留在当前列表的原生筛选控件，不改变页面容器。 */
+  editFallbackRef?: Ref<HTMLInputElement>
+  onEdit?: (row: AuthFileCredentialRow) => void
   onOpenDetails?: (row: AuthFileCredentialRow) => void
   /** 正在写入上游状态的 Keeper identity id 集合，用于阻止重复点击。 */
   statusPendingIdentityIds?: ReadonlySet<string>
   onToggleStatus?: (identityId: string, authIndex: string, disabled: boolean) => void
+  onSavePriority?: (identityId: string, authIndex: string, priority: number) => Promise<void>
   onRefreshInspectionStatus: () => Promise<void>
   onStartInspection: () => Promise<void>
   onAfterInvalidAccountAction?: () => Promise<void>
 }
 
-export function AuthFileCredentialsSection({ rows, timeZone, total, page, totalPages, pageSize, activeOnly, sort, loading, quotaRefreshing, quotaRefreshError, quotaInspectionStatus, quotaInspectionLoading, quotaInspectionStarting, quotaInspectionError, onPageChange, onPageSizeChange, onActiveOnlyChange, onSortChange, onRefreshQuota, onRefreshQuotaForAuthIndex, onResetQuotaForAuthIndex, aliasSavingId, onSaveAlias, onOpenDetails, statusPendingIdentityIds, onToggleStatus, onRefreshInspectionStatus, onStartInspection, onAfterInvalidAccountAction }: AuthFileCredentialsSectionProps) {
+export function AuthFileCredentialsSection({ rows, timeZone, total, page, totalPages, pageSize, activeOnly, sort, loading, quotaRefreshing, quotaRefreshError, quotaInspectionStatus, quotaInspectionLoading, quotaInspectionStarting, quotaInspectionError, onPageChange, onPageSizeChange, onActiveOnlyChange, onSortChange, onRefreshQuota, onRefreshQuotaForAuthIndex, onResetQuotaForAuthIndex, editFallbackRef, onEdit, onOpenDetails, statusPendingIdentityIds, onToggleStatus, onSavePriority, onRefreshInspectionStatus, onStartInspection, onAfterInvalidAccountAction }: AuthFileCredentialsSectionProps) {
   const { t } = useTranslation()
   const [inspectionOpen, setInspectionOpen] = useState(false)
   const [quotaUsageMode, setQuotaUsageMode] = useState<QuotaUsageMode>('current')
@@ -204,7 +208,7 @@ export function AuthFileCredentialsSection({ rows, timeZone, total, page, totalP
           <div className={styles.credentialAuthFileTitleControls}>
             <label className={styles.credentialActiveOnlySwitch}>
               <span className={styles.credentialActiveOnlyLabel}>{t('usage_stats.credentials_auth_files_active_only')}</span>
-              <input type="checkbox" checked={activeOnly} onChange={(event) => onActiveOnlyChange(event.target.checked)} />
+              <input ref={editFallbackRef} type="checkbox" checked={activeOnly} onChange={(event) => onActiveOnlyChange(event.target.checked)} />
               <span className={styles.credentialActiveOnlyTrack} aria-hidden="true">
                 <span className={styles.credentialActiveOnlyThumb} />
               </span>
@@ -278,15 +282,14 @@ export function AuthFileCredentialsSection({ rows, timeZone, total, page, totalP
                 <ProviderBrandIcon providerType={row.identity.type} size={30} ariaLabel={row.typeLabel} />
               )
             )}
-            title={onSaveAlias ? (
+            title={onEdit ? (
               <CredentialAliasEditor
                 identityId={row.identity.id}
                 displayName={row.displayName}
-                alias={row.identity.alias}
-                saving={aliasSavingId === row.identity.id}
-                disabled={isCredentialAliasEditorDisabled(row.identity.id, row.identity.is_deleted, aliasSavingId)}
+
+                disabled={row.identity.is_deleted}
                 onOpenDetails={onOpenDetails ? () => onOpenDetails(row) : undefined}
-                onSaveAlias={onSaveAlias}
+                onEdit={() => onEdit(row)}
               />
             ) : onOpenDetails ? (
               <button
@@ -299,7 +302,7 @@ export function AuthFileCredentialsSection({ rows, timeZone, total, page, totalP
                 <span className={styles.credentialDetailNameArrow} aria-hidden="true">‹</span>
               </button>
             ) : <span>{row.displayName}</span>}
-            subtitle={row.subscriptionBadge || row.remainingDaysLabel || row.priorityLabel ? (
+            subtitle={row.subscriptionBadge || row.remainingDaysLabel || row.priorityLabel || (onSavePriority && !row.identity.is_deleted) ? (
               <span className={styles.credentialIdentityBadges}>
                 {row.subscriptionBadge && <CredentialSubscriptionBadge model={row.subscriptionBadge} />}
                 {row.remainingDaysLabel && row.expiresAtLabel
@@ -333,7 +336,12 @@ export function AuthFileCredentialsSection({ rows, timeZone, total, page, totalP
                     </span>
                   )
                   : row.remainingDaysLabel && <span className={styles.credentialRemainingDaysBadge}>{row.remainingDaysLabel}</span>}
-                {row.priorityLabel && <CredentialPriorityBadge>{row.priorityLabel}</CredentialPriorityBadge>}
+                <CredentialPriorityEditor
+                  priority={row.identity.priority}
+                  displayName={row.displayName}
+                  readOnly={row.identity.is_deleted}
+                  onSave={onSavePriority ? (priority) => onSavePriority(row.identity.id || row.identity.identity, row.identity.identity, priority) : undefined}
+                />
               </span>
             ) : undefined}
             badges={null}
@@ -1415,19 +1423,20 @@ function InvalidInspectionAccountModal({
       closeDisabled={submitting}
       footer={(
         <div className={styles.credentialInvalidAccountFooter}>
-          <button type="button" className={styles.credentialInvalidAccountCancelButton} onClick={onCancel} disabled={submitting}>
+          <Button type="button" variant="secondary" appearance="action" onClick={onCancel} disabled={submitting}>
             {t('common.cancel')}
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
-            className={`${styles.credentialInvalidAccountConfirmButton} ${action === 'delete' ? styles.credentialInvalidAccountConfirmButtonDanger : ''}`.trim()}
+            variant={action === 'delete' ? 'danger' : 'primary'}
+            appearance="action"
             onClick={onConfirm}
             disabled={submitting || selectedFileNames.length === 0}
+            loading={submitting}
             aria-busy={submitting}
           >
-            {submitting && <LoadingSpinner size={13} />}
-            <span>{t('usage_stats.credentials_inspection_invalid_accounts_confirm', { action: actionLabel })}</span>
-          </button>
+            {t('usage_stats.credentials_inspection_invalid_accounts_confirm', { action: actionLabel })}
+          </Button>
         </div>
       )}
     >

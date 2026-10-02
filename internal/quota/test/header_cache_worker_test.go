@@ -136,15 +136,11 @@ func TestApplyUsageHeaderSnapshotMatchesUsageIdentityTypeByAuthIndex(t *testing.
 	snapshot := codexUsageHeaderSnapshot("codex-auth", time.Date(2026, 6, 22, 11, 0, 0, 0, time.Local), "4")
 	snapshot.Provider = "claude"
 	applied := applyUsageHeaderSnapshot(service, context.Background(), snapshot)
-	if !applied {
-		t.Fatal("expected auth_index usage identity type to drive codex header matching")
+	if applied {
+		t.Fatal("expected parser provider to match the real Auth File type")
 	}
-	task, err := service.GetRefreshTaskByAuthIndex(context.Background(), "codex-auth")
-	if err != nil {
-		t.Fatalf("GetRefreshTaskByAuthIndex returned error: %v", err)
-	}
-	if task.Quota == nil || len(task.Quota.Quota) != 1 || task.Quota.Quota[0].UsedPercent == nil || *task.Quota.Quota[0].UsedPercent != 4 {
-		t.Fatalf("expected codex quota cache from identity type, got %+v", task)
+	if record := refreshTaskRecord(service, "codex-auth"); record != nil {
+		t.Fatalf("mismatched parser source wrote cache: %+v", record)
 	}
 }
 
@@ -164,18 +160,22 @@ func TestApplyUsageHeaderSnapshotIgnoresProviderOnlyCodexWhenIdentityTypeDiffers
 }
 
 func TestApplyUsageHeaderSnapshotSkipsActiveRefreshTask(t *testing.T) {
-	db := openQuotaTestDatabase(t)
-	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "codex-auth", Provider: "codex", Type: "codex", AuthType: entities.UsageIdentityAuthTypeAuthFile})
-	service := NewServiceWithRegistry(db, NewProviderRegistry(nil))
-	defer service.StopRefreshTasks()
-	refreshTasks(service)["codex-auth"] = &RefreshTaskRecord{AuthIndex: "codex-auth", Status: RefreshTaskStatusQueued, Source: RefreshSourceManual}
+	for _, status := range []RefreshTaskStatus{RefreshTaskStatusQueued, RefreshTaskStatusRunning} {
+		t.Run(string(status), func(t *testing.T) {
+			db := openQuotaTestDatabase(t)
+			seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "codex-auth", Provider: "codex", Type: "codex", AuthType: entities.UsageIdentityAuthTypeAuthFile})
+			service := NewServiceWithRegistry(db, NewProviderRegistry(nil))
+			defer service.StopRefreshTasks()
+			refreshTasks(service)["codex-auth"] = &RefreshTaskRecord{AuthIndex: "codex-auth", Type: "codex", Status: status, Source: RefreshSourceManual}
 
-	applied := applyUsageHeaderSnapshot(service, context.Background(), codexUsageHeaderSnapshot("codex-auth", time.Date(2026, 6, 22, 11, 0, 0, 0, time.Local), "4"))
-	if applied {
-		t.Fatal("expected active refresh task to win over header snapshot")
-	}
-	if task := refreshTasks(service)["codex-auth"]; task.Status != RefreshTaskStatusQueued || task.Quota != nil {
-		t.Fatalf("expected queued task to remain unchanged, got %+v", task)
+			applied := applyUsageHeaderSnapshot(service, context.Background(), codexUsageHeaderSnapshot("codex-auth", time.Date(2026, 6, 22, 11, 0, 0, 0, time.Local), "4"))
+			if applied {
+				t.Fatal("expected active refresh task to win over header snapshot")
+			}
+			if task := refreshTasks(service)["codex-auth"]; task.Status != status || task.Quota != nil {
+				t.Fatalf("expected queued task to remain unchanged, got %+v", task)
+			}
+		})
 	}
 }
 
@@ -188,6 +188,7 @@ func TestApplyUsageHeaderSnapshotUpdatesRecentCompletedCacheAndCreatesMissingCac
 	refreshedAt := time.Date(2026, 6, 22, 11, 0, 0, 0, time.Local)
 	refreshTasks(service)["codex-auth"] = &RefreshTaskRecord{
 		AuthIndex:   "codex-auth",
+		Type:        "codex",
 		Status:      RefreshTaskStatusCompleted,
 		Source:      RefreshSourceManual,
 		RefreshedAt: refreshedAt,
@@ -230,6 +231,7 @@ func TestApplyUsageHeaderSnapshotUpdatesRecentCompletedCacheAndRefreshesWindowUs
 	refreshedAt := time.Date(2026, 6, 22, 11, 0, 0, 0, time.Local)
 	refreshTasks(service)["codex-auth"] = &RefreshTaskRecord{
 		AuthIndex:   "codex-auth",
+		Type:        "codex",
 		Status:      RefreshTaskStatusCompleted,
 		Source:      RefreshSourceManual,
 		RefreshedAt: refreshedAt,
@@ -327,6 +329,7 @@ func TestApplyUsageHeaderSnapshotRecoversFailedCacheWithinDebounceAndClearsFailu
 	refreshedAt := time.Date(2026, 6, 22, 11, 0, 0, 0, time.Local)
 	refreshTasks(service)["codex-auth"] = &RefreshTaskRecord{
 		AuthIndex:      "codex-auth",
+		Type:           "codex",
 		Status:         RefreshTaskStatusFailed,
 		Error:          "rate limited",
 		HTTPStatusCode: &httpStatus,
@@ -357,6 +360,7 @@ func TestApplyUsageHeaderSnapshotDoesNotOverwriteNewerCompletedCache(t *testing.
 	newerAt := time.Date(2026, 6, 22, 12, 0, 0, 0, time.Local)
 	refreshTasks(service)["codex-auth"] = &RefreshTaskRecord{
 		AuthIndex:   "codex-auth",
+		Type:        "codex",
 		Status:      RefreshTaskStatusCompleted,
 		Source:      RefreshSourceManual,
 		RefreshedAt: newerAt,
@@ -383,6 +387,7 @@ func TestApplyUsageHeaderSnapshotIgnoresIncompleteWindowWithoutClearingExistingU
 	oldCost := 9.9
 	refreshTasks(service)["codex-auth"] = &RefreshTaskRecord{
 		AuthIndex:   "codex-auth",
+		Type:        "codex",
 		Status:      RefreshTaskStatusCompleted,
 		Source:      RefreshSourceManual,
 		RefreshedAt: time.Date(2026, 6, 22, 10, 0, 0, 0, time.Local),
@@ -437,6 +442,7 @@ func TestApplyUsageHeaderSnapshotMergesProgressWithManualAuthoritativeFields(t *
 	oldCost := 9.9
 	refreshTasks(service)["codex-auth"] = &RefreshTaskRecord{
 		AuthIndex:   "codex-auth",
+		Type:        "codex",
 		Status:      RefreshTaskStatusCompleted,
 		Source:      RefreshSourceManual,
 		RefreshedAt: time.Date(2026, 6, 22, 10, 0, 0, 0, time.Local),
@@ -521,6 +527,7 @@ func TestApplyUsageHeaderSnapshotMergesRowsAndPreservesResetCredits(t *testing.T
 	oldPercent := 61.0
 	refreshTasks(service)["codex-auth"] = &RefreshTaskRecord{
 		AuthIndex:   "codex-auth",
+		Type:        "codex",
 		Status:      RefreshTaskStatusCompleted,
 		Source:      RefreshSourceManual,
 		RefreshedAt: time.Date(2026, 6, 22, 10, 0, 0, 0, time.Local),

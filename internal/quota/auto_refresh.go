@@ -33,7 +33,6 @@ type authFileRefreshRoundSummary struct {
 	skippedCachedError int
 	skippedRunning     int
 	skippedUnsupported int
-	queuedAuthIndexes  []string
 	queuedTasks        []*RefreshTaskRecord
 	roundAuthIndexes   []string
 	invalidated        bool
@@ -83,7 +82,7 @@ func (s *Service) RunAutoRefresh(ctx context.Context) error {
 	s.markAutoRefreshRoundStartedAt(now)
 	if len(summary.queuedTasks) > 0 {
 		if s.startRefreshGoroutine(func() {
-			s.dispatchAutoRefreshTasks(summary.queuedTasks, summary.queuedAuthIndexes)
+			s.dispatchAutoRefreshTasks(summary.queuedTasks)
 		}) {
 			roundHandedToMonitor = true
 		} else {
@@ -108,10 +107,9 @@ func (s *Service) queueAuthFileRefreshRound(ctx context.Context, now time.Time, 
 		return authFileRefreshRoundSummary{}, err
 	}
 	summary := authFileRefreshRoundSummary{
-		scanned:           len(identities),
-		queuedAuthIndexes: make([]string, 0, len(identities)),
-		queuedTasks:       make([]*RefreshTaskRecord, 0, len(identities)),
-		roundAuthIndexes:  make([]string, 0, len(identities)),
+		scanned:          len(identities),
+		queuedTasks:      make([]*RefreshTaskRecord, 0, len(identities)),
+		roundAuthIndexes: make([]string, 0, len(identities)),
 	}
 	for _, identity := range identities {
 		authIndex := strings.TrimSpace(identity.Identity)
@@ -130,7 +128,6 @@ func (s *Service) queueAuthFileRefreshRound(ctx context.Context, now time.Time, 
 		}
 		if task, created := s.ensureRefreshTaskWithIdentityAtGeneration(authIndex, options.source, identity, options.expectedGeneration); created {
 			summary.queued++
-			summary.queuedAuthIndexes = append(summary.queuedAuthIndexes, task.AuthIndex)
 			summary.queuedTasks = append(summary.queuedTasks, task)
 			summary.roundAuthIndexes = append(summary.roundAuthIndexes, task.AuthIndex)
 		} else if task == nil && options.expectedGeneration != nil {
@@ -199,8 +196,7 @@ func (s *Service) finishAutoRefreshRound() {
 	s.autoRefreshRunning = false
 }
 
-// dispatchAutoRefreshTasks 只派发本轮任务实例，监控仍按原身份集合等待轮次收尾。
-func (s *Service) dispatchAutoRefreshTasks(tasks []*RefreshTaskRecord, authIndexes []string) {
+func (s *Service) dispatchAutoRefreshTasks(tasks []*RefreshTaskRecord) {
 	// 自动刷新轮次从扫描到最后一个本轮任务完成都算 active，防止下一次 tick 又为已完成的前半批重复入队。
 	// defer 确保 dispatcher 退出、等待结束或 refreshContext 取消时都会释放轮次锁。
 	defer func() {
@@ -210,10 +206,10 @@ func (s *Service) dispatchAutoRefreshTasks(tasks []*RefreshTaskRecord, authIndex
 	// 复用共享 dispatcher，继续使用全局 worker limit 和关闭时 queued 任务失败逻辑。
 	s.dispatchRefreshTasks(tasks)
 	// dispatcher 只负责派发，派发后还要等本轮 auto 任务全部离开 queued/running。
-	s.waitForAutoRefreshTasks(authIndexes)
+	s.waitForAutoRefreshTasks(tasks)
 }
 
-func (s *Service) waitForAutoRefreshTasks(authIndexes []string) {
+func (s *Service) waitForAutoRefreshTasks(tasks []*RefreshTaskRecord) {
 	// 1s 轮询足够轻量，且只在自动刷新轮次存在期间运行一个监控 goroutine。
 	ticker := time.NewTicker(time.Second)
 	// 函数退出时释放 ticker，避免长期泄漏 runtime timer。
@@ -221,7 +217,7 @@ func (s *Service) waitForAutoRefreshTasks(authIndexes []string) {
 	refreshDone := s.refreshContextSnapshot().Done()
 	for {
 		// 没有本轮 active 任务时，说明 queued/running 已全部完成或失败，可以结束轮次。
-		if !s.hasActiveRefreshTask(authIndexes) {
+		if !s.hasActiveRefreshTask(tasks) {
 			return
 		}
 		select {
@@ -234,16 +230,16 @@ func (s *Service) waitForAutoRefreshTasks(authIndexes []string) {
 	}
 }
 
-func (s *Service) hasActiveRefreshTask(authIndexes []string) bool {
+func (s *Service) hasActiveRefreshTask(tasks []*RefreshTaskRecord) bool {
 	// 读取 refreshTasks 前加锁，和任务状态切换、清理逻辑保持同一把锁。
 	s.refreshMu.Lock()
 	// defer 解锁，保证任何返回路径都释放任务锁。
 	defer s.refreshMu.Unlock()
-	for _, authIndex := range authIndexes {
+	for _, expected := range tasks {
 		// 按本轮入队的 auth_index 查任务，避免扫描整个任务 map。
-		task, ok := s.refreshTasks[authIndex]
+		task, ok := s.refreshTasks[expected.AuthIndex]
 		// 只把本轮定时刷新任务的 queued/running 算作轮次仍 active。
-		if ok && task.Source == RefreshSourceScheduled && task.isActive() {
+		if ok && task == expected && task.Source == RefreshSourceScheduled && task.isActive() {
 			return true
 		}
 	}

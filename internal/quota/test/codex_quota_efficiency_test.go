@@ -55,8 +55,8 @@ func TestGetCodexQuotaHistoryRejectsUnsupportedIdentityAndInvalidRole(t *testing
 	})
 	service := newQuotaServiceWithRegistry(t, db, quota.NewProviderRegistry(nil))
 
-	if _, err := service.GetCodexQuotaHistory(context.Background(), quota.CodexQuotaHistoryRequest{AuthIndex: "claude-auth", Now: now}); !errors.Is(err, quota.ErrUnsupportedType) {
-		t.Fatalf("expected unsupported type, got %v", err)
+	if response, err := service.GetCodexQuotaHistory(context.Background(), quota.CodexQuotaHistoryRequest{AuthIndex: "claude-auth", Now: now}); err != nil || len(response.Cycles) != 0 {
+		t.Fatalf("expected Claude Auth File to have accessible empty history, got response=%+v err=%v", response, err)
 	}
 	invalidRole := "additional"
 	if _, err := service.GetCodexQuotaHistory(context.Background(), quota.CodexQuotaHistoryRequest{AuthIndex: "claude-auth", WindowRole: &invalidRole, Now: now}); !errors.Is(err, quota.ErrValidation) {
@@ -76,7 +76,7 @@ func TestGetCodexQuotaHistoryReturnsStoredCycleAndTransitionCost(t *testing.T) {
 		t.Fatal(err)
 	}
 	cost, available := 7.25, true
-	if err := db.Create(&entities.UsageEvent{EventKey: "stored-codex", Model: "unpriced-model", AuthType: "oauth", AuthIndex: "codex-auth", Timestamp: now.Add(-time.Hour), InputTokens: 1_000_000, TotalTokens: 1_000_000, CostUSD: &cost, CostAvailable: &available, CreatedAt: now.Add(-time.Hour)}).Error; err != nil {
+	if err := db.Create(&entities.UsageEvent{EventKey: "stored-codex", Provider: "codex", Model: "unpriced-model", AuthType: "oauth", AuthIndex: "codex-auth", Timestamp: now.Add(-time.Hour), InputTokens: 1_000_000, TotalTokens: 1_000_000, CostUSD: &cost, CostAvailable: &available, CreatedAt: now.Add(-time.Hour)}).Error; err != nil {
 		t.Fatal(err)
 	}
 	service := newQuotaServiceWithRegistry(t, db, quota.NewProviderRegistry(nil))

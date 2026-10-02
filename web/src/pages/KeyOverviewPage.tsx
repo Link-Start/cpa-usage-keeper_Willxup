@@ -428,7 +428,7 @@ export function KeyOverviewPage({ page = 'overview', apiKey, onNavigate, onAuthR
         onWindowChange={setActivityWindow}
       />
 
-      <UsageComparisonCharts comparisons={overviewComparisons ?? undefined} loading={comparisonsLoading || (comparisonsError === 'COSTS_BUSY' && !overviewComparisons)} keyViewer />
+      <UsageComparisonCharts isDark={resolvedTheme === 'dark'} isMobile={isMobile} comparisons={overviewComparisons ?? undefined} loading={comparisonsLoading || (comparisonsError === 'COSTS_BUSY' && !overviewComparisons)} keyViewer />
       </>}
 
       {page === 'realtime' && <OverviewRealtimePanel

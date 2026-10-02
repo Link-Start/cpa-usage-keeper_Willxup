@@ -23,10 +23,11 @@ func TestUsageQueryFilterDoesNotExposeRawSourceFilter(t *testing.T) {
 func TestRequestEventListAndExportStreamUseLimitedRowProjection(t *testing.T) {
 	db := openTestDatabase(t)
 	modelAlias := "model-alias"
+	parentSessionID := "parent-1"
 	ttft := int64(25)
 	zeroCost, costAvailable := 0.0, true
 	if err := db.Create(&entities.UsageEvent{
-		EventKey: "projection-event", RequestID: "request-1", SessionID: "session-1", ParentSessionID: "parent-1",
+		EventKey: "projection-event", RequestID: "request-1", SessionID: "session-1", ParentSessionID: &parentSessionID,
 		Model: "model-a", ModelAlias: &modelAlias, Timestamp: time.Date(2026, 9, 13, 12, 0, 0, 0, time.UTC),
 		TTFTMS: &ttft, InputTokens: 10, OutputTokens: 5, CacheCreationTokens: 2, TotalTokens: 15,
 		CostUSD: &zeroCost, CostAvailable: &costAvailable,

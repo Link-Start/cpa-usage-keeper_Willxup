@@ -493,6 +493,7 @@ func usageEventForQuotaEfficiency(key, authType, authIndex string, timestamp tim
 	// 合成事件采用固定每百万输入 Token 一美元的已存费用；个别测试显式覆盖免费或缺价。
 	cost, available := float64(inputTokens)/1_000_000, true
 	return entities.UsageEvent{
+		Provider:      "codex",
 		EventKey:      key,
 		Model:         "priced-model",
 		AuthType:      authType,

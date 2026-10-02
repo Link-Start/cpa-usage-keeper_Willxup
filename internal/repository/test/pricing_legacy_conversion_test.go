@@ -473,3 +473,81 @@ func pricingLegacyConversionFixtureTimes(t *testing.T, first, second time.Time) 
 	}
 	return db, backup, baseline
 }
+
+// 新主分支的父会话规范化同时覆盖热表和归档；费用迁移仍逐列拒绝其他改动。
+func TestPricingLegacyConversionParentSessionNormalization(t *testing.T) {
+	for _, table := range []string{"usage_events", "usage_events_archive"} {
+		for _, tc := range []struct {
+			name               string
+			old, current       any
+			applied, wantError bool
+		}{
+			{"pending-empty", "", nil, false, false},
+			{"pending-null", nil, nil, false, false},
+			{"pending-value", "parent-1", "parent-1", false, false},
+			{"pending-whitespace", " ", " ", false, false},
+			{"missing-conversion", "", "", false, true},
+			{"lost-parent", "parent-1", nil, false, true},
+			{"changed-parent", "parent-1", "parent-2", false, true},
+			{"already-applied", nil, nil, true, false},
+			{"unapproved-conversion", "", nil, true, true},
+		} {
+			t.Run(table+"/"+tc.name, func(t *testing.T) {
+				backup, live, baseline := pricingM2TokenFixture(t, "openai", "apikey", [7]int64{}, [7]int64{})
+				for _, db := range []*gorm.DB{backup, live} {
+					if table == "usage_events_archive" {
+						if err := db.Exec("CREATE TABLE usage_events_archive (id INTEGER PRIMARY KEY)").Error; err != nil {
+							t.Fatal(err)
+						}
+						if err := db.Exec("INSERT INTO usage_events_archive(id) VALUES(1)").Error; err != nil {
+							t.Fatal(err)
+						}
+					}
+					if err := db.Exec("ALTER TABLE " + table + " ADD COLUMN parent_session_id TEXT").Error; err != nil {
+						t.Fatal(err)
+					}
+				}
+				if table == "usage_events_archive" {
+					baseline.SchemaColumns[table] = []string{"id"}
+					baseline.Archive = repository.PricingLegacyEventEvidence{Count: 1, MinID: 1, MaxID: 1}
+				}
+				baseline.SchemaColumns[table] = append(baseline.SchemaColumns[table], "parent_session_id")
+				if tc.applied {
+					baseline.SchemaMigrations = append(baseline.SchemaMigrations, "20260922_normalize_usage_event_parent_session_null")
+				}
+				if err := backup.Table(table).Where("id = 1").UpdateColumn("parent_session_id", tc.old).Error; err != nil {
+					t.Fatal(err)
+				}
+				if err := live.Table(table).Where("id = 1").UpdateColumn("parent_session_id", tc.current).Error; err != nil {
+					t.Fatal(err)
+				}
+				if tc.name == "pending-empty" {
+					// 从真实空串运行已发布迁移，证明 M2 不提前创建费用列。
+					if err := live.Table(table).Where("id = 1").UpdateColumn("parent_session_id", "").Error; err != nil {
+						t.Fatal(err)
+					}
+					if err := migration.MarkAllAsApplied(live); err != nil {
+						t.Fatal(err)
+					}
+					if err := live.Exec("DELETE FROM schema_migrations WHERE version IN (?, ?)", "20260922_normalize_usage_event_parent_session_null", "20261002_pricing_storage_structure").Error; err != nil {
+						t.Fatal(err)
+					}
+					if err := migration.RunPublished(live); err != nil {
+						t.Fatal(err)
+					}
+					if live.Migrator().HasColumn(table, "cost_usd") {
+						t.Fatal("published migrations ran pricing structure early")
+					}
+				}
+				err := repository.VerifyPublishedPricingMigration(context.Background(), backup, live, baseline)
+				if tc.wantError {
+					if err == nil || !strings.Contains(err.Error(), "parent_session_id") {
+						t.Fatalf("expected parent conversion rejection, got %v", err)
+					}
+				} else if err != nil {
+					t.Fatal(err)
+				}
+			})
+		}
+	}
+}
