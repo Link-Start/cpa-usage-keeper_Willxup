@@ -180,6 +180,7 @@ describe('PricingSettings', () => {
   })
 
   it('shows submitted validation only after save, focuses the field, and accepts explicit zero', async () => {
+    vi.useFakeTimers()
     await renderSettings()
     await act(async () => button('usage_stats.pricing_settings_add').click())
     const dialog = document.querySelector<HTMLElement>('[role="dialog"]')!
@@ -191,6 +192,8 @@ describe('PricingSettings', () => {
     await act(async () => button('common.save').click())
     expect(writes).toHaveLength(0)
     expect(input.getAttribute('aria-invalid')).toBe('true')
+    // 校验已聚焦错误字段后再触发弹窗初始聚焦，避免测试依赖机器调度速度。
+    await act(async () => { vi.runOnlyPendingTimers() })
     expect(document.activeElement).toBe(input)
     expect(input.closest('[data-shake]')?.getAttribute('data-shake')).toBe('odd')
 
