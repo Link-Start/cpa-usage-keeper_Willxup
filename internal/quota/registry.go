@@ -13,6 +13,7 @@ func NewDefaultProviderRegistry(caller ManagementClient, configs ProviderConfigs
 		"gemini-cli":  NewGeminiCLIProvider(caller, configs.GeminiCLI, configs.GeminiCLICodeAssist),
 		"claude":      NewClaudeProvider(caller, configs.ClaudeUsage, configs.ClaudeProfile),
 		"kimi":        NewKimiProvider(caller, configs.Kimi),
+		"kimi-ai":     NewKimiAIProvider(caller, configs.KimiAI, configs.Kimi),
 		"xai":         NewXAIProvider(caller, configs.XAIWeekly, configs.XAIMonthly),
 	})
 }
