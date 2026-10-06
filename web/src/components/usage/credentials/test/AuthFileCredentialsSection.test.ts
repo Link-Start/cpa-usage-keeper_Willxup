@@ -58,6 +58,8 @@ describe('AuthFileCredentialsSection title', () => {
   it.each([
     ['kimi', 'china', 'usage_stats.credentials_kimi_site_china'],
     ['kimi-ai', 'international', 'usage_stats.credentials_kimi_site_international'],
+    ['kimi.ai', 'international', 'usage_stats.credentials_kimi_site_international'],
+    ['kimi.com', 'china', 'usage_stats.credentials_kimi_site_china'],
   ])('shows the %s site beside expiry and priority below the credential name', (type, site, labelKey) => {
     const row = createRow({
       identity: { id: '1', identity: 'auth-1', type, is_deleted: false, priority: 1 },

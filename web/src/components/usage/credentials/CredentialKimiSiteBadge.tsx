@@ -3,8 +3,10 @@ import styles from './CredentialSections.module.scss'
 
 export function kimiCredentialSite(identityType: string | null | undefined): 'china' | 'international' | undefined {
   switch (identityType?.trim().toLowerCase()) {
-    case 'kimi': return 'china'
-    case 'kimi-ai': return 'international'
+    case 'kimi':
+    case 'kimi.com': return 'china'
+    case 'kimi-ai':
+    case 'kimi.ai': return 'international'
     default: return undefined
   }
 }

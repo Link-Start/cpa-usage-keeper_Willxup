@@ -13,10 +13,12 @@ describe('CredentialKimiSiteBadge', () => {
   ])('renders the site labels in %s', async (language, china, international) => {
     await i18n.changeLanguage(language)
     expect(renderToStaticMarkup(<CredentialKimiSiteBadge identityType="kimi" />)).toContain(`>${china}</span>`)
+    expect(renderToStaticMarkup(<CredentialKimiSiteBadge identityType="kimi.com" />)).toContain(`>${china}</span>`)
     expect(renderToStaticMarkup(<CredentialKimiSiteBadge identityType=" Kimi-AI " />)).toContain(`>${international}</span>`)
+    expect(renderToStaticMarkup(<CredentialKimiSiteBadge identityType="kimi.ai" />)).toContain(`>${international}</span>`)
   })
 
-  it.each(['claude', 'generic', '', null, undefined])('renders nothing for type %s', (identityType) => {
+  it.each(['claude', 'generic', 'kimi-future', '', null, undefined])('renders nothing for type %s', (identityType) => {
     expect(renderToStaticMarkup(<CredentialKimiSiteBadge identityType={identityType} />)).toBe('')
   })
 })

@@ -18,17 +18,18 @@ describe('ProviderBrandIcon', () => {
     expect(providerBrandIconKey('gemini-interactions')).toBe('gemini')
   })
 
-  it('renders international Kimi with the shared Kimi brand', () => {
-    expect(providerBrandIconKey(' Kimi-AI ')).toBe('kimi')
-    const html = renderToStaticMarkup(<ProviderBrandIcon providerType="kimi-ai" size={30} ariaLabel="kimi-ai" />)
+  it.each(['kimi', 'kimi-ai', 'kimi.ai', 'kimi.com'])('renders %s with the shared Kimi brand', (providerType) => {
+    expect(providerBrandIconKey(` ${providerType.toUpperCase()} `)).toBe('kimi')
+    const html = renderToStaticMarkup(<ProviderBrandIcon providerType={providerType} size={30} ariaLabel={providerType} />)
     expect(html).toContain('data-provider-brand-icon="kimi"')
-    expect(html).toContain('aria-label="kimi-ai"')
+    expect(html).toContain(`aria-label="${providerType}"`)
   })
 
   it('does not assign logos to plugin-only or unsupported identity types', () => {
     expect(providerBrandIconKey('gemini-cli-code-assist')).toBeUndefined()
     expect(providerBrandIconKey('iflow')).toBeUndefined()
     expect(providerBrandIconKey('future-provider')).toBeUndefined()
+    expect(providerBrandIconKey('kimi-future')).toBeUndefined()
     expect(providerBrandIconKey(undefined)).toBeUndefined()
   })
 

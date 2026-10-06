@@ -43,6 +43,8 @@ const providerBrandIconKeyByType: Readonly<Record<string, ProviderBrandIconKey>>
   'gemini-interactions': 'gemini',
   kimi: 'kimi',
   'kimi-ai': 'kimi',
+  'kimi.ai': 'kimi',
+  'kimi.com': 'kimi',
   meta: 'meta',
   openai: 'openai',
   vertex: 'vertex',

@@ -247,6 +247,8 @@ describe('CredentialDetailDrawer', () => {
   it.each([
     ['kimi', 'china'],
     ['kimi-ai', 'international'],
+    ['kimi.ai', 'international'],
+    ['kimi.com', 'china'],
   ])('shows the %s site in the Auth File detail badges', async (type, site) => {
     await renderDrawer({ selection: {
       kind: 'auth-file',
