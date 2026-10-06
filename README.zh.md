@@ -96,7 +96,7 @@
 - **掌握额度**：查看凭证健康与剩余限额，支持限额刷新、优先级编辑和 Codex 限额历史。
 - **按需分享**：为单个 CPA API Key 提供独立的只读用量视图。
 
-此外，还支持可选的社区排名，以及通过 CPA 插件嵌入 CPAMC。可使用 Docker Compose、Homebrew 或二进制部署，登录保护默认开启。
+此外，还支持通过 CPA 插件嵌入 CPAMC。可使用 Docker Compose、Homebrew 或二进制部署，登录保护默认开启。
 
 ## 赞助与特别感谢
 
@@ -143,7 +143,6 @@ internal/poller/         CPA 用量与配置同步
 internal/repository/     SQLite 持久化与聚合
 internal/service/        用量、定价与身份服务
 internal/quota/          Provider 限额刷新与巡检
-internal/ranking/        社区排名聚合与同步
 internal/benchmark/      容量套件、报告、manifest 与历史 Go microbenchmark
 deploy/                  部署模板
 web/                     React + TypeScript 前端
@@ -463,7 +462,6 @@ cp .env.example .env
 | `LOGIN_PASSWORD` | 鉴权启用时必填 | - | 登录密码 |
 | `CPA_REQUEST_LOG_ACCESS_ENABLED` | 否 | `false` | 允许管理员通过 Keeper 查看和下载 CPA 请求日志；需要 CPA 中存在对应日志，内容可能包含请求或响应数据 |
 | `AUTH_SESSION_TTL` | 否 | `168h` | 登录 session 有效时长 |
-| `API_KEY_VIEWER_LOCAL_RANKING_ENABLED` | 否 | `false` | 允许 API Key 登录用户只读查看本地排行；Community 排行始终只读 |
 
 ### 时区与请求行为
 

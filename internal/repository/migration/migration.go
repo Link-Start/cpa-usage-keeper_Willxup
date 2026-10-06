@@ -74,10 +74,6 @@ const (
 	migrationAddUsageEventClientMetadata = "20260729_add_usage_event_client_metadata"
 	// migrationCreateUsageEventArchive 创建永久冷表；运行期归档在 schema 完成后才会启动。
 	migrationCreateUsageEventArchive = "20260730_create_usage_event_archive"
-	// migrationLocalRankingStats 创建固定四周期的本地排行累计。
-	migrationLocalRankingStats = "20260731_local_ranking_stats"
-	// migrationAddCPAAPIKeyLocalRankingAvatar 保存可空的本地排行头像覆盖值。
-	migrationAddCPAAPIKeyLocalRankingAvatar = "20260803_add_cpa_api_key_local_ranking_avatar"
 	// migrationAddAuthSessionClientMetadata 保存会话客户端与最近活动信息，旧会话只回填活动时间。
 	migrationAddAuthSessionClientMetadata = "20260813_add_auth_session_client_metadata"
 	// migrationCreateErrorEvents 创建 CPA errors 订阅的独立最终事件表。
@@ -102,6 +98,7 @@ const (
 	// migrationLimitLatencySamplePoints 缩小已保存散点，事务前必须备份旧 BLOB。
 	migrationLimitLatencySamplePoints   = "20260925_limit_latency_sample_points"
 	migrationAddPricingStorageStructure = "20261002_pricing_storage_structure"
+	migrationRemoveRanking              = "20261005_remove_ranking"
 )
 
 type schemaMigration struct {
@@ -289,8 +286,6 @@ func orderedMigrations() []databaseMigration {
 		{version: migrationUsageLatencyStats, run: usageLatencyStatsMigration, disableTransaction: true},
 		{version: migrationAddUsageEventClientMetadata, run: addUsageEventClientMetadataMigration},
 		{version: migrationCreateUsageEventArchive, run: createUsageEventArchiveMigration},
-		{version: migrationLocalRankingStats, run: localRankingStatsMigration},
-		{version: migrationAddCPAAPIKeyLocalRankingAvatar, run: addCPAAPIKeyLocalRankingAvatarMigration},
 		{version: migrationAddAuthSessionClientMetadata, run: addAuthSessionClientMetadataMigration},
 		// 已进入 main 的 Errors 最终表先按原顺序创建，不能因 quota 分支合并而改写已发布迁移序列。
 		{version: migrationCreateErrorEvents, run: createErrorEventsMigration},
@@ -313,6 +308,7 @@ func orderedMigrations() []databaseMigration {
 		{version: migrationLimitLatencySamplePoints, run: limitLatencySamplePointsMigration, destructive: true},
 		// 费用结构只在全部已发布旧迁移之后增列，旧数据回填由后续启动阶段控制。
 		{version: migrationAddPricingStorageStructure, run: addPricingStorageStructureMigration},
+		{version: migrationRemoveRanking, run: removeRankingMigration},
 	}
 }
 
