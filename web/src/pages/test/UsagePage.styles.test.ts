@@ -160,8 +160,8 @@ describe('UsagePage responsive layout and accessibility', () => {
 
   it('keeps inactive toolbar controls inert while Refresh stays outside the collapsing slot', () => {
     expect(styleRuleBlock(usagePageStyles, '.toolbarActionsRightAnimated')).toContain('grid-template-columns: minmax(0, 1fr) auto;')
-    expect(styleRuleBlock(usagePageStyles, '.usageFilterTransition,\n.rankingScopeTransition')).toContain('max-width: 0;')
-    expect(styleRuleBlock(usagePageStyles, '.usageFilterTransitionInner,\n.rankingScopeTransitionInner')).toContain('overflow: hidden;')
+    expect(styleRuleBlock(usagePageStyles, '.usageFilterTransition')).toContain('max-width: 0;')
+    expect(styleRuleBlock(usagePageStyles, '.usageFilterTransitionInner')).toContain('overflow: hidden;')
     expect(styleRuleBlock(usagePageStyles, '.usageRefreshSlot')).toContain('flex: 0 0 auto;')
     expect(usagePageStyles).toMatch(/@include mobile\s*\{[\s\S]*?\.usageFilterTransitionOpen\s*\{[^}]*max-width:\s*100%;/)
   })
@@ -170,7 +170,7 @@ describe('UsagePage responsive layout and accessibility', () => {
     const reducedMotionStart = usagePageStyles.indexOf('@media (prefers-reduced-motion: reduce)')
     const mobileStart = usagePageStyles.lastIndexOf('@include mobile {', reducedMotionStart)
     const mobileStyles = usagePageStyles.slice(mobileStart, reducedMotionStart)
-    expect(mobileStyles).toMatch(/\.toolbarActionsRightAnimated \.usageFilterTransition,\s*\.toolbarActionsRightAnimated \.rankingScopeTransition\s*\{[^}]*max-height:\s*0;/)
+    expect(mobileStyles).toMatch(/\.toolbarActionsRightAnimated \.usageFilterTransition\s*\{[^}]*max-height:\s*0;/)
     expect(mobileStyles).toMatch(/\.toolbarActionsRightAnimated \.usageFilterTransitionOpen\s*\{[^}]*max-height:\s*280px;/)
   })
 

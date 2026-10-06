@@ -4,7 +4,7 @@ import { useState, useMemo, useCallback, useEffect, useRef, type MouseEvent as R
 import { useTranslation } from 'react-i18next';
 import { ApiError, appPath, createUsageEventRequestLogDownloadURL, exportUsageEvents, fetchAnalysis, fetchAnalysisLatency, fetchAuthSessions, fetchCpaApiKeyOptions, fetchCpaApiKeySettings, fetchStatus, fetchUpdateCheck, fetchUsageEventModelFilterOptions, fetchUsageEventRequestLog, fetchUsageEventSourceFilterOptions, fetchUsageEvents, fetchUsageIdentity, fetchVersion, isCostsBusy, isUsageRangeBoundsConflict, logout, revokeAuthSession, updateAuthSessionAlias, updateCpaApiKeyAlias, type UsageEventsExportFormat } from '@/lib/api';
 import type { AnalysisLatencyDiagnostics, AnalysisResponse, AuthManagedSessionItem, CpaApiKeyOption, CpaApiKeySettingsItem, OverviewRealtimeWindow, StatusResponse, UsageCustomRange, UsageEvent, UsageEventRequestLogResponse, UsageSourceFilterOption, UsageTimeRange, VersionResponse } from '@/lib/types';
-import { DEFAULT_USAGE_TAB, getUsageTabPath, handleUsageTabKeyActivation, resolveInitialUsageTab, shouldHandleUsageNavigation, USAGE_TAB_OPTIONS, type UsageTab } from '@/lib/usageNavigation';
+import { getUsageTabPath, handleUsageTabKeyActivation, resolveInitialUsageTab, shouldHandleUsageNavigation, USAGE_TAB_OPTIONS, type UsageTab } from '@/lib/usageNavigation';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import { LanguageSwitcher } from '@/components/ui/LanguageSwitcher';
 import { Select } from '@/components/ui/Select';
@@ -54,13 +54,6 @@ import { BrandLink } from '@/components/BrandLink';
 import { DashboardHeader } from '@/components/dashboard/DashboardHeader';
 import { DashboardToolbar } from '@/components/dashboard/DashboardToolbar';
 import { cpamcEmbedSearch, isCPAMCEmbed } from '@/embed/cpamcEmbed';
-import { RankingPage } from '@/features/ranking/RankingPage';
-import { RankingScopeSwitch } from '@/features/ranking/components/RankingScopeSwitch';
-import { useRankingData } from '@/features/ranking/hooks/useRankingData';
-import { useLocalRankingData } from '@/features/ranking/hooks/useLocalRankingData';
-import { resolveLocalRankingPreviewAPI, resolveRankingPreviewAPI } from '@/features/ranking/previewMock';
-import { loadRankingScope, persistRankingScope } from '@/features/ranking/scope';
-import type { LocalRankingProfileRequest, RankingScope } from '@/features/ranking/types';
 import styles from './UsagePage.module.scss';
 
 const TIME_RANGE_STORAGE_KEY = 'cli-proxy-usage-time-range-v1';
@@ -75,14 +68,11 @@ const THEME_OPTIONS: ReadonlyArray<{ value: Theme; labelKey: string }> = [
   { value: 'dark', labelKey: 'usage_stats.theme_dark' },
   { value: 'auto', labelKey: 'usage_stats.theme_auto' }
 ];
-const RANKING_PREVIEW_API = resolveRankingPreviewAPI(import.meta.env.VITE_RANKING_PREVIEW_MOCK);
-const LOCAL_RANKING_PREVIEW_API = resolveLocalRankingPreviewAPI(import.meta.env.VITE_RANKING_PREVIEW_MOCK);
 type Translate = (key: string) => string;
 const USAGE_TAB_LABEL_KEYS: Record<UsageTab, string> = {
   overview: 'usage_stats.tab_overview',
   realtime: 'usage_stats.tab_realtime',
   analysis: 'usage_stats.tab_analysis',
-  ranking: 'usage_stats.tab_ranking',
   events: 'usage_stats.tab_events',
   'auth-files': 'usage_stats.tab_auth_files',
   'ai-provider': 'usage_stats.tab_ai_provider',
@@ -148,7 +138,7 @@ export const getCredentialSectionVisibility = (tab: UsageTab) => ({
   showAiProvider: tab === 'ai-provider',
 });
 
-export const shouldShowRangeControls = (tab: UsageTab) => tab !== 'realtime' && tab !== 'ranking' && tab !== 'settings' && !getCredentialSectionVisibility(tab).enabled;
+export const shouldShowRangeControls = (tab: UsageTab) => tab !== 'realtime' && tab !== 'settings' && !getCredentialSectionVisibility(tab).enabled;
 
 export const shouldShowApiKeyFilter = (tab: UsageTab) => tab === 'realtime' || shouldShowRangeControls(tab);
 
@@ -656,9 +646,8 @@ export { normalizeUsageTabValue } from '@/lib/usageNavigation';
 
 export const getUsageTabOptions = (
   translate: Translate,
-  { includeRanking = true }: { includeRanking?: boolean } = {},
 ): Array<{ value: UsageTab; label: string }> =>
-  USAGE_TAB_OPTIONS.filter((value) => includeRanking || value !== 'ranking').map((value) => ({
+  USAGE_TAB_OPTIONS.map((value) => ({
     value,
     label: translate(USAGE_TAB_LABEL_KEYS[value]),
   }));
@@ -749,10 +738,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   const resolvedTheme = useThemeStore((state) => state.resolvedTheme);
   const setTheme = useThemeStore((state) => state.setTheme);
   const isDark = resolvedTheme === 'dark';
-  const [activeTab, setActiveTab] = useState<UsageTab>(() => {
-    const loadedTab = loadUsageTab();
-    return isEmbeddedInCPAMC && loadedTab === 'ranking' ? DEFAULT_USAGE_TAB : loadedTab;
-  });
+  const [activeTab, setActiveTab] = useState<UsageTab>(loadUsageTab);
   const pricingSettingsRef = useRef<PricingSettingsHandle | null>(null);
   const activateUsageTab = useCallback((tab: UsageTab) => {
     setActiveTab(tab);
@@ -765,11 +751,6 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     event.preventDefault();
     activateUsageTab(tab);
   }, [activateUsageTab]);
-  const [rankingScope, setRankingScope] = useState<RankingScope>(loadRankingScope);
-  const handleRankingScopeChange = useCallback((scope: RankingScope) => {
-    setRankingScope(scope);
-    persistRankingScope(scope);
-  }, []);
   const [loadedTimeRange] = useState(loadTimeRange);
   const pendingLegacyCustomRangeRef = useRef(loadedTimeRange.pendingLegacyCustomRange);
   const [timeRangeState, setTimeRangeState] = useState<StoredUsageRangeState>(loadedTimeRange.state);
@@ -962,45 +943,6 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
       topNoticeTimerRef.current = null;
     }, getUpdateCheckToastDuration(kind));
   }, []);
-  const handleRankingBackgroundRefreshError = useCallback(() => {
-    showTopNotice('error', t('ranking.refresh_failed'));
-  }, [showTopNotice, t]);
-  const rankingData = useRankingData({
-    enabled: activeTab === 'ranking' && !isEmbeddedInCPAMC && rankingScope === 'community',
-    onAuthRequired,
-    onBackgroundRefreshError: handleRankingBackgroundRefreshError,
-    api: RANKING_PREVIEW_API,
-  });
-  const localRankingData = useLocalRankingData({
-    enabled: activeTab === 'ranking' && !isEmbeddedInCPAMC && rankingScope === 'local',
-    period: rankingData.period,
-    metric: rankingData.metric,
-    onAuthRequired,
-    onBackgroundRefreshError: handleRankingBackgroundRefreshError,
-    api: LOCAL_RANKING_PREVIEW_API,
-  });
-  const updateLocalRankingProfile = localRankingData.updateProfile;
-  const patchLocalRankingProfileCache = localRankingData.patchProfileCache;
-  const displayedRankingLeaderboard = rankingScope === 'community'
-    ? rankingData.leaderboard
-    : localRankingData.leaderboard;
-  const refreshCommunityRanking = rankingData.refreshRanking;
-  const refreshLocalRanking = localRankingData.refreshLeaderboard;
-  const refreshRanking = useCallback(
-    () => rankingScope === 'community' ? refreshCommunityRanking() : refreshLocalRanking(),
-    [rankingScope, refreshCommunityRanking, refreshLocalRanking],
-  );
-  const handleUpdateLocalRankingProfile = useCallback(async (participantID: string, profile: LocalRankingProfileRequest) => {
-    const updated = await updateLocalRankingProfile(participantID, profile);
-    // 排行资料与设置页共用同一 Key 记录，保存后同步刷新已加载的别名投影。
-    setApiKeySettings((current) => current.map((item) => item.id === updated.participant_id
-      ? { ...item, keyAlias: updated.key_alias, label: updated.display_name }
-      : item));
-    setApiKeyOptions((current) => current.map((item) => item.id === updated.participant_id
-      ? { ...item, label: updated.display_name }
-      : item));
-    return updated;
-  }, [updateLocalRankingProfile]);
   const credentialsData = useCredentialsTabData({
     enabledAuthFiles: credentialSectionVisibility.showAuthFiles && pageVisible,
     enabledAiProviders: credentialSectionVisibility.showAiProvider && pageVisible,
@@ -1020,8 +962,8 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   const analysisRequestControllerRef = useRef<AbortController | null>(null);
 
   const tabOptions = useMemo(
-    () => getUsageTabOptions(t, { includeRanking: !isEmbeddedInCPAMC }),
-    [isEmbeddedInCPAMC, t],
+    () => getUsageTabOptions(t),
+    [t],
   );
   const apiKeySelectOptions = useMemo(
     () => [
@@ -1158,10 +1100,6 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
       const updated = await updateCpaApiKeyAlias(id, keyAlias);
       setApiKeySettings((current) => current.map((item) => (item.id === updated.id ? { ...item, ...updated } : item)));
       setApiKeyOptions((current) => current.map((item) => (item.id === updated.id ? updated : item)));
-      patchLocalRankingProfileCache(updated.id, {
-        key_alias: updated.keyAlias,
-        display_name: updated.label,
-      });
       showTopNotice('success', t('usage_stats.api_key_settings_alias_save_success'));
     } catch (error) {
       if (error instanceof ApiError && error.status === 401) {
@@ -1173,7 +1111,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     } finally {
       setApiKeySettingsSavingId(null);
     }
-  }, [onAuthRequired, patchLocalRankingProfileCache, showTopNotice, t]);
+  }, [onAuthRequired, showTopNotice, t]);
 
   const handleRevokeAuthSession = useCallback(async (session: AuthManagedSessionItem) => {
     setAuthSessionRevokingId(session.id);
@@ -1764,10 +1702,6 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
       await Promise.all([loadEventFilterOptions(), loadEvents()]);
       return;
     }
-    if (activeTab === 'ranking') {
-      await refreshRanking();
-      return;
-    }
     if (credentialSectionVisibility.enabled) {
       await Promise.all([refreshCredentials(), refreshCredentialDetail()]);
       return;
@@ -1781,7 +1715,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
       return;
     }
     await Promise.all([loadUsage(), loadActivity(), loadComparisons()]);
-  }, [activeTab, apiKeyFilterReady, credentialSectionVisibility.enabled, loadActivity, loadAnalysis, loadApiKeySettings, loadAuthSessions, loadComparisons, loadEventFilterOptions, loadEvents, loadRealtime, loadUsage, refreshCredentialDetail, refreshCredentials, refreshRanking]);
+  }, [activeTab, apiKeyFilterReady, credentialSectionVisibility.enabled, loadActivity, loadAnalysis, loadApiKeySettings, loadAuthSessions, loadComparisons, loadEventFilterOptions, loadEvents, loadRealtime, loadUsage, refreshCredentialDetail, refreshCredentials]);
 
   const refreshAutoRefreshTab = useCallback(async () => {
     if (!apiKeyFilterReady && shouldShowApiKeyFilter(activeTab)) return;
@@ -1996,7 +1930,6 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   // 只有需要时间范围的 tab 才渲染 Range 控件，避免 Credentials/Pricing 产生空白占位。
   const showRangeControls = shouldShowRangeControls(activeTab);
   const showApiKeyFilter = shouldShowApiKeyFilter(activeTab);
-  const showRankingScopeControl = activeTab === 'ranking' && !isEmbeddedInCPAMC;
   const {
     requestsSparkline,
     tokensSparkline,
@@ -2177,17 +2110,6 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                     </div>
                   </div>
                   )}
-                  {!isEmbeddedInCPAMC && (
-                    <div
-                      className={`${styles.rankingScopeTransition} ${showRankingScopeControl ? styles.rankingScopeTransitionOpen : ''}`.trim()}
-                      aria-hidden={!showRankingScopeControl}
-                      inert={!showRankingScopeControl}
-                    >
-                      <div className={styles.rankingScopeTransitionInner}>
-                        <RankingScopeSwitch value={rankingScope} onChange={handleRankingScopeChange} />
-                      </div>
-                    </div>
-                  )}
                 </div>
                 <div className={styles.usageRefreshSlot}>
                   <div className={styles.usageFilterActions}>
@@ -2227,7 +2149,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                   renderValue={(option) => <><span data-dashboard-filter-caption>{t('usage_stats.api_key_filter')}</span><span data-dashboard-filter-value>{option?.label}</span></>}
                 />,
                 ...showRangeControls ? [<TimeRangeControl key="range" value={timeRange} customRange={activeCustomRange} timeZone={rangeTimeZone} maxCustomDayRangeDays={activeTab === 'events' ? REQUEST_EVENTS_CUSTOM_DAY_RANGE_MAX_DAYS : undefined} onChange={handleTimeRangeChange} ariaLabel={t('usage_stats.range_filter')} labelInsideTrigger />] : [],
-              ] : showRankingScopeControl ? [<RankingScopeSwitch key="ranking-scope" value={rankingScope} onChange={handleRankingScopeChange} />] : []}
+              ] : []}
               onRefresh={() => void handleManualRefresh().catch(() => {})}
               refreshing={manualRefreshLoading}
             />}
@@ -2293,38 +2215,6 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                   isMobile={isMobile}
                 />
               </>
-            )}
-
-            {activeTab === 'ranking' && (
-              <RankingPage
-                key={rankingScope}
-                scope={rankingScope}
-                period={rankingData.period}
-                metric={rankingData.metric}
-                status={rankingScope === 'community' ? rankingData.status : null}
-                metadata={rankingScope === 'community' ? rankingData.metadata : null}
-                leaderboard={displayedRankingLeaderboard}
-                statusLoading={rankingScope === 'community' && rankingData.statusLoading}
-                metadataLoading={rankingScope === 'community' && rankingData.metadataLoading}
-                leaderboardLoading={rankingScope === 'community' ? rankingData.leaderboardLoading : localRankingData.leaderboardLoading}
-                statusError={rankingScope === 'community' ? rankingData.statusError : null}
-                metadataError={rankingScope === 'community' ? rankingData.metadataError : null}
-                leaderboardError={rankingScope === 'community' ? rankingData.leaderboardError : localRankingData.leaderboardError}
-                action={rankingScope === 'community' ? rankingData.action : null}
-                actionError={rankingScope === 'community' ? rankingData.actionError : null}
-                onClearActionError={rankingData.clearActionError}
-                onJoin={rankingData.join}
-                onSync={rankingData.sync}
-                onPause={rankingData.pause}
-                onResume={rankingData.resume}
-                onExit={rankingData.exit}
-                onRetryStatus={rankingData.refreshStatus}
-                onRetryMetadata={rankingData.refreshMetadata}
-                onRetryLeaderboard={rankingScope === 'community' ? rankingData.refreshLeaderboard : localRankingData.refreshLeaderboard}
-                onUpdateLocalProfile={handleUpdateLocalRankingProfile}
-                onPeriodChange={rankingData.setPeriod}
-                onMetricChange={rankingData.setMetric}
-              />
             )}
 
             {activeTab === 'events' && (
