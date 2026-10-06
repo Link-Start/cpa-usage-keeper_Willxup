@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"cpa-usage-keeper/internal/entities"
-	"cpa-usage-keeper/internal/ranking"
 	"cpa-usage-keeper/internal/repository"
 	repodto "cpa-usage-keeper/internal/repository/dto"
 
@@ -19,10 +18,9 @@ type nonCostUsageSnapshot struct {
 	activity    []entities.UsageActivityStat
 	latency     []entities.UsageLatencyStat
 	checkpoints repository.UsageAggregationCheckpointSnapshot
-	ranking     ranking.Metrics
 }
 
-// 只改价格和事件费用后，身份、活动、延迟及排行仍保持原请求/Token与已提交水位。
+// 只改价格和事件费用后，身份、活动、延迟仍保持原请求/Token与已提交水位。
 func TestUsageNonCostAggregatesIgnorePriceAndStoredFeeChanges(t *testing.T) {
 	withRepositoryTestLocation(t, "UTC")
 	db := openTestDatabase(t)
@@ -54,10 +52,9 @@ func TestUsageNonCostAggregatesIgnorePriceAndStoredFeeChanges(t *testing.T) {
 			t.Fatalf("aggregate %s: %v", aggregate.name, err)
 		}
 	}
-	before := loadNonCostUsageSnapshot(t, db, now)
+	before := loadNonCostUsageSnapshot(t, db)
 	if before.identity.TotalRequests != 1 || before.identity.TotalTokens != 30 || before.identity.LastAggregatedUsageEventID != 1 ||
-		len(before.activity) == 0 || len(before.latency) != 2 || before.checkpoints.ActivityCursor != 1 || before.checkpoints.LatencyCursor != 1 ||
-		before.ranking.RequestCount != 1 || before.ranking.TotalTokens != 30 {
+		len(before.activity) == 0 || len(before.latency) != 2 || before.checkpoints.ActivityCursor != 1 || before.checkpoints.LatencyCursor != 1 {
 		t.Fatalf("baseline did not exercise every non-fee consumer: %+v", before)
 	}
 	if _, err := repository.UpsertModelPriceSetting(db, repodto.ModelPriceSettingInput{Model: "model-a", PromptPricePer1M: 9}); err != nil {
@@ -78,13 +75,13 @@ func TestUsageNonCostAggregatesIgnorePriceAndStoredFeeChanges(t *testing.T) {
 			t.Fatalf("repeat %s after fee rewrite: %v", aggregate.name, err)
 		}
 	}
-	after := loadNonCostUsageSnapshot(t, db, now)
+	after := loadNonCostUsageSnapshot(t, db)
 	if !reflect.DeepEqual(before, after) {
 		t.Fatalf("price/fee rewrite changed non-cost consumers:\nbefore=%+v\nafter=%+v", before, after)
 	}
 }
 
-func loadNonCostUsageSnapshot(t *testing.T, db *gorm.DB, now time.Time) nonCostUsageSnapshot {
+func loadNonCostUsageSnapshot(t *testing.T, db *gorm.DB) nonCostUsageSnapshot {
 	t.Helper()
 	var result nonCostUsageSnapshot
 	if err := db.Where("identity = ?", "auth-a").First(&result.identity).Error; err != nil {
@@ -100,11 +97,6 @@ func loadNonCostUsageSnapshot(t *testing.T, db *gorm.DB, now time.Time) nonCostU
 	result.checkpoints, err = repository.LoadUsageAggregationCheckpointSnapshot(context.Background(), db)
 	if err != nil {
 		t.Fatalf("load rollup checkpoints: %v", err)
-	}
-	start := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
-	result.ranking, err = ranking.NewAggregator(db).AggregateDay(context.Background(), start, start.AddDate(0, 0, 1))
-	if err != nil {
-		t.Fatalf("aggregate Ranking day: %v", err)
 	}
 	return result
 }

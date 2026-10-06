@@ -37,13 +37,12 @@ const (
 )
 
 type AuthConfig struct {
-	Enabled                         bool
-	LoginPassword                   string
-	SessionTTL                      time.Duration
-	BasePath                        string
-	FrameAncestorOrigins            []string
-	TrustedProxyCIDRs               []string
-	APIKeyViewerLocalRankingEnabled bool
+	Enabled              bool
+	LoginPassword        string
+	SessionTTL           time.Duration
+	BasePath             string
+	FrameAncestorOrigins []string
+	TrustedProxyCIDRs    []string
 }
 
 type authHandler struct {
@@ -68,9 +67,8 @@ type sessionResponse struct {
 }
 
 type sessionAPIKeyResponse struct {
-	DisplayKey          string `json:"display_key"`
-	Alias               string `json:"alias,omitempty"`
-	LocalRankingEnabled bool   `json:"local_ranking_enabled,omitempty"`
+	DisplayKey string `json:"display_key"`
+	Alias      string `json:"alias,omitempty"`
 }
 
 type loginResponse struct {
@@ -262,9 +260,8 @@ func (h *authHandler) getSession(c *gin.Context) {
 			return
 		}
 		response.APIKey = &sessionAPIKeyResponse{
-			DisplayKey:          helper.CPAAPIKeyMaskedDisplayKey(row),
-			Alias:               row.KeyAlias,
-			LocalRankingEnabled: h.config.APIKeyViewerLocalRankingEnabled,
+			DisplayKey: helper.CPAAPIKeyMaskedDisplayKey(row),
+			Alias:      row.KeyAlias,
 		}
 	}
 	c.JSON(http.StatusOK, response)

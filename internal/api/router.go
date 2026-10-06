@@ -16,7 +16,6 @@ import (
 	"cpa-usage-keeper/internal/logging"
 	"cpa-usage-keeper/internal/poller"
 	"cpa-usage-keeper/internal/quota"
-	rankinghttpapi "cpa-usage-keeper/internal/ranking/httpapi"
 	"cpa-usage-keeper/internal/service"
 	"cpa-usage-keeper/internal/updatecheck"
 	"cpa-usage-keeper/internal/version"
@@ -60,8 +59,6 @@ type OptionalProviders struct {
 	CredentialStatus   service.CredentialStatusProvider
 	CredentialPriority service.CredentialPriorityProvider
 	RequestLogs        service.RequestLogProvider
-	Ranking            rankinghttpapi.Provider
-	LocalRanking       rankinghttpapi.LocalProvider
 	Status             StatusRouteConfig
 }
 
@@ -114,8 +111,6 @@ func NewRouter(
 	var credentialStatusProvider service.CredentialStatusProvider
 	var credentialPriorityProvider service.CredentialPriorityProvider
 	var requestLogProvider service.RequestLogProvider
-	var rankingProvider rankinghttpapi.Provider
-	var localRankingProvider rankinghttpapi.LocalProvider
 	var statusConfig StatusRouteConfig
 	if len(optionalProviders) > 0 {
 		usageIdentityProvider = optionalProviders[0].UsageIdentity
@@ -127,8 +122,6 @@ func NewRouter(
 		credentialStatusProvider = optionalProviders[0].CredentialStatus
 		credentialPriorityProvider = optionalProviders[0].CredentialPriority
 		requestLogProvider = optionalProviders[0].RequestLogs
-		rankingProvider = optionalProviders[0].Ranking
-		localRankingProvider = optionalProviders[0].LocalRanking
 		statusConfig = optionalProviders[0].Status
 	}
 	authHandler.setCPAAPIKeyProvider(cpaAPIKeyProvider)
@@ -158,12 +151,6 @@ func NewRouter(
 	registerCPAAPIKeyRoutes(adminProtected, cpaAPIKeyProvider)
 	registerPricingRoutes(adminProtected, pricingProvider)
 	registerQuotaRoutes(adminProtected, quotaProvider)
-	if rankingProvider != nil {
-		rankinghttpapi.RegisterRoutes(adminProtected, rankingProvider)
-	}
-	if localRankingProvider != nil {
-		rankinghttpapi.RegisterLocalRoutes(adminProtected, localRankingProvider)
-	}
 
 	keyViewerProtected := apiV1.Group("")
 	keyViewerProtected.Use(authHandler.apiKeyViewerMiddleware())
@@ -172,12 +159,6 @@ func NewRouter(
 	registerKeyOverviewRoute(keyViewerProtected, usageProvider)
 	registerKeyActivityRoute(keyViewerProtected, usageProvider)
 	registerKeyUsageAnalysisRoute(keyViewerProtected, usageProvider)
-	if rankingProvider != nil {
-		rankinghttpapi.RegisterKeyViewerRoutes(keyViewerProtected, rankingProvider)
-	}
-	if authConfig.APIKeyViewerLocalRankingEnabled && localRankingProvider != nil {
-		rankinghttpapi.RegisterKeyViewerLocalRoutes(keyViewerProtected, localRankingProvider)
-	}
 
 	registerStaticRoutes(router, appGroup, staticFS, authConfig.FrameAncestorOrigins, basePath, nil)
 
