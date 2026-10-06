@@ -133,11 +133,12 @@ func DefaultProviderConfigs() ProviderConfigs {
 		},
 		ClaudeUsage: APICallConfig{
 			Method: "GET",
-			URL:    "https://api.anthropic.com/api/oauth/usage",
+			URL:    "https://api.anthropic.com/api/oauth/usage?cedar_ember=1&skip_spend=1",
 			Headers: map[string]string{
 				"Authorization":  "Bearer $TOKEN$",
 				"Content-Type":   "application/json",
 				"anthropic-beta": "oauth-2025-04-20",
+				"User-Agent":     "claude-cli/2.1.280 (external, cli)",
 			},
 		},
 		ClaudeProfile: APICallConfig{
@@ -147,6 +148,7 @@ func DefaultProviderConfigs() ProviderConfigs {
 				"Authorization":  "Bearer $TOKEN$",
 				"Content-Type":   "application/json",
 				"anthropic-beta": "oauth-2025-04-20",
+				"User-Agent":     "claude-cli/2.1.280 (external, cli)",
 			},
 		},
 		Kimi: APICallConfig{
