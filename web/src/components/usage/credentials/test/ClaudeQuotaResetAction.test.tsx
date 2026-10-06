@@ -6,6 +6,7 @@ import { AuthFileCredentialsSection, QuotaResetAction } from '../AuthFileCredent
 import type { ClaudeResetGrantsResponse, UsageQuotaResetResponse } from '@/lib/types'
 import type { AuthFileCredentialRow } from '../credentialViewModels'
 import { createAuthFileSectionProps } from './credentialSectionFixtures'
+import * as api from '@/lib/api'
 import styles from '../CredentialSections.module.scss'
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true
@@ -146,14 +147,34 @@ describe('Claude reset grants in the shared Keeper action', () => {
     expect(button().disabled).toBe(true)
     expect(confirm).toHaveBeenCalledExactlyOnceWith('spring', '11111111-1111-1111-1111-111111111111')
   })
-  async function renderSection(count: number) {
-    const row = { identity: { id: 'identity-1', identity: 'claude', type: 'claude', provider: 'claude', disabled: false, is_deleted: false }, displayName: 'Claude', typeLabel: 'Claude', quotaLoading: false, displayQuotas: [], quota: [], totalRequests: 1, successCount: 1, failureCount: 0, successRate: 100, totalTokens: 1, cacheReadRate: 0, windowCacheReadRate: 0, claudeResetGrants: { ...status().status!, availableCount: count } } as unknown as AuthFileCredentialRow
-    await act(async () => { root.render(<AuthFileCredentialsSection {...createAuthFileSectionProps({ rows: [row], total: 1 })} />) })
+  async function renderSection(count: number, identity = { provider: 'claude', type: 'claude' }, onConfirm = async () => undefined) {
+    const row = { identity: { id: 'identity-1', identity: 'claude', ...identity, disabled: false, is_deleted: false }, displayName: 'Claude', typeLabel: 'Claude', quotaLoading: false, displayQuotas: [], quota: [], totalRequests: 1, successCount: 1, failureCount: 0, successRate: 100, totalTokens: 1, cacheReadRate: 0, windowCacheReadRate: 0, quotaResetCreditsAvailableCount: 7, claudeResetGrants: { ...status().status!, availableCount: count } } as unknown as AuthFileCredentialRow
+    await act(async () => { root.render(<AuthFileCredentialsSection {...createAuthFileSectionProps({ rows: [row], total: 1, onResetQuotaForAuthIndex: onConfirm })} />) })
   }
   it('only shows the shared reset icon in the real section with a positive known count', async () => {
     await renderSection(0)
     expect(container.querySelector('[aria-haspopup="dialog"]')).toBeNull()
     await renderSection(3)
     expect(container.querySelector('[aria-haspopup="dialog"]')?.getAttribute('aria-label')).toContain('"count":"3"')
+  })
+  it.each([
+    { provider: 'unknown-oauth', type: ' ClAuDe ', claude: true },
+    { provider: '   ', type: 'claude', claude: true },
+    { provider: ' CoDeX ', type: 'claude', claude: false },
+    { provider: ' ClAuDe ', type: 'codex', claude: true },
+    { provider: 'gemini', type: 'claude', claude: true },
+  ])('uses the backend quota provider precedence for $provider / $type in the real section', async ({ provider, type, claude }) => {
+    const readClaude = vi.spyOn(api, 'fetchClaudeResetGrants').mockResolvedValue(status())
+    const readCodex = vi.spyOn(api, 'fetchUsageQuotaResetCredits').mockResolvedValue({ authIndex: 'claude', availableCount: 7, credits: [] })
+    const confirm = vi.fn(async () => undefined)
+    await renderSection(3, { provider, type }, confirm)
+    const trigger = container.querySelector<HTMLButtonElement>('[aria-haspopup="dialog"]')!
+    expect(trigger.getAttribute('aria-label')).toContain(`"count":"${claude ? 3 : 7}"`)
+    await act(async () => trigger.click())
+    expect(readClaude).toHaveBeenCalledTimes(claude ? 1 : 0)
+    expect(readCodex).toHaveBeenCalledTimes(claude ? 0 : 1)
+    await act(async () => button().click())
+    if (claude) expect(confirm).toHaveBeenCalledExactlyOnceWith('claude', 'spring', status().organizationId)
+    else expect(confirm).toHaveBeenCalledExactlyOnceWith('claude')
   })
 })

@@ -59,6 +59,8 @@ const RESET_CREDITS_LOOKUP_TIMEOUT_MS = 5_000
 const RESET_CREDITS_POPOVER_VIEWPORT_MARGIN = 12
 const RESET_CREDITS_POPOVER_OFFSET = 8
 const RESET_CREDITS_POPOVER_MAX_HEIGHT = 360
+// 与后端默认额度处理器一致；品牌图标支持的类型不等于额度接口支持的类型。
+const QUOTA_PROVIDER_TYPES = new Set(['antigravity', 'codex', 'gemini-cli', 'claude', 'kimi', 'xai'])
 const CREDENTIAL_EXPIRY_TOOLTIP_SAFE_WIDTH = 300
 const CREDENTIAL_EXPIRY_TOOLTIP_ESTIMATED_HEIGHT = 48
 const CREDENTIAL_EXPIRY_TOOLTIP_OFFSET = 10
@@ -257,7 +259,9 @@ export function AuthFileCredentialsSection({ rows, timeZone, total, page, totalP
       )}
       {rows.map((row) => {
         const rowRefreshing = isRowRefreshing(row)
-        const isClaude = (row.identity.provider || row.identity.type || '').trim().toLowerCase() === 'claude'
+        const normalizedProvider = row.identity.provider?.trim().toLowerCase() ?? ''
+        const quotaProvider = QUOTA_PROVIDER_TYPES.has(normalizedProvider) ? normalizedProvider : row.identity.type?.trim().toLowerCase()
+        const isClaude = quotaProvider === 'claude'
         const resetCredits = (isClaude ? row.claudeResetGrants?.availableCount : row.quotaResetCreditsAvailableCount) ?? 0
         const canResetQuota = resetCredits > 0 && !row.identity.is_deleted && !rowRefreshing && !row.quotaResetting
         const rowKey = row.identity.id || row.identity.identity
