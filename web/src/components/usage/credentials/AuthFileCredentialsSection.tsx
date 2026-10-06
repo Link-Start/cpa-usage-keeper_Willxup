@@ -739,6 +739,7 @@ function ClaudeResetDetails({ details, failed, message, disabled, groupName, onS
   let code = message
   if (!code && (failed || !details?.status || !details.organizationId)) code = 'status_unavailable'
   if (!code && !details?.selectedGrantId) code = 'unavailable'
+  const empty = !message && !failed && !!status && !!details?.organizationId && status.grants.length === 0
   return (
     <>
       {status && status.grants.length > 0 && <div role="radiogroup" aria-label={t('usage_stats.claude_reset_grants_title')} className={styles.credentialQuotaResetExpiryList}>
@@ -760,7 +761,7 @@ function ClaudeResetDetails({ details, failed, message, disabled, groupName, onS
       })}
       </div>}
       {grant && <p className={styles.credentialQuotaResetExpiryStatus}>{scope(grant.clears)}</p>}
-      {code && <p role="status" className={`${styles.credentialQuotaResetExpiryStatus} ${styles.credentialQuotaResetExpiryWarning}`}>{t(`usage_stats.claude_reset_${messages.has(code) ? code : 'unavailable'}`)}</p>}
+      {code && <p role="status" className={`${styles.credentialQuotaResetExpiryStatus} ${empty ? '' : styles.credentialQuotaResetExpiryWarning}`.trim()}>{t(`usage_stats.claude_reset_${messages.has(code) ? code : 'unavailable'}`)}</p>}
     </>
   )
 }

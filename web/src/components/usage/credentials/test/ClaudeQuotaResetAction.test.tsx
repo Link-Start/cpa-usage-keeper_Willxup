@@ -6,6 +6,7 @@ import { AuthFileCredentialsSection, QuotaResetAction } from '../AuthFileCredent
 import type { ClaudeResetGrantsResponse, UsageQuotaResetResponse } from '@/lib/types'
 import type { AuthFileCredentialRow } from '../credentialViewModels'
 import { createAuthFileSectionProps } from './credentialSectionFixtures'
+import styles from '../CredentialSections.module.scss'
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true
 vi.mock('react-i18next', () => ({ initReactI18next: { type: '3rdParty', init: () => undefined }, useTranslation: () => ({ t: (key: string, params?: Record<string, string | number>) => `${key}${params ? ':' + JSON.stringify(params) : ''}` }) }))
@@ -55,12 +56,14 @@ describe('Claude reset grants in the shared Keeper action', () => {
     expect(button().disabled).toBe(true)
     expect(container.textContent).toContain('claude_reset_status_unavailable')
     expect(container.textContent).not.toContain('credentials_quota_reset_expiry_failed')
+    expect(container.querySelector('[role="dialog"] [role="status"]')?.classList.contains(styles.credentialQuotaResetExpiryWarning)).toBe(true)
     expect(confirm).not.toHaveBeenCalled()
   })
-  it('shows no available grant without enabling consumption', async () => {
+  it('shows a neutral empty state after a successful query without enabling consumption', async () => {
     await render(async () => ({ ...status(), selectedGrantId: undefined, status: { ...status().status!, atLimit: false, availableCount: 0, grants: [] } }))
     expect(button().disabled).toBe(true)
     expect(container.textContent).toContain('claude_reset_unavailable')
+    expect(container.querySelector('[role="dialog"] [role="status"]')?.classList.contains(styles.credentialQuotaResetExpiryWarning)).toBe(false)
   })
   it('keeps a successful reset successful when recovery failed', async () => {
     await render(async () => status(), async () => ({ authIndex: 'claude', code: 'reset', recoveryFailed: true }))
@@ -117,9 +120,10 @@ describe('Claude reset grants in the shared Keeper action', () => {
     expect(container.querySelector('example')).toBeNull()
   })
   it('blocks confirmation when profile did not provide an organization UUID', async () => {
-    await render(async () => ({ ...status(), organizationId: undefined }))
+    await render(async () => ({ ...status(), organizationId: undefined, status: { ...status().status!, grants: [] } }))
     expect(button().disabled).toBe(true)
     expect(container.textContent).toContain('claude_reset_status_unavailable')
+    expect(container.querySelector('[role="dialog"] [role="status"]')?.classList.contains(styles.credentialQuotaResetExpiryWarning)).toBe(true)
   })
   it('shows unknown without automatic retry, persistence or another enabled confirmation', async () => {
     const read = vi.fn(async () => status())
@@ -138,6 +142,7 @@ describe('Claude reset grants in the shared Keeper action', () => {
     await render(async () => status(), confirm)
     await act(async () => button().click())
     expect(container.textContent).toContain('claude_reset_not_limited')
+    expect(container.querySelector('[role="dialog"] [role="status"]')?.classList.contains(styles.credentialQuotaResetExpiryWarning)).toBe(true)
     expect(button().disabled).toBe(true)
     expect(confirm).toHaveBeenCalledExactlyOnceWith('spring', '11111111-1111-1111-1111-111111111111')
   })
