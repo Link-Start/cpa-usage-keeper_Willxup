@@ -405,7 +405,7 @@ func TestCallManagementAPIPostsWrappedRequest(t *testing.T) {
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"statusCode":200,"bodyText":"ok","body":{"remaining":10}}`))
+		_, _ = w.Write([]byte(`{"status_code":200,"header":{"X-Request-Id":["upstream-request"]},"body":"{\"remaining\":10}"}`))
 	}))
 	defer server.Close()
 
@@ -420,18 +420,18 @@ func TestCallManagementAPIPostsWrappedRequest(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CallManagementAPI returned error: %v", err)
 	}
-	if result.StatusCode != http.StatusOK || result.BodyText != "ok" || string(result.Body) != `{"remaining":10}` {
+	if result.StatusCode != http.StatusOK || result.BodyText != `{"remaining":10}` || string(result.Body) != `"{\"remaining\":10}"` || result.Header["X-Request-Id"][0] != "upstream-request" {
 		t.Fatalf("unexpected api-call response: %+v", result)
 	}
 }
 
-func TestCallManagementAPIParsesSnakeCaseResponse(t *testing.T) {
+func TestCallManagementAPIPreservesPlainTextUpstreamBody(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/v8/management/requests/api-call" {
 			t.Errorf("unexpected path %q", r.URL.Path)
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"status_code":201,"body_text":"created","body":{"ok":true}}`))
+		_, _ = w.Write([]byte(`{"status_code":201,"header":{},"body":"created"}`))
 	}))
 	defer server.Close()
 
@@ -440,7 +440,7 @@ func TestCallManagementAPIParsesSnakeCaseResponse(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CallManagementAPI returned error: %v", err)
 	}
-	if result.StatusCode != http.StatusCreated || result.BodyText != "created" || string(result.Body) != `{"ok":true}` {
+	if result.StatusCode != http.StatusCreated || result.BodyText != "created" || string(result.Body) != `"created"` {
 		t.Fatalf("unexpected snake case api-call response: %+v", result)
 	}
 }

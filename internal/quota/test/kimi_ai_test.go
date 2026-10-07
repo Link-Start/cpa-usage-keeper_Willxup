@@ -54,7 +54,7 @@ func TestKimiProviderResolvesCredentialDomainAndKeepsProvider(t *testing.T) {
 								t.Fatal(err)
 							}
 							requests = append(requests, request)
-							_ = json.NewEncoder(w).Encode(quotaAPIResponse(200, `{"usage":{"limit":"100","remaining":"72","resetTime":"2026-10-12T00:00:00Z"},"limits":[{"window":{"duration":300,"timeUnit":"TIME_UNIT_MINUTE"},"detail":{"limit":"100","used":"92","remaining":"8"}}]}`))
+							_ = json.NewEncoder(w).Encode(map[string]any{"status_code": 200, "body": `{"usage":{"limit":"100","remaining":"72","resetTime":"2026-10-12T00:00:00Z"},"limits":[{"window":{"duration":300,"timeUnit":"TIME_UNIT_MINUTE"},"detail":{"limit":"100","used":"92","remaining":"8"}}]}`})
 						default:
 							t.Errorf("unexpected path %s", r.URL.Path)
 						}
@@ -165,7 +165,7 @@ func TestKimiRefreshPipelineSupportsManualScheduledAndInspection(t *testing.T) {
 						case "/v8/management/credentials/download":
 							_, _ = fmt.Fprintf(w, `{"type":%q,"access_token":"credential-secret","refresh_token":"refresh-secret"}`, identityType)
 						case "/v8/management/requests/api-call":
-							_ = json.NewEncoder(w).Encode(quotaAPIResponse(200, `{"usages":{"limit_month_total":{"used_ratio":1,"reset_time":"2026-11-05T00:00:00Z"}}}`))
+							_ = json.NewEncoder(w).Encode(map[string]any{"status_code": 200, "body": `{"usages":{"limit_month_total":{"used_ratio":1,"reset_time":"2026-11-05T00:00:00Z"}}}`})
 						default:
 							t.Errorf("unexpected CPA path: %s", r.URL.Path)
 						}

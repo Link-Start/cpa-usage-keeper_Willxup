@@ -1,6 +1,9 @@
 package apicall
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"fmt"
+)
 
 type Request struct {
 	AuthIndex string            `json:"authIndex"`
@@ -25,37 +28,27 @@ func (r Request) MarshalJSON() ([]byte, error) {
 	return json.Marshal(encoded)
 }
 
+// Response 保存 v8 api-call 的原始字符串 body 与供额度解析使用的文本视图。
 type Response struct {
-	StatusCode int                 `json:"statusCode"`
+	StatusCode int                 `json:"status_code"`
 	Header     map[string][]string `json:"header"`
-	BodyText   string              `json:"bodyText"`
+	BodyText   string              `json:"-"`
 	Body       json.RawMessage     `json:"body"`
 }
 
 func (r *Response) UnmarshalJSON(data []byte) error {
-	type alias struct {
-		StatusCode      int                 `json:"statusCode"`
-		Header          map[string][]string `json:"header"`
-		BodyText        string              `json:"bodyText"`
-		Body            json.RawMessage     `json:"body"`
-		StatusCodeSnake int                 `json:"status_code"`
-		BodyTextSnake   string              `json:"body_text"`
+	var decoded struct {
+		StatusCode int                 `json:"status_code"`
+		Header     map[string][]string `json:"header"`
+		Body       json.RawMessage     `json:"body"`
 	}
-	var decoded alias
 	if err := json.Unmarshal(data, &decoded); err != nil {
 		return err
 	}
-	if decoded.StatusCode == 0 {
-		decoded.StatusCode = decoded.StatusCodeSnake
+	var bodyText string
+	if err := json.Unmarshal(decoded.Body, &bodyText); err != nil {
+		return fmt.Errorf("decode api-call body: %w", err)
 	}
-	if decoded.BodyText == "" {
-		decoded.BodyText = decoded.BodyTextSnake
-	}
-	*r = Response{
-		StatusCode: decoded.StatusCode,
-		Header:     decoded.Header,
-		BodyText:   decoded.BodyText,
-		Body:       decoded.Body,
-	}
+	*r = Response{StatusCode: decoded.StatusCode, Header: decoded.Header, BodyText: bodyText, Body: decoded.Body}
 	return nil
 }
