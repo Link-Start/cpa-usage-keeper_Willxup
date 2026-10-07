@@ -441,3 +441,47 @@ func TestInvalidateStoredCostCacheDuringAutoRefreshScanDoesNotQueueOldRound(t *t
 		t.Fatalf("old automatic refresh queued %d tasks after invalidation", got)
 	}
 }
+
+// Claude 部分窗口在 flush 已开始后失效，两个窗口都必须沿用原批次代数。
+func TestInvalidateStoredCostCacheRejectsMergedClaudePartialWindows(t *testing.T) {
+	db := openQuotaTestDatabase(t)
+	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "claude-auth", Provider: "claude", Type: "claude", AuthType: entities.UsageIdentityAuthTypeAuthFile})
+	service := newQuotaServiceWithRegistryAndOptions(t, db, NewProviderRegistry(nil), ServiceOptions{UsageHeaderSnapshotFlushInterval: time.Hour})
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	releaseOnce := sync.OnceFunc(func() { close(release) })
+	defer releaseOnce()
+	var once sync.Once
+	callbackName := "test:block_partial_claude_invalidation"
+	if err := db.Callback().Query().After("gorm:query").Register(callbackName, func(tx *gorm.DB) {
+		if tx.Statement.Table == "usage_identities" {
+			once.Do(func() { close(entered); <-release })
+		}
+	}); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Callback().Query().Remove(callbackName) })
+	now := time.Now().Truncate(time.Second)
+	first := buildClaudePartialHeaderSnapshot(t, now, claudePartialHeader{window: "5h", utilization: "0.10"})
+	second := buildClaudePartialHeaderSnapshot(t, now, claudePartialHeader{atOffset: time.Second, window: "7d", utilization: "0.20"})
+	if !service.TryAppendUsageHeaderSnapshots([]*UsageHeaderSnapshot{first, second}) {
+		t.Fatal("append rejected")
+	}
+	done := make(chan struct{})
+	go func() { service.StopRefreshTasks(); close(done) }()
+	select {
+	case <-entered:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Header lookup did not start")
+	}
+	service.InvalidateStoredCostCache()
+	releaseOnce()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Header flush did not finish")
+	}
+	if _, err := service.GetRefreshTaskByAuthIndex(context.Background(), "claude-auth"); !errors.Is(err, ErrTaskNotFound) {
+		t.Fatalf("old partial Claude windows restored cache: %v", err)
+	}
+}
