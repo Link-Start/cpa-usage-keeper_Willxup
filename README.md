@@ -106,8 +106,10 @@ CPA plugin embedding in CPAMC is also available. Deploy with Docker Compose, Hom
 
 ## Quick Start
 
-> Before using CPA Usage Keeper, enable CPA usage statistics. Set `observability.usage.usage-statistics-enabled` to `true` in v8 configurations; legacy configurations use the top-level `usage-statistics-enabled` setting.
->
+> Keeper v2 supports CPA v8.0.12 and later v8 releases. Upgrade CPA before using synchronization and credential management, and set `observability.usage.usage-statistics-enabled` to `true`.
+
+Keeper can still start and display local history when CPA is temporarily unreachable or its management interfaces are unavailable; affected synchronization and remote operations report errors.
+
 > When multiple usage collectors share one CPA instance, ensure they all use subscription mode; otherwise, collection may stop or become incomplete.
 
 Docker Compose is the recommended deployment method. Use the full stack when deploying CPA and Keeper together, or the Keeper-only stack when CPA already exists.
@@ -290,7 +292,7 @@ LOGIN_PASSWORD=
 
 Set a private `LOGIN_PASSWORD` before starting the container.
 
-Whether CPA runs on the Docker host or another machine, it must allow remote management and listen on an address reachable from the Keeper container; a listener bound only to `127.0.0.1` is not reachable. In v8 configurations, set `management.allow-remote: true` and check `server.host`; legacy configurations use `remote-management.allow-remote` and the top-level `host` setting.
+Whether CPA runs on the Docker host or another machine, it must allow remote management and listen on an address reachable from the Keeper container; a listener bound only to `127.0.0.1` is not reachable. In v8 configurations, set `management.allow-remote: true` and check `server.host`.
 
 For other network layouts, set `CPA_BASE_URL` to a CPA address reachable from the container. Set `REDIS_QUEUE_ADDR` only when the Redis/RESP address differs from the automatically derived address.
 
@@ -321,7 +323,7 @@ docker compose up -d cpa-usage-keeper
 
 #### No Data After Startup?
 
-- Check that CPA usage statistics are enabled: `observability.usage.usage-statistics-enabled` must be `true` in v8 configurations, or the top-level `usage-statistics-enabled` in legacy configurations.
+- Check that CPA usage statistics are enabled: `observability.usage.usage-statistics-enabled` must be `true`.
 - Ensure Keeper can reach `CPA_BASE_URL` and that `CPA_MANAGEMENT_KEY` matches the CPA management key.
 - Check that CPA has received new model requests. If data is still missing, use the log command above to look for connection or authentication errors.
 

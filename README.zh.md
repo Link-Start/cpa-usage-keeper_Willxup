@@ -106,8 +106,10 @@
 
 ## 快速开始
 
-> 使用前请确认 CPA 已开启使用统计。v8 配置中的 `observability.usage.usage-statistics-enabled` 应设为 `true`；旧版配置使用顶层 `usage-statistics-enabled`。
->
+> Keeper v2 支持 CPA v8.0.12 及以上的 v8 版本。使用同步和凭证管理功能前，请先升级 CPA，并将 `observability.usage.usage-statistics-enabled` 设为 `true`。
+
+CPA 暂时不可达或管理接口不可用时，Keeper 仍可启动查看本地历史；相关同步和远程操作会报错。
+
 > 同一 CPA 接入多个 usage 采集服务时，请确保均使用订阅模式，否则可能导致收数中断或数据不完整。
 
 Docker Compose 是推荐部署方式：首次部署可同时运行 CPA + Keeper，已有 CPA 时则使用 Keeper-only Compose。
@@ -290,7 +292,7 @@ LOGIN_PASSWORD=
 
 启动容器前请设置私有的 `LOGIN_PASSWORD`。
 
-无论 CPA 位于 Docker 宿主机还是其他主机，都需允许远程管理，并监听 Keeper 容器可访问的地址；只监听 `127.0.0.1` 时容器无法连接。v8 配置设置 `management.allow-remote: true`，并检查 `server.host`；旧版对应 `remote-management.allow-remote` 和顶层 `host`。
+无论 CPA 位于 Docker 宿主机还是其他主机，都需允许远程管理，并监听 Keeper 容器可访问的地址；只监听 `127.0.0.1` 时容器无法连接。v8 配置设置 `management.allow-remote: true`，并检查 `server.host`。
 
 其它网络环境请将 `CPA_BASE_URL` 改为容器可访问的 CPA 地址。只有 Redis/RESP 地址与自动推导的地址不同时，才需要设置 `REDIS_QUEUE_ADDR`。
 
@@ -321,7 +323,7 @@ docker compose up -d cpa-usage-keeper
 
 #### 启动后没有数据？
 
-- 确认 CPA 使用统计已开启：v8 配置的 `observability.usage.usage-statistics-enabled` 为 `true`；旧版为顶层 `usage-statistics-enabled`。
+- 确认 CPA 使用统计已开启：`observability.usage.usage-statistics-enabled` 为 `true`。
 - 确认 Keeper 能访问 `CPA_BASE_URL`，且 `CPA_MANAGEMENT_KEY` 与 CPA 管理密钥一致。
 - 确认 CPA 已产生新的模型请求；仍没有数据时，用上面的日志命令检查连接或认证错误。
 
