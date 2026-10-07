@@ -5,7 +5,7 @@ const (
 	cpaManagementAuthFilesDownloadEndpoint   = "/v8/management/credentials/download"
 	cpaManagementAuthFilesStatusEndpoint     = "/v8/management/credentials/status"
 	cpaManagementAuthFilesFieldsEndpoint     = "/v8/management/credentials/fields"
-	cpaManagementAPIKeysEndpoint             = "/v0/management/api-keys"
+	cpaManagementAPIKeysEndpoint             = "/v8/management/config/access/api-keys"
 	cpaManagementVertexAPIKeyEndpoint        = "/v0/management/vertex-api-key"
 	cpaManagementGeminiAPIKeyEndpoint        = "/v0/management/gemini-api-key"
 	cpaManagementCodexAPIKeyEndpoint         = "/v0/management/codex-api-key"

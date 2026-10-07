@@ -392,11 +392,14 @@ func filenameFromContentDisposition(value string) string {
 
 func (c *Client) FetchManagementAPIKeys(ctx context.Context) (*response.ManagementAPIKeysResult, error) {
 	result := &response.ManagementAPIKeysResult{}
-	statusCode, body, err := c.doManagementJSONRequest(ctx, cpaManagementAPIKeysEndpoint, &result.Payload, "api keys")
+	statusCode, body, err := c.doManagementJSONRequest(ctx, cpaManagementAPIKeysEndpoint, nil, "api keys")
 	result.StatusCode = statusCode
 	result.Body = body
 	if err != nil {
 		return result, err
+	}
+	if err := json.Unmarshal(body, &result.Payload); err != nil {
+		return result, fmt.Errorf("decode management api keys json: %w", err)
 	}
 	return result, nil
 }

@@ -34,14 +34,14 @@ func TestBlankJSONResponseBodyCheckDoesNotAllocate(t *testing.T) {
 
 func TestFetchManagementAPIKeysSendsBearerTokenAndParsesKeys(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/v0/management/api-keys" {
+		if r.URL.Path != "/v8/management/config/access/api-keys" {
 			t.Errorf("unexpected path %q", r.URL.Path)
 		}
 		if got := r.Header.Get("Authorization"); got != "Bearer management-secret" {
 			t.Errorf("expected management Authorization header, got %q", got)
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"api-keys":["sk-alpha", "sk-beta"]}`))
+		_, _ = w.Write([]byte(`["sk-alpha", "sk-beta"]`))
 	}))
 	defer server.Close()
 
@@ -53,7 +53,7 @@ func TestFetchManagementAPIKeysSendsBearerTokenAndParsesKeys(t *testing.T) {
 	if result.StatusCode != http.StatusOK {
 		t.Fatalf("expected status 200, got %d", result.StatusCode)
 	}
-	if string(result.Body) != `{"api-keys":["sk-alpha", "sk-beta"]}` {
+	if string(result.Body) != `["sk-alpha", "sk-beta"]` {
 		t.Fatalf("unexpected body: %s", string(result.Body))
 	}
 	if len(result.Payload.APIKeys) != 2 || result.Payload.APIKeys[0] != "sk-alpha" || result.Payload.APIKeys[1] != "sk-beta" {
@@ -222,7 +222,7 @@ func TestIdleTimeoutReadCloserNilReceiver(t *testing.T) {
 func TestFetchManagementAPIKeysAllowsEmptyArray(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"api-keys":[]}`))
+		_, _ = w.Write([]byte(`[]`))
 	}))
 	defer server.Close()
 
@@ -484,12 +484,12 @@ func TestFetchUsageQueueRejectsNonPositiveCount(t *testing.T) {
 func TestFetchModelsUsesExternalAPIKeyAndParsesOpenAICompatibleResponse(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/v0/management/api-keys":
+		case "/v8/management/config/access/api-keys":
 			if got := r.Header.Get("Authorization"); got != "Bearer management-secret" {
 				t.Errorf("expected management Authorization header, got %q", got)
 			}
 			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`{"api-keys":["", "   ", "normal-api-key"]}`))
+			_, _ = w.Write([]byte(`["", "   ", "normal-api-key"]`))
 		case "/v1/models":
 			if got := r.Header.Get("Authorization"); got != "Bearer normal-api-key" {
 				t.Errorf("expected normal API Authorization header, got %q", got)
@@ -518,8 +518,8 @@ func TestFetchModelsUsesExternalAPIKeyAndParsesOpenAICompatibleResponse(t *testi
 func TestFetchModelsDoesNotUseProviderEndpointsWhenCPAManagementAPIKeysAreMissing(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/v0/management/api-keys":
-			_, _ = w.Write([]byte(`{"api-keys":[]}`))
+		case "/v8/management/config/access/api-keys":
+			_, _ = w.Write([]byte(`[]`))
 		case "/v0/management/claude-api-key", "/v0/management/codex-api-key", "/v0/management/openai-compatibility", "/v1/models":
 			t.Errorf("FetchModels should not request %s when CPA management API keys are missing", r.URL.Path)
 		default:
@@ -547,8 +547,8 @@ func TestFetchModelsRejectsInvalidResponses(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				switch r.URL.Path {
-				case "/v0/management/api-keys":
-					_, _ = w.Write([]byte(`{"api-keys":["normal-api-key"]}`))
+				case "/v8/management/config/access/api-keys":
+					_, _ = w.Write([]byte(`["normal-api-key"]`))
 				case "/v1/models":
 					w.WriteHeader(tc.status)
 					_, _ = w.Write([]byte(tc.body))
@@ -569,7 +569,7 @@ func TestFetchModelsRejectsInvalidResponses(t *testing.T) {
 func TestNewClientTLSSkipVerify(t *testing.T) {
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"api-keys":["test-key"]}`))
+		_, _ = w.Write([]byte(`["test-key"]`))
 	}))
 	defer server.Close()
 
