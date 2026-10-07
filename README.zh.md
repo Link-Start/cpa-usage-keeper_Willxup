@@ -106,9 +106,7 @@
 
 ## 快速开始
 
-> Keeper v2 支持 CPA v8.0.12 及以上的 v8 版本。使用同步和凭证管理功能前，请先升级 CPA，并将 `observability.usage.usage-statistics-enabled` 设为 `true`。
-
-CPA 暂时不可达或管理接口不可用时，Keeper 仍可启动查看本地历史；相关同步和远程操作会报错。
+> Keeper 支持 CPA v8.0.12+。
 
 > 同一 CPA 接入多个 usage 采集服务时，请确保均使用订阅模式，否则可能导致收数中断或数据不完整。
 
@@ -234,7 +232,7 @@ curl -fL https://raw.githubusercontent.com/Willxup/cpa-usage-keeper/main/deploy/
 
 **2. 填写 CPA 和 Keeper 配置**
 
-官方模板采用 v8 配置结构。按下表编辑 `cpa/config.yaml` 中的已有配置项，保留 YAML 层级与缩进；表中的点号表示嵌套路径，不是要新增的 YAML 键名：
+按下表编辑 `cpa/config.yaml` 中的已有配置项，保留 YAML 层级与缩进；表中的点号表示嵌套路径，不是要新增的 YAML 键名：
 
 | 配置项 | 设置说明 |
 | --- | --- |
@@ -243,7 +241,7 @@ curl -fL https://raw.githubusercontent.com/Willxup/cpa-usage-keeper/main/deploy/
 | `observability.usage.usage-statistics-enabled` | 改为 `true`，开启使用统计。 |
 | `access.api-keys` | 将示例密钥替换为自己的客户端调用密钥；这不是 CPA 管理密钥或 Keeper 登录密码。 |
 
-保留 `server.host` 为空字符串、`server.port` 为 `8317`、`oauth.auth-dir` 为 `"~/.cli-proxy-api"`，以匹配模板中的容器网络及目录挂载。不要在 v8 模板中追加同名含义的旧版配置项。
+保留 `server.host` 为空字符串、`server.port` 为 `8317`、`oauth.auth-dir` 为 `"~/.cli-proxy-api"`，以匹配模板中的容器网络及目录挂载。
 
 编辑下载的 `docker-compose.yml`，在 Keeper 的 `environment` 中填写两项：
 
@@ -292,7 +290,7 @@ LOGIN_PASSWORD=
 
 启动容器前请设置私有的 `LOGIN_PASSWORD`。
 
-无论 CPA 位于 Docker 宿主机还是其他主机，都需允许远程管理，并监听 Keeper 容器可访问的地址；只监听 `127.0.0.1` 时容器无法连接。v8 配置设置 `management.allow-remote: true`，并检查 `server.host`。
+无论 CPA 位于 Docker 宿主机还是其他主机，都需允许远程管理，并监听 Keeper 容器可访问的地址；只监听 `127.0.0.1` 时容器无法连接。设置 `management.allow-remote: true`，并检查 `server.host`。
 
 其它网络环境请将 `CPA_BASE_URL` 改为容器可访问的 CPA 地址。只有 Redis/RESP 地址与自动推导的地址不同时，才需要设置 `REDIS_QUEUE_ADDR`。
 

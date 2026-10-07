@@ -106,9 +106,7 @@ CPA plugin embedding in CPAMC is also available. Deploy with Docker Compose, Hom
 
 ## Quick Start
 
-> Keeper v2 supports CPA v8.0.12 and later v8 releases. Upgrade CPA before using synchronization and credential management, and set `observability.usage.usage-statistics-enabled` to `true`.
-
-Keeper can still start and display local history when CPA is temporarily unreachable or its management interfaces are unavailable; affected synchronization and remote operations report errors.
+> Keeper supports CPA v8.0.12+.
 
 > When multiple usage collectors share one CPA instance, ensure they all use subscription mode; otherwise, collection may stop or become incomplete.
 
@@ -234,7 +232,7 @@ Use this download command for a new deployment only; edit an existing configurat
 
 **2. Configure CPA and Keeper**
 
-The official template uses the v8 configuration layout. Edit the existing settings in `cpa/config.yaml` as listed below, preserving YAML nesting and indentation. Dots in the table denote nested paths, not literal YAML keys to add:
+Edit the existing settings in `cpa/config.yaml` as listed below, preserving YAML nesting and indentation. Dots in the table denote nested paths, not literal YAML keys to add:
 
 | Setting | What to configure |
 | --- | --- |
@@ -243,7 +241,7 @@ The official template uses the v8 configuration layout. Edit the existing settin
 | `observability.usage.usage-statistics-enabled` | Set to `true` to enable usage statistics. |
 | `access.api-keys` | Replace the example keys with your own client API keys; these are separate from the CPA management key and Keeper login password. |
 
-Keep `server.host` as an empty string, `server.port` as `8317`, and `oauth.auth-dir` as `"~/.cli-proxy-api"` to match the container network and volume mounts in the template. Do not append equivalent legacy settings to the v8 template.
+Keep `server.host` as an empty string, `server.port` as `8317`, and `oauth.auth-dir` as `"~/.cli-proxy-api"` to match the container network and volume mounts in the template.
 
 Edit the downloaded `docker-compose.yml` and fill in two values under Keeper's `environment`:
 
@@ -292,7 +290,7 @@ LOGIN_PASSWORD=
 
 Set a private `LOGIN_PASSWORD` before starting the container.
 
-Whether CPA runs on the Docker host or another machine, it must allow remote management and listen on an address reachable from the Keeper container; a listener bound only to `127.0.0.1` is not reachable. In v8 configurations, set `management.allow-remote: true` and check `server.host`.
+Whether CPA runs on the Docker host or another machine, it must allow remote management and listen on an address reachable from the Keeper container; a listener bound only to `127.0.0.1` is not reachable. Set `management.allow-remote: true` and check `server.host`.
 
 For other network layouts, set `CPA_BASE_URL` to a CPA address reachable from the container. Set `REDIS_QUEUE_ADDR` only when the Redis/RESP address differs from the automatically derived address.
 
