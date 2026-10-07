@@ -46,7 +46,7 @@ func (d *Document) ProviderKeys(defaultBaseURL string) ([]ProviderKeyConfig, err
 			Priority       *int     `json:"priority"`
 			ExcludedModels []string `json:"excluded-models"`
 		}
-		if err := decodeFields(group.Fields, &shared); err != nil {
+		if err := decodeFields(group.Fields, &shared, "prefix", "base-url", "excluded-models"); err != nil {
 			return nil, fmt.Errorf("group %d: %w", groupIndex, err)
 		}
 		baseURL := strings.TrimSpace(shared.BaseURL)
@@ -55,7 +55,7 @@ func (d *Document) ProviderKeys(defaultBaseURL string) ([]ProviderKeyConfig, err
 		}
 		for keyIndex, key := range group.Keys {
 			var member ProviderKeyConfig
-			if err := decodeFields(key.Fields, &member); err != nil {
+			if err := decodeFields(key.Fields, &member, "api-key", "prefix", "name", "base-url", "note", "excluded-models"); err != nil {
 				return nil, fmt.Errorf("group %d key %d: %w", groupIndex, keyIndex, err)
 			}
 			// 缺省与 null 继承；显式 0、空字符串和空数组保持成员覆盖语义。
@@ -87,7 +87,10 @@ func (d *Document) OpenAIProviders() ([]OpenAICompatibilityConfig, error) {
 	providers := make([]OpenAICompatibilityConfig, 0, len(d.Groups))
 	for index, group := range d.Groups {
 		var provider OpenAICompatibilityConfig
-		if err := decodeFields(group.Fields, &provider); err != nil {
+		// 成员另行投影，避免组结构中的 keys 先触发严格字符串解码。
+		groupFields := cloneFields(group.Fields)
+		delete(groupFields, "keys")
+		if err := decodeFields(groupFields, &provider, "name", "prefix", "base-url", "note"); err != nil {
 			return nil, fmt.Errorf("group %d: %w", index, err)
 		}
 		if provider.Priority == nil {
@@ -103,7 +106,7 @@ func (d *Document) OpenAIProviders() ([]OpenAICompatibilityConfig, error) {
 		provider.APIKeyEntries = make([]OpenAIApiKeyEntry, 0, len(group.Keys))
 		for _, key := range group.Keys {
 			var entry OpenAIApiKeyEntry
-			if err := decodeFields(key.Fields, &entry); err != nil {
+			if err := decodeFields(key.Fields, &entry, "api-key"); err != nil {
 				return nil, fmt.Errorf("group %d key: %w", index, err)
 			}
 			provider.APIKeyEntries = append(provider.APIKeyEntries, entry)
@@ -113,12 +116,59 @@ func (d *Document) OpenAIProviders() ([]OpenAICompatibilityConfig, error) {
 	return providers, nil
 }
 
-func decodeFields(fields map[string]json.RawMessage, target any) error {
-	data, err := json.Marshal(fields)
+func decodeFields(fields map[string]json.RawMessage, target any, textFields ...string) error {
+	// 只在消费文字字段的投影副本中保留 CPA 返回数字的文本，不改变 GET 原文和写回值。
+	projection := cloneFields(fields)
+	for _, field := range textFields {
+		raw := projection[field]
+		if inherits(raw) {
+			continue
+		}
+		var converted json.RawMessage
+		var err error
+		if field == "excluded-models" {
+			converted, err = projectTextList(raw)
+		} else {
+			converted, err = projectTextValue(raw)
+		}
+		if err != nil {
+			return fmt.Errorf("field %s: %w", field, err)
+		}
+		projection[field] = converted
+	}
+	data, err := json.Marshal(projection)
 	if err != nil {
 		return err
 	}
 	return json.Unmarshal(data, target)
+}
+
+// JSON 字符串/null 保持原语义；数字直接取 json.Number 文本，避免经过 float64。
+func projectTextValue(raw json.RawMessage) (json.RawMessage, error) {
+	trimmed := strings.TrimSpace(string(raw))
+	if trimmed == "null" || strings.HasPrefix(trimmed, "\"") {
+		return raw, nil
+	}
+	var number json.Number
+	if err := json.Unmarshal(raw, &number); err != nil {
+		return nil, err
+	}
+	return json.Marshal(number.String())
+}
+
+func projectTextList(raw json.RawMessage) (json.RawMessage, error) {
+	var items []json.RawMessage
+	if err := json.Unmarshal(raw, &items); err != nil {
+		return nil, err
+	}
+	for index, item := range items {
+		converted, err := projectTextValue(item)
+		if err != nil {
+			return nil, fmt.Errorf("item %d: %w", index, err)
+		}
+		items[index] = converted
+	}
+	return json.Marshal(items)
 }
 
 // v8 GET 返回持久化原文，投影在这里重现 Keeper 消费的少量 CPA 有效值归一化。

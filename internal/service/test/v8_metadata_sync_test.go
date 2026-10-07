@@ -94,3 +94,48 @@ func TestV8MetadataSyncFlattensFirstMatchAndSeparatesConfigAbsenceFromFailure(t 
 		t.Fatalf("empty access array left keys = %+v, err = %v", keys, err)
 	}
 }
+
+func TestV8MetadataSyncPersistsReturnedNumericTextAndClientKeys(t *testing.T) {
+	db := openMetadataTestDatabase(t, "v8-numeric-text.db")
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/v8/management/credentials":
+			fmt.Fprint(w, `{"files":[]}`)
+		case "/v8/management/config/access/api-keys":
+			fmt.Fprint(w, `[9007199254740993,"00123"]`)
+		case "/v8/management/config/api-keys/codex":
+			fmt.Fprint(w, `[{"name":123,"prefix":123,"excluded-models":[42],"keys":[{"api-key":9007199254740993,"auth_index":"numeric-native","prefix":null,"excluded-models":null}]}]`)
+		case "/v8/management/config/api-keys/openai-compatibility":
+			fmt.Fprint(w, `[{"name":9007199254740993,"prefix":789,"keys":[{"api-key":9007199254740993,"auth_index":"numeric-openai"}]}]`)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+			fmt.Fprint(w, `{"error":"not_found"}`)
+		}
+	}))
+	defer server.Close()
+	syncer := service.NewSyncServiceWithClient(db, server.URL, cpa.NewClient(server.URL, "management-secret", time.Second, false))
+	if err := syncer.SyncMetadata(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	identities := loadMetadataIdentityMap(t, db)
+	native := identities[metadataIdentityKey(entities.UsageIdentityAuthTypeAIProvider, "numeric-native")]
+	openAI := identities[metadataIdentityKey(entities.UsageIdentityAuthTypeAIProvider, "numeric-openai")]
+	if native.LookupKey != "9007199254740993" || native.Prefix != "123" || native.Name != "codex" {
+		t.Fatalf("native row = %+v", native)
+	}
+	if openAI.LookupKey != "9007199254740993" || openAI.Prefix != "789" || openAI.Name != "9007199254740993" {
+		t.Fatalf("OpenAI row = %+v", openAI)
+	}
+	keys, err := repository.ListActiveCPAAPIKeys(db)
+	if err != nil || len(keys) != 2 {
+		t.Fatalf("client keys = %#v, err = %v", keys, err)
+	}
+	seen := map[string]bool{}
+	for _, key := range keys {
+		seen[key.APIKey] = true
+	}
+	if !seen["9007199254740993"] || !seen["00123"] {
+		t.Fatalf("client key text changed: %#v", keys)
+	}
+}
