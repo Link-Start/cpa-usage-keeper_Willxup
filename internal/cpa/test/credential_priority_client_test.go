@@ -63,7 +63,7 @@ func TestPriorityClientSendsOnlyPriorityFields(t *testing.T) {
 
 func TestAuthFilePriorityClientSendsNameAndPriorityOnly(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPatch || r.URL.Path != "/v0/management/auth-files/fields" {
+		if r.Method != http.MethodPatch || r.URL.Path != "/v8/management/credentials/fields" {
 			t.Fatalf("unexpected request %s %s", r.Method, r.URL.Path)
 		}
 		var body map[string]any

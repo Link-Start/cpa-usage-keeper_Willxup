@@ -63,7 +63,7 @@ func TestFetchManagementAPIKeysSendsBearerTokenAndParsesKeys(t *testing.T) {
 
 func TestFetchRequestLogByIDDownloadsFileWithBearerToken(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/v0/management/request-log-by-id"+"/req-log-42" {
+		if r.URL.Path != "/v8/management/observability/logs/requests"+"/req-log-42" {
 			t.Errorf("unexpected path %q", r.URL.Path)
 		}
 		if got := r.Header.Get("Authorization"); got != "Bearer management-secret" {
@@ -264,7 +264,7 @@ func TestFetchManagementAPIKeysRejectsInvalidJSON(t *testing.T) {
 
 func TestFetchAuthFilesParsesSyncMetadataFields(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/v0/management/auth-files" {
+		if r.URL.Path != "/v8/management/credentials" {
 			t.Errorf("unexpected path %q", r.URL.Path)
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -295,7 +295,7 @@ func TestFetchAuthFilesParsesSyncMetadataFields(t *testing.T) {
 
 func TestFetchAuthFilesParsesCodexIDTokenFields(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/v0/management/auth-files" {
+		if r.URL.Path != "/v8/management/credentials" {
 			t.Errorf("unexpected path %q", r.URL.Path)
 		}
 		if got := r.Header.Get("Authorization"); got != "Bearer management-secret" {
@@ -337,7 +337,7 @@ func TestDeleteAuthFilesSendsNamesToManagementEndpoint(t *testing.T) {
 		if r.Method != http.MethodDelete {
 			t.Errorf("expected DELETE method, got %s", r.Method)
 		}
-		if r.URL.Path != "/v0/management/auth-files" {
+		if r.URL.Path != "/v8/management/credentials" {
 			t.Errorf("unexpected path %q", r.URL.Path)
 		}
 		if got := r.Header.Get("Authorization"); got != "Bearer management-secret" {
@@ -371,7 +371,7 @@ func TestCallManagementAPIPostsWrappedRequest(t *testing.T) {
 		if r.Method != http.MethodPost {
 			t.Errorf("expected POST method, got %s", r.Method)
 		}
-		if r.URL.Path != "/v0/management/api-call" {
+		if r.URL.Path != "/v8/management/requests/api-call" {
 			t.Errorf("unexpected path %q", r.URL.Path)
 		}
 		if got := r.Header.Get("Authorization"); got != "Bearer management-secret" {
@@ -427,7 +427,7 @@ func TestCallManagementAPIPostsWrappedRequest(t *testing.T) {
 
 func TestCallManagementAPIParsesSnakeCaseResponse(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/v0/management/api-call" {
+		if r.URL.Path != "/v8/management/requests/api-call" {
 			t.Errorf("unexpected path %q", r.URL.Path)
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -447,7 +447,7 @@ func TestCallManagementAPIParsesSnakeCaseResponse(t *testing.T) {
 
 func TestFetchUsageQueueUsesManagementEndpointAndParsesMessages(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/v0/management/usage-queue" {
+		if r.URL.Path != "/v8/management/observability/usage/queue" {
 			t.Errorf("unexpected path %q", r.URL.Path)
 		}
 		if got := r.URL.Query().Get("count"); got != "2" {
