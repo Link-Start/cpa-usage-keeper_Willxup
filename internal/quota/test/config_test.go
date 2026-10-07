@@ -31,7 +31,7 @@ func TestDefaultProviderConfigsContainsAPICallTemplates(t *testing.T) {
 		{configs.Codex, "GET", "https://chatgpt.com/backend-api/wham/usage"},
 		{configs.GeminiCLI, "POST", "https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuota"},
 		{configs.GeminiCLICodeAssist, "POST", "https://cloudcode-pa.googleapis.com/v1internal:loadCodeAssist"},
-		{configs.ClaudeUsage, "GET", "https://api.anthropic.com/api/oauth/usage"},
+		{configs.ClaudeUsage, "GET", "https://api.anthropic.com/api/oauth/usage?cedar_ember=1&skip_spend=1"},
 		{configs.ClaudeProfile, "GET", "https://api.anthropic.com/api/oauth/profile"},
 		{configs.Kimi, "GET", "https://api.kimi.com/coding/v1/usages"},
 		{configs.KimiAI, "GET", "https://api.kimi.ai/coding/v1/usages"},
