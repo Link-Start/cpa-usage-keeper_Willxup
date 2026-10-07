@@ -144,6 +144,8 @@ func (s *credentialStatusService) SetAIProviderDisabled(ctx context.Context, aut
 		return CredentialStatusResponse{}, fmt.Errorf("%w: %s credential", ErrCredentialStatusNotFound, providerType)
 	}
 
+	// 从继承完成的有效规则生成成员覆盖，启用时只移除精确 *，保留其他模型排除项。
+	// 写到成员而不是组上，避免一次开关影响同组其他 Key；空数组也必须显式保存。
 	nextExcludedModels := setProviderKeyDisabledExcludedModels(entry.ExcludedModels, disabled)
 	if err := result.Document.SetKeyExcludedModels(location, nextExcludedModels); err != nil {
 		return CredentialStatusResponse{}, err
@@ -161,6 +163,7 @@ func (s *credentialStatusService) SetAIProviderDisabled(ctx context.Context, aut
 	return CredentialStatusResponse{AuthIndex: resolvedAuthIndex, Disabled: disabled}, nil
 }
 
+// findProviderKeyConfig 与 Document.FindFirst 使用同一响应顺序，避免重复标识取到另一成员的规则。
 func findProviderKeyConfig(payload []providerconfig.ProviderKeyConfig, authIndex string) (providerconfig.ProviderKeyConfig, bool) {
 	for _, entry := range payload {
 		if strings.TrimSpace(entry.AuthIndex) == authIndex {

@@ -13,6 +13,7 @@ type Request struct {
 	Data      any               `json:"data,omitempty"`
 }
 
+// MarshalJSON 将调用数据封装为 CPA 要求的字符串；已是字符串时不再编码，避免双重转义。
 func (r Request) MarshalJSON() ([]byte, error) {
 	type alias Request
 	encoded := alias(r)
@@ -28,7 +29,8 @@ func (r Request) MarshalJSON() ([]byte, error) {
 	return json.Marshal(encoded)
 }
 
-// Response 保存 v8 api-call 的原始字符串 body 与供额度解析使用的文本视图。
+// Response 同时保留 api-call 的 JSON 字符串 body 和解码后的文本。
+// Body 供仍按原始 JSON 读取的调用方使用，BodyText 供额度解析使用，不将响应正文重编码为对象。
 type Response struct {
 	StatusCode int                 `json:"status_code"`
 	Header     map[string][]string `json:"header"`
@@ -45,6 +47,7 @@ func (r *Response) UnmarshalJSON(data []byte) error {
 	if err := json.Unmarshal(data, &decoded); err != nil {
 		return err
 	}
+	// 上游正文按字符串合同读取，保留空正文和非 JSON 文本；对象正文视为合同错误。
 	var bodyText string
 	if err := json.Unmarshal(decoded.Body, &bodyText); err != nil {
 		return fmt.Errorf("decode api-call body: %w", err)

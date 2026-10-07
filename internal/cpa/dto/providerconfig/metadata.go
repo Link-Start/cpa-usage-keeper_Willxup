@@ -36,7 +36,8 @@ type OpenAIApiKeyEntry struct {
 	AuthIndex string `json:"auth_index"`
 }
 
-// ProviderKeys 按组、成员原序展开，只继承 CPA 标准供应商允许共享的展示字段。
+// ProviderKeys 按组、成员原序展开，供现有平铺列表和身份同步使用。
+// 只复现 Keeper 消费字段的继承规则；配置写回始终使用 Document，不使用这些计算后的值。
 func (d *Document) ProviderKeys(defaultBaseURL string) ([]ProviderKeyConfig, error) {
 	keys := make([]ProviderKeyConfig, 0)
 	for groupIndex, group := range d.Groups {
@@ -49,6 +50,7 @@ func (d *Document) ProviderKeys(defaultBaseURL string) ([]ProviderKeyConfig, err
 		if err := decodeFields(group.Fields, &shared, "prefix", "base-url", "excluded-models"); err != nil {
 			return nil, fmt.Errorf("group %d: %w", groupIndex, err)
 		}
+		// 地址由组统一提供；缺省地址仅用于有效值，不补写到原始配置。
 		baseURL := strings.TrimSpace(shared.BaseURL)
 		if baseURL == "" {
 			baseURL = defaultBaseURL
@@ -74,6 +76,7 @@ func (d *Document) ProviderKeys(defaultBaseURL string) ([]ProviderKeyConfig, err
 			}
 			member.Prefix = normalizedPrefix(member.Prefix)
 			member.ExcludedModels = normalizedExcludedModels(member.ExcludedModels)
+			// 标准供应商的成员地址不生效；启停从有效排除规则中的精确 * 推导。
 			member.BaseURL = baseURL
 			disabled := slices.Contains(member.ExcludedModels, "*")
 			member.Disabled = &disabled
@@ -83,6 +86,8 @@ func (d *Document) ProviderKeys(defaultBaseURL string) ([]ProviderKeyConfig, err
 	return keys, nil
 }
 
+// OpenAIProviders 保持组与成员位置一一对应，供组级优先级编辑定位及更新本地成员。
+// 名称、地址、优先级和停用状态来自组；成员仅提供 Key 和运行时标识。
 func (d *Document) OpenAIProviders() ([]OpenAICompatibilityConfig, error) {
 	providers := make([]OpenAICompatibilityConfig, 0, len(d.Groups))
 	for index, group := range d.Groups {
@@ -117,7 +122,8 @@ func (d *Document) OpenAIProviders() ([]OpenAICompatibilityConfig, error) {
 }
 
 func decodeFields(fields map[string]json.RawMessage, target any, textFields ...string) error {
-	// 只在消费文字字段的投影副本中保留 CPA 返回数字的文本，不改变 GET 原文和写回值。
+	// 只转换调用方列出的文字字段，避免把 priority、disabled、auth_index 等合同错误隐式纠正。
+	// 转换发生在副本中，GET 原文和后续写回值不受影响。
 	projection := cloneFields(fields)
 	for _, field := range textFields {
 		raw := projection[field]
@@ -143,7 +149,8 @@ func decodeFields(fields map[string]json.RawMessage, target any, textFields ...s
 	return json.Unmarshal(data, target)
 }
 
-// JSON 字符串/null 保持原语义；数字直接取 json.Number 文本，避免经过 float64。
+// projectTextValue 保持字符串/null 的语义，数字直接取 json.Number 文本，避免大整数丢精度。
+// 以 CPA 返回值为准，不猜测 YAML 原写法；布尔值、对象、数组不是合法文字标量。
 func projectTextValue(raw json.RawMessage) (json.RawMessage, error) {
 	trimmed := strings.TrimSpace(string(raw))
 	if trimmed == "null" || strings.HasPrefix(trimmed, "\"") {
@@ -156,6 +163,7 @@ func projectTextValue(raw json.RawMessage) (json.RawMessage, error) {
 	return json.Marshal(number.String())
 }
 
+// projectTextList 逐项处理文字数组，不放宽数组本身的结构；空数组仍保留显式覆盖语义。
 func projectTextList(raw json.RawMessage) (json.RawMessage, error) {
 	var items []json.RawMessage
 	if err := json.Unmarshal(raw, &items); err != nil {
@@ -171,7 +179,8 @@ func projectTextList(raw json.RawMessage) (json.RawMessage, error) {
 	return json.Marshal(items)
 }
 
-// v8 GET 返回持久化原文，投影在这里重现 Keeper 消费的少量 CPA 有效值归一化。
+// normalizedPrefix 复现 CPA 的有效前缀：去首尾斜杠与空白，含内部斜杠时不使用前缀。
+// 归一化仅影响读取视图，避免页面展示的路由前缀与 CPA 实际使用值不同。
 func normalizedPrefix(prefix string) string {
 	prefix = strings.Trim(strings.TrimSpace(prefix), "/")
 	if strings.Contains(prefix, "/") {
@@ -180,6 +189,7 @@ func normalizedPrefix(prefix string) string {
 	return prefix
 }
 
+// normalizedExcludedModels 保持首次出现顺序，去空白、小写化并去重，与 CPA 有效规则一致。
 func normalizedExcludedModels(models []string) []string {
 	if models == nil {
 		return nil

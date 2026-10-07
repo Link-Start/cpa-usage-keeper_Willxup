@@ -74,6 +74,7 @@ func (s *credentialPriorityService) SetAuthFilePriority(ctx context.Context, aut
 	if err != nil {
 		return CredentialPriorityResponse{}, priorityWriteError(statusCode, err)
 	}
+	// 远端成功后更新本地并请求刷新；本地落库失败时也保留刷新机会，不回滚远端。
 	defer s.requestRefresh()
 	if err := repository.UpdateUsageIdentityPriority(ctx, s.db, entities.UsageIdentityAuthTypeAuthFile, authIndex, priority); err != nil {
 		return CredentialPriorityResponse{}, fmt.Errorf("persist auth file priority: %w", err)
@@ -81,6 +82,8 @@ func (s *credentialPriorityService) SetAuthFilePriority(ctx context.Context, aut
 	return CredentialPriorityResponse{AuthIndex: authIndex, Priority: priority}, nil
 }
 
+// SetAIProviderPriority 按身份类型选择配置路径，读取最新列表后只修改首个匹配成员。
+// 标准供应商写成员覆盖值；OpenAI 兼容供应商单独走组级优先级流程。
 func (s *credentialPriorityService) SetAIProviderPriority(ctx context.Context, authIndex string, priority int) (CredentialPriorityResponse, error) {
 	authIndex, err := s.validate(authIndex)
 	if err != nil {
@@ -107,11 +110,13 @@ func (s *credentialPriorityService) SetAIProviderPriority(ctx context.Context, a
 	if !found {
 		return CredentialPriorityResponse{}, fmt.Errorf("%w: %s credential", ErrCredentialPriorityNotFound, providerType)
 	}
+	// 显式写入成员优先级，即使值为 0 也覆盖组默认值，不影响同组其他 Key。
 	result.Document.SetKeyPriority(location, priority)
 	statusCode, err := s.client.UpdateProviderConfig(ctx, providerType, result.Document)
 	if err != nil {
 		return CredentialPriorityResponse{}, priorityWriteError(statusCode, err)
 	}
+	// 远端成功后更新本地并请求刷新；本地落库失败时也保留刷新机会，不回滚远端。
 	defer s.requestRefresh()
 	if err := repository.UpdateUsageIdentityPriority(ctx, s.db, entities.UsageIdentityAuthTypeAIProvider, authIndex, priority); err != nil {
 		return CredentialPriorityResponse{}, fmt.Errorf("persist %s priority: %w", providerType, err)
@@ -135,7 +140,10 @@ func (s *credentialPriorityService) setOpenAIProviderPriority(ctx context.Contex
 	if err != nil {
 		return CredentialPriorityResponse{}, priorityWriteError(statusCode, err)
 	}
+	// 远端成功后更新本地并请求刷新；本地落库失败时也保留刷新机会，不回滚远端。
 	defer s.requestRefresh()
+	// 远端只修改首个匹配组；本地按该组成员的 auth_index 更新。
+	// 跨组同标识仍共用一条身份记录，本地没有独立的组隔离。
 	indexes := openAIProviderAuthIndexes(current.Payload[location.Group])
 	if err := repository.UpdateOpenAIProviderPriority(ctx, s.db, indexes, priority); err != nil {
 		return CredentialPriorityResponse{}, fmt.Errorf("persist openai priority: %w", err)
@@ -143,6 +151,7 @@ func (s *credentialPriorityService) setOpenAIProviderPriority(ctx context.Contex
 	return CredentialPriorityResponse{AuthIndex: authIndex, Priority: priority}, nil
 }
 
+// openAIProviderAuthIndexes 去掉空标识和组内重复项，供同一组的本地批量更新使用。
 func openAIProviderAuthIndexes(provider providerconfig.OpenAICompatibilityConfig) []string {
 	indexes := make([]string, 0, len(provider.APIKeyEntries))
 	seen := make(map[string]struct{}, len(provider.APIKeyEntries))

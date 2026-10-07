@@ -390,6 +390,8 @@ func filenameFromContentDisposition(value string) string {
 	return strings.TrimSpace(params["filename"])
 }
 
+// FetchManagementAPIKeys 读取访问 CPA 的客户端 Key，供本地 Key 同步和模型列表请求使用。
+// 请求失败（包括 404）保持失败，只有成功返回空数组才表示远端列表确实已清空。
 func (c *Client) FetchManagementAPIKeys(ctx context.Context) (*response.ManagementAPIKeysResult, error) {
 	result := &response.ManagementAPIKeysResult{}
 	statusCode, body, err := c.doManagementJSONRequest(ctx, cpaManagementAPIKeysEndpoint, nil, "api keys")
@@ -517,7 +519,8 @@ func (c *Client) FetchVertexAPIKeys(ctx context.Context) (*response.ProviderKeyC
 	return c.fetchProviderKeyConfig(ctx, cpaManagementVertexAPIKeyEndpoint, "vertex api keys")
 }
 
-// 配置缺省只认可 v8 配置子路径返回的明确 not_found，通用 404 仍是失败。
+// configurationNotFound 只识别配置子路径缺省的明确 not_found。
+// 网关或路由返回的普通 404 仍是失败，不能误当成空来源而将本地身份标记失效。
 func configurationNotFound(statusCode int, body []byte) bool {
 	if statusCode != http.StatusNotFound {
 		return false
@@ -528,6 +531,8 @@ func configurationNotFound(statusCode int, body []byte) bool {
 	return json.Unmarshal(body, &payload) == nil && payload.Error == "not_found"
 }
 
+// fetchProviderKeyConfig 从同一次响应生成写回原文和有效成员视图，保证二者顺序一致。
+// 明确缺省是成功的空来源；请求或解码失败则交给同步层保留已有来源数据。
 func (c *Client) fetchProviderKeyConfig(ctx context.Context, path string, kind string) (*response.ProviderKeyConfigResult, error) {
 	result := &response.ProviderKeyConfigResult{}
 	statusCode, body, err := c.doManagementJSONRequest(ctx, path, nil, kind)
@@ -556,6 +561,8 @@ func (c *Client) fetchProviderKeyConfig(ctx context.Context, path string, kind s
 	return result, nil
 }
 
+// FetchOpenAICompatibility 保留 OpenAI 组边界，使组级编辑可复用本次读取的完整配置。
+// 缺省与失败的处理和标准供应商一致，但有效值投影不套用标准供应商的成员继承规则。
 func (c *Client) FetchOpenAICompatibility(ctx context.Context) (*response.OpenAICompatibilityResult, error) {
 	result := &response.OpenAICompatibilityResult{}
 	statusCode, body, err := c.doManagementJSONRequest(ctx, cpaManagementOpenAICompatibilityEndpoint, nil, "openai compatibility")

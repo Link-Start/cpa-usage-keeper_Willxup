@@ -13,6 +13,7 @@ import (
 // ProviderKeyDisabledExcludedModel 是普通 API Key 有效 excluded-models 中的整条停用标记。
 const ProviderKeyDisabledExcludedModel = "*"
 
+// providerKeyEndpoint 仅列出支持成员启停的供应商；Meta 与 OpenAI 的能力另行判断。
 func providerKeyEndpoint(providerType string) (path string, kind string, ok bool) {
 	switch strings.ToLower(strings.TrimSpace(providerType)) {
 	case "codex":
@@ -32,6 +33,7 @@ func providerKeyEndpoint(providerType string) (path string, kind string, ok bool
 	}
 }
 
+// priorityProviderKeyEndpoint 在启停类型之外允许 Meta 编辑优先级，不因此开放其启停操作。
 func priorityProviderKeyEndpoint(providerType string) (path string, kind string, ok bool) {
 	if strings.EqualFold(strings.TrimSpace(providerType), "meta") {
 		return cpaManagementMetaAPIKeyEndpoint, "meta api keys", true
@@ -64,7 +66,9 @@ func (c *Client) FetchPriorityProviderConfig(ctx context.Context, providerType s
 	return c.fetchProviderKeyConfig(ctx, path, kind)
 }
 
-// UpdateProviderConfig 写入本次 GET 修改后的完整供应商列表，PUT 成功即表示保存成功。
+// UpdateProviderConfig 写入本次 GET 修改后的完整供应商列表，仅在副本中移除运行时标识。
+// 调用方必须持有供应商路径锁覆盖读取与写入；此方法不单独加锁，避免只保护写请求。
+// PUT 成功即返回，由服务更新本地状态并请求刷新，不额外执行强制回读。
 func (c *Client) UpdateProviderConfig(ctx context.Context, providerType string, document *providerconfig.Document) (int, error) {
 	path, ok := ProviderConfigPath(providerType)
 	if !ok {

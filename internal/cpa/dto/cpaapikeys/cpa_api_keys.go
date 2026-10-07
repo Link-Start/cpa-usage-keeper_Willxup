@@ -11,6 +11,8 @@ type ManagementAPIKeysResponse struct {
 	APIKeys []string
 }
 
+// UnmarshalJSON 只接受直接数组；null 或错误结构不能被解释为空列表而清除本地 Key。
+// 字符串原样接收，数字使用精确文本；null 成员沿用空字符串语义，由消费方过滤。
 func (r *ManagementAPIKeysResponse) UnmarshalJSON(data []byte) error {
 	if len(bytes.TrimSpace(data)) == 0 || bytes.TrimSpace(data)[0] != '[' {
 		return fmt.Errorf("client API keys must be an array")
@@ -37,6 +39,7 @@ func (r *ManagementAPIKeysResponse) UnmarshalJSON(data []byte) error {
 		}
 		keys = append(keys, key)
 	}
+	// 整个数组解析成功后再替换结果，避免坏成员留下半份可用列表。
 	r.APIKeys = keys
 	return nil
 }
