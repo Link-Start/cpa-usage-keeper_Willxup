@@ -56,7 +56,7 @@ func TestDefaultProviderConfigsContainsAPICallTemplates(t *testing.T) {
 			t.Fatalf("missing JSON content type: %+v", config)
 		}
 	}
-	if configs.Codex.Headers["User-Agent"] != "codex_cli_rs/0.76.0 (Debian 13.0.0; x86_64) WindowsTerminal" {
+	if configs.Codex.Headers["User-Agent"] != "Codex Desktop/0.160.1 (Mac OS 27.0.1; arm64) unknown (Codex Desktop; 26.930.61225)" {
 		t.Fatalf("unexpected codex headers: %+v", configs.Codex.Headers)
 	}
 	for _, config := range []quota.APICallConfig{configs.ClaudeUsage, configs.ClaudeProfile} {

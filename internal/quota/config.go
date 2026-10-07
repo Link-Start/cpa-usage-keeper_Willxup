@@ -113,7 +113,7 @@ func DefaultProviderConfigs() ProviderConfigs {
 			Headers: map[string]string{
 				"Authorization": "Bearer $TOKEN$",
 				"Content-Type":  "application/json",
-				"User-Agent":    "codex_cli_rs/0.76.0 (Debian 13.0.0; x86_64) WindowsTerminal",
+				"User-Agent":    "Codex Desktop/0.160.1 (Mac OS 27.0.1; arm64) unknown (Codex Desktop; 26.930.61225)",
 			},
 		},
 		GeminiCLI: APICallConfig{
