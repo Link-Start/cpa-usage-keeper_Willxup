@@ -15,8 +15,6 @@ type source struct {
 	defaultDisplayName string
 	// warningName 保留现有来源错误文案中的 endpoint 业务名称。
 	warningName string
-	// optionalNotFound 表示旧 CPA 返回 typed 404 时静默跳过该新 endpoint。
-	optionalNotFound bool
 	// fetch 绑定当前 endpoint 的实际读取与归一化函数。
 	fetch sourceFetch
 }

@@ -484,109 +484,100 @@ func (c *Client) ResetQuota(ctx context.Context, authIndex string) error {
 }
 
 func (c *Client) FetchGeminiAPIKeys(ctx context.Context) (*response.ProviderKeyConfigResult, error) {
-	return c.fetchProviderKeyConfig(ctx, cpaManagementGeminiAPIKeyEndpoint, "gemini-api-key", "gemini api keys")
+	return c.fetchProviderKeyConfig(ctx, cpaManagementGeminiAPIKeyEndpoint, "gemini api keys")
 }
 
 // FetchInteractionsAPIKeys 读取独立的 Gemini Interactions API Key metadata endpoint。
 func (c *Client) FetchInteractionsAPIKeys(ctx context.Context) (*response.ProviderKeyConfigResult, error) {
-	// 复用标准 provider key 解码器，保持 direct/wrapped、状态码和错误包装与现有来源一致。
-	return c.fetchProviderKeyConfig(ctx, cpaManagementInteractionsAPIKeyEndpoint, "interactions-api-key", "interactions api keys")
+	// 标准供应商统一读取 v8 分组配置。
+	return c.fetchProviderKeyConfig(ctx, cpaManagementInteractionsAPIKeyEndpoint, "interactions api keys")
 }
 
 func (c *Client) FetchClaudeAPIKeys(ctx context.Context) (*response.ProviderKeyConfigResult, error) {
-	return c.fetchProviderKeyConfig(ctx, cpaManagementClaudeAPIKeyEndpoint, "claude-api-key", "claude api keys")
+	return c.fetchProviderKeyConfig(ctx, cpaManagementClaudeAPIKeyEndpoint, "claude api keys")
 }
 
 func (c *Client) FetchCodexAPIKeys(ctx context.Context) (*response.ProviderKeyConfigResult, error) {
-	return c.fetchProviderKeyConfig(ctx, cpaManagementCodexAPIKeyEndpoint, "codex-api-key", "codex api keys")
+	return c.fetchProviderKeyConfig(ctx, cpaManagementCodexAPIKeyEndpoint, "codex api keys")
 }
 
 // FetchMetaAPIKeys 读取独立的 Meta API Key metadata endpoint，不经过 Auth File 或通用 quota 路径。
 func (c *Client) FetchMetaAPIKeys(ctx context.Context) (*response.ProviderKeyConfigResult, error) {
-	// 复用标准 provider key 解码器，兼容 CPA 的 direct/wrapped 响应和字段别名。
-	return c.fetchProviderKeyConfig(ctx, cpaManagementMetaAPIKeyEndpoint, "meta-api-key", "meta api keys")
+	// Meta 只在有效值投影中补默认地址。
+	return c.fetchProviderKeyConfig(ctx, cpaManagementMetaAPIKeyEndpoint, "meta api keys")
 }
 
 // FetchXAIAPIKeys 读取 xAI API Key metadata endpoint，不复用 OAuth Auth File 路径。
 func (c *Client) FetchXAIAPIKeys(ctx context.Context) (*response.ProviderKeyConfigResult, error) {
 	// 复用标准 provider key 解码器，忽略 websockets 等 Keeper 不消费的额外字段。
-	return c.fetchProviderKeyConfig(ctx, cpaManagementXAIAPIKeyEndpoint, "xai-api-key", "xai api keys")
+	return c.fetchProviderKeyConfig(ctx, cpaManagementXAIAPIKeyEndpoint, "xai api keys")
 }
 
 func (c *Client) FetchVertexAPIKeys(ctx context.Context) (*response.ProviderKeyConfigResult, error) {
-	return c.fetchProviderKeyConfig(ctx, cpaManagementVertexAPIKeyEndpoint, "vertex-api-key", "vertex api keys")
+	return c.fetchProviderKeyConfig(ctx, cpaManagementVertexAPIKeyEndpoint, "vertex api keys")
 }
 
-func (c *Client) fetchProviderKeyConfig(ctx context.Context, path string, payloadKey string, kind string) (*response.ProviderKeyConfigResult, error) {
+// 配置缺省只认可 v8 配置子路径返回的明确 not_found，通用 404 仍是失败。
+func configurationNotFound(statusCode int, body []byte) bool {
+	if statusCode != http.StatusNotFound {
+		return false
+	}
+	var payload struct {
+		Error string `json:"error"`
+	}
+	return json.Unmarshal(body, &payload) == nil && payload.Error == "not_found"
+}
+
+func (c *Client) fetchProviderKeyConfig(ctx context.Context, path string, kind string) (*response.ProviderKeyConfigResult, error) {
 	result := &response.ProviderKeyConfigResult{}
-	var raw json.RawMessage
-	statusCode, body, err := c.doManagementJSONRequest(ctx, path, &raw, kind)
-	result.StatusCode = statusCode
-	result.Body = body
+	statusCode, body, err := c.doManagementJSONRequest(ctx, path, nil, kind)
+	result.StatusCode, result.Body = statusCode, body
+	if configurationNotFound(statusCode, body) {
+		result.Document = &providerconfig.Document{}
+		result.Payload = []providerconfig.ProviderKeyConfig{}
+		return result, nil
+	}
 	if err != nil {
 		return result, err
 	}
-	payload, err := decodeProviderKeyConfigPayload(raw, payloadKey)
+	var document providerconfig.Document
+	if err := json.Unmarshal(body, &document); err != nil {
+		return result, fmt.Errorf("decode management %s json: %w", kind, err)
+	}
+	defaultBaseURL := ""
+	if path == cpaManagementMetaAPIKeyEndpoint {
+		defaultBaseURL = "https://api.meta.ai/v1"
+	}
+	payload, err := document.ProviderKeys(defaultBaseURL)
 	if err != nil {
 		return result, fmt.Errorf("decode management %s json: %w", kind, err)
 	}
-	result.Payload = payload
+	result.Document, result.Payload = &document, payload
 	return result, nil
 }
 
 func (c *Client) FetchOpenAICompatibility(ctx context.Context) (*response.OpenAICompatibilityResult, error) {
 	result := &response.OpenAICompatibilityResult{}
-	var raw json.RawMessage
-	statusCode, body, err := c.doManagementJSONRequest(ctx, cpaManagementOpenAICompatibilityEndpoint, &raw, "openai compatibility")
-	result.StatusCode = statusCode
-	result.Body = body
+	statusCode, body, err := c.doManagementJSONRequest(ctx, cpaManagementOpenAICompatibilityEndpoint, nil, "openai compatibility")
+	result.StatusCode, result.Body = statusCode, body
+	if configurationNotFound(statusCode, body) {
+		result.Document = &providerconfig.Document{}
+		result.Payload = []providerconfig.OpenAICompatibilityConfig{}
+		return result, nil
+	}
 	if err != nil {
 		return result, err
 	}
-	payload, err := decodeOpenAICompatibilityPayload(raw, "openai-compatibility")
+	var document providerconfig.Document
+	if err := json.Unmarshal(body, &document); err != nil {
+		return result, fmt.Errorf("decode management openai compatibility json: %w", err)
+	}
+	payload, err := document.OpenAIProviders()
 	if err != nil {
 		return result, fmt.Errorf("decode management openai compatibility json: %w", err)
 	}
-	result.Payload = payload
+	result.Document, result.Payload = &document, payload
 	return result, nil
-}
-
-func decodeProviderKeyConfigPayload(raw json.RawMessage, payloadKey string) ([]providerconfig.ProviderKeyConfig, error) {
-	var direct []providerconfig.ProviderKeyConfig
-	if err := json.Unmarshal(raw, &direct); err == nil {
-		return direct, nil
-	}
-	var wrapped map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &wrapped); err != nil {
-		return nil, err
-	}
-	payloadRaw, ok := wrapped[payloadKey]
-	if !ok {
-		return nil, fmt.Errorf("missing %s payload", payloadKey)
-	}
-	if err := json.Unmarshal(payloadRaw, &direct); err != nil {
-		return nil, err
-	}
-	return direct, nil
-}
-
-func decodeOpenAICompatibilityPayload(raw json.RawMessage, payloadKey string) ([]providerconfig.OpenAICompatibilityConfig, error) {
-	var direct []providerconfig.OpenAICompatibilityConfig
-	if err := json.Unmarshal(raw, &direct); err == nil {
-		return direct, nil
-	}
-	var wrapped map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &wrapped); err != nil {
-		return nil, err
-	}
-	payloadRaw, ok := wrapped[payloadKey]
-	if !ok {
-		return nil, fmt.Errorf("missing %s payload", payloadKey)
-	}
-	if err := json.Unmarshal(payloadRaw, &direct); err != nil {
-		return nil, err
-	}
-	return direct, nil
 }
 
 func firstNonEmptyString(values []string) string {

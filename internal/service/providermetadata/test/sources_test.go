@@ -148,25 +148,24 @@ func TestFetchPropagatesOpenAIProviderFieldsToEveryValidEntry(t *testing.T) {
 	}
 }
 
-func TestFetchClassifiesOptionalFailuresAndSuccessfulEmptySources(t *testing.T) {
-	t.Run("optional typed 404", func(t *testing.T) {
+func TestFetchClassifiesFailuresAndSuccessfulEmptySources(t *testing.T) {
+	t.Run("404 failures remain independent", func(t *testing.T) {
 		fetcher := successfulProviderFetcher()
 		fetcher.xaiResult = &response.ProviderKeyConfigResult{StatusCode: http.StatusNotFound}
 		fetcher.xaiErr = errors.New("xai endpoint unavailable")
 		fetcher.interactionsResult = &response.ProviderKeyConfigResult{StatusCode: http.StatusNotFound}
 		fetcher.interactionsErr = errors.New("interactions endpoint unavailable")
-
 		snapshot, err := providermetadata.Fetch(context.Background(), fetcher)
-		if err != nil {
-			t.Fatalf("Fetch returned error: %v", err)
+		if err == nil {
+			t.Fatal("failed sources returned no warning")
 		}
 		wantTypes := []string{"codex", "gemini", "claude", "vertex", "meta", "openai"}
 		if !reflect.DeepEqual(snapshot.FetchedProviderTypes, wantTypes) {
-			t.Fatalf("FetchedProviderTypes = %#v, want %#v", snapshot.FetchedProviderTypes, wantTypes)
+			t.Fatalf("FetchedProviderTypes = %#v", snapshot.FetchedProviderTypes)
 		}
 	})
 
-	// 只有 typed result 的 404 才能按 optional 处理，不能解析 error 文本。
+	// 请求错误文本不能被当成成功空来源。
 	t.Run("nil result containing 404 text", func(t *testing.T) {
 		fetcher := successfulProviderFetcher()
 		fetcher.xaiResult = nil

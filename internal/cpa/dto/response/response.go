@@ -37,16 +37,18 @@ type UsageQueueResult struct {
 	Payload    []json.RawMessage
 }
 
-// ProviderKeyConfigResult 是 provider API key 管理接口返回的 HTTP 包装，payload 是兼容归一化后的 provider 配置。
+// ProviderKeyConfigResult 是 provider API key 管理接口返回的 HTTP 包装，payload 是v8 分组配置的有效值投影。
 type ProviderKeyConfigResult struct {
 	StatusCode int
 	Body       []byte
 	Payload    []providerconfig.ProviderKeyConfig
+	Document   *providerconfig.Document
 }
 
-// OpenAICompatibilityResult 是 openai-compatibility 管理接口返回的 HTTP 包装，payload 是兼容归一化后的 provider 配置。
+// OpenAICompatibilityResult 是 openai-compatibility 管理接口返回的 HTTP 包装，payload 是v8 分组配置的有效值投影。
 type OpenAICompatibilityResult struct {
 	StatusCode int
 	Body       []byte
 	Payload    []providerconfig.OpenAICompatibilityConfig
+	Document   *providerconfig.Document
 }

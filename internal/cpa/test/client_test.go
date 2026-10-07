@@ -520,7 +520,7 @@ func TestFetchModelsDoesNotUseProviderEndpointsWhenCPAManagementAPIKeysAreMissin
 		switch r.URL.Path {
 		case "/v8/management/config/access/api-keys":
 			_, _ = w.Write([]byte(`[]`))
-		case "/v0/management/claude-api-key", "/v0/management/codex-api-key", "/v0/management/openai-compatibility", "/v1/models":
+		case "/v8/management/config/api-keys/claude", "/v8/management/config/api-keys/codex", "/v8/management/config/api-keys/openai-compatibility", "/v1/models":
 			t.Errorf("FetchModels should not request %s when CPA management API keys are missing", r.URL.Path)
 		default:
 			t.Errorf("unexpected path %q", r.URL.Path)

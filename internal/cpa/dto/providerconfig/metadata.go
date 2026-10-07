@@ -3,96 +3,149 @@ package providerconfig
 import (
 	"encoding/json"
 	"fmt"
+	"slices"
+	"strings"
 )
 
-// ProviderKeyConfig 是标准 API key provider 配置的兼容归一化视图，支持 CPA 返回的多种 key 命名。
+// ProviderKeyConfig 是分组展开后的有效成员视图，不用于回写 CPA 原始配置。
 type ProviderKeyConfig struct {
-	APIKey         string
-	Prefix         string
-	Name           string
-	BaseURL        string
-	AuthIndex      string
-	Priority       *int
-	Disabled       *bool
-	ExcludedModels []string
-	Note           *string
+	APIKey         string   `json:"api-key"`
+	Prefix         string   `json:"prefix"`
+	Name           string   `json:"name"`
+	BaseURL        string   `json:"base-url"`
+	AuthIndex      string   `json:"auth_index"`
+	Priority       *int     `json:"priority"`
+	Disabled       *bool    `json:"disabled"`
+	ExcludedModels []string `json:"excluded-models"`
+	Note           *string  `json:"note"`
 }
 
-func (p *ProviderKeyConfig) UnmarshalJSON(data []byte) error {
-	var raw map[string]any
-	if err := json.Unmarshal(data, &raw); err != nil {
-		return fmt.Errorf("decode provider key config: %w", err)
-	}
-	p.APIKey = firstString(raw, "apiKey", "api-key", "key")
-	p.Prefix = firstString(raw, "prefix")
-	p.Name = firstString(raw, "name")
-	p.BaseURL = firstString(raw, "base-url", "base_url", "baseURL")
-	p.AuthIndex = firstString(raw, "auth-index", "auth_index", "authIndex")
-	p.Priority = firstInt(raw, "priority")
-	p.Disabled = firstBool(raw, "disabled")
-	p.ExcludedModels = firstStringList(raw, "excluded-models", "excluded_models", "excludedModels")
-	// CPA 用 excluded-models 中精确的 * 表示普通 Provider 整条停用；显式 disabled 始终优先。
-	if p.Disabled == nil && stringListContains(raw, "*", "excluded-models", "excluded_models", "excludedModels") {
-		disabled := true
-		p.Disabled = &disabled
-	}
-	p.Note = firstStringPtr(raw, "note")
-	return nil
-}
-
-// OpenAICompatibilityConfig 是 openai-compatibility provider 配置的兼容归一化视图，不直接等同于 CPA 原始 JSON。
+// OpenAICompatibilityConfig 保留组级配置，成员只提供当前 Key 与运行时标识。
 type OpenAICompatibilityConfig struct {
-	Name          string
-	Prefix        string
-	BaseURL       string
-	Priority      *int
-	Disabled      *bool
-	Note          *string
-	APIKeyEntries []OpenAIApiKeyEntry
+	Name          string              `json:"name"`
+	Prefix        string              `json:"prefix"`
+	BaseURL       string              `json:"base-url"`
+	Priority      *int                `json:"priority"`
+	Disabled      *bool               `json:"disabled"`
+	Note          *string             `json:"note"`
+	APIKeyEntries []OpenAIApiKeyEntry `json:"keys"`
 }
 
-func (c *OpenAICompatibilityConfig) UnmarshalJSON(data []byte) error {
-	var raw map[string]any
-	if err := json.Unmarshal(data, &raw); err != nil {
-		return fmt.Errorf("decode openai compatibility config: %w", err)
-	}
-	c.Name = firstString(raw, "name", "id")
-	c.Prefix = firstString(raw, "prefix")
-	c.BaseURL = firstString(raw, "base-url", "base_url", "baseURL")
-	c.Priority = firstInt(raw, "priority")
-	c.Disabled = firstBool(raw, "disabled")
-	c.Note = firstStringPtr(raw, "note")
-	c.APIKeyEntries = nil
-	for _, key := range []string{"apiKeyEntries", "api-key-entries", "api-keys"} {
-		value, ok := raw[key]
-		if !ok {
-			continue
-		}
-		entries, err := decodeOpenAIApiKeyEntries(value)
-		if err != nil {
-			return err
-		}
-		c.APIKeyEntries = entries
-		break
-	}
-	return nil
-}
-
-// OpenAIApiKeyEntry 是 openai-compatibility 中 api key entry 的兼容归一化视图，支持字符串和对象两种 CPA 返回形态。
 type OpenAIApiKeyEntry struct {
-	APIKey    string
-	AuthIndex string
+	APIKey    string `json:"api-key"`
+	AuthIndex string `json:"auth_index"`
 }
 
-func (e *OpenAIApiKeyEntry) UnmarshalJSON(data []byte) error {
-	var raw any
-	if err := json.Unmarshal(data, &raw); err != nil {
-		return fmt.Errorf("decode openai api key entry: %w", err)
+// ProviderKeys 按组、成员原序展开，只继承 CPA 标准供应商允许共享的展示字段。
+func (d *Document) ProviderKeys(defaultBaseURL string) ([]ProviderKeyConfig, error) {
+	keys := make([]ProviderKeyConfig, 0)
+	for groupIndex, group := range d.Groups {
+		var shared struct {
+			Prefix         string   `json:"prefix"`
+			BaseURL        string   `json:"base-url"`
+			Priority       *int     `json:"priority"`
+			ExcludedModels []string `json:"excluded-models"`
+		}
+		if err := decodeFields(group.Fields, &shared); err != nil {
+			return nil, fmt.Errorf("group %d: %w", groupIndex, err)
+		}
+		baseURL := strings.TrimSpace(shared.BaseURL)
+		if baseURL == "" {
+			baseURL = defaultBaseURL
+		}
+		for keyIndex, key := range group.Keys {
+			var member ProviderKeyConfig
+			if err := decodeFields(key.Fields, &member); err != nil {
+				return nil, fmt.Errorf("group %d key %d: %w", groupIndex, keyIndex, err)
+			}
+			// 缺省与 null 继承；显式 0、空字符串和空数组保持成员覆盖语义。
+			if inherits(key.Fields["prefix"]) {
+				member.Prefix = shared.Prefix
+			}
+			if inherits(key.Fields["priority"]) {
+				member.Priority = shared.Priority
+			}
+			if inherits(key.Fields["excluded-models"]) {
+				member.ExcludedModels = shared.ExcludedModels
+			}
+			if member.Priority == nil {
+				priority := 0
+				member.Priority = &priority
+			}
+			member.Prefix = normalizedPrefix(member.Prefix)
+			member.ExcludedModels = normalizedExcludedModels(member.ExcludedModels)
+			member.BaseURL = baseURL
+			disabled := slices.Contains(member.ExcludedModels, "*")
+			member.Disabled = &disabled
+			keys = append(keys, member)
+		}
 	}
-	entry, err := decodeOpenAIApiKeyEntry(raw)
+	return keys, nil
+}
+
+func (d *Document) OpenAIProviders() ([]OpenAICompatibilityConfig, error) {
+	providers := make([]OpenAICompatibilityConfig, 0, len(d.Groups))
+	for index, group := range d.Groups {
+		var provider OpenAICompatibilityConfig
+		if err := decodeFields(group.Fields, &provider); err != nil {
+			return nil, fmt.Errorf("group %d: %w", index, err)
+		}
+		if provider.Priority == nil {
+			priority := 0
+			provider.Priority = &priority
+		}
+		if provider.Disabled == nil {
+			disabled := false
+			provider.Disabled = &disabled
+		}
+		provider.Prefix = normalizedPrefix(provider.Prefix)
+		provider.BaseURL = strings.TrimSpace(provider.BaseURL)
+		provider.APIKeyEntries = make([]OpenAIApiKeyEntry, 0, len(group.Keys))
+		for _, key := range group.Keys {
+			var entry OpenAIApiKeyEntry
+			if err := decodeFields(key.Fields, &entry); err != nil {
+				return nil, fmt.Errorf("group %d key: %w", index, err)
+			}
+			provider.APIKeyEntries = append(provider.APIKeyEntries, entry)
+		}
+		providers = append(providers, provider)
+	}
+	return providers, nil
+}
+
+func decodeFields(fields map[string]json.RawMessage, target any) error {
+	data, err := json.Marshal(fields)
 	if err != nil {
 		return err
 	}
-	*e = entry
-	return nil
+	return json.Unmarshal(data, target)
+}
+
+// v8 GET 返回持久化原文，投影在这里重现 Keeper 消费的少量 CPA 有效值归一化。
+func normalizedPrefix(prefix string) string {
+	prefix = strings.Trim(strings.TrimSpace(prefix), "/")
+	if strings.Contains(prefix, "/") {
+		return ""
+	}
+	return prefix
+}
+
+func normalizedExcludedModels(models []string) []string {
+	if models == nil {
+		return nil
+	}
+	out := make([]string, 0, len(models))
+	seen := make(map[string]struct{}, len(models))
+	for _, raw := range models {
+		model := strings.ToLower(strings.TrimSpace(raw))
+		if model == "" {
+			continue
+		}
+		if _, exists := seen[model]; exists {
+			continue
+		}
+		seen[model] = struct{}{}
+		out = append(out, model)
+	}
+	return out
 }

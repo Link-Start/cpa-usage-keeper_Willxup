@@ -6,13 +6,12 @@ const (
 	cpaManagementAuthFilesStatusEndpoint     = "/v8/management/credentials/status"
 	cpaManagementAuthFilesFieldsEndpoint     = "/v8/management/credentials/fields"
 	cpaManagementAPIKeysEndpoint             = "/v8/management/config/access/api-keys"
-	cpaManagementVertexAPIKeyEndpoint        = "/v0/management/vertex-api-key"
-	cpaManagementGeminiAPIKeyEndpoint        = "/v0/management/gemini-api-key"
-	cpaManagementCodexAPIKeyEndpoint         = "/v0/management/codex-api-key"
-	cpaManagementClaudeAPIKeyEndpoint        = "/v0/management/claude-api-key"
-	cpaManagementMetaAPIKeyEndpoint          = "/v0/management/meta-api-key"
-	cpaManagementAmpcodeEndpoint             = "/v0/management/ampcode"
-	cpaManagementOpenAICompatibilityEndpoint = "/v0/management/openai-compatibility"
+	cpaManagementVertexAPIKeyEndpoint        = "/v8/management/config/api-keys/vertex"
+	cpaManagementGeminiAPIKeyEndpoint        = "/v8/management/config/api-keys/gemini"
+	cpaManagementCodexAPIKeyEndpoint         = "/v8/management/config/api-keys/codex"
+	cpaManagementClaudeAPIKeyEndpoint        = "/v8/management/config/api-keys/claude"
+	cpaManagementMetaAPIKeyEndpoint          = "/v8/management/config/api-keys/meta"
+	cpaManagementOpenAICompatibilityEndpoint = "/v8/management/config/api-keys/openai-compatibility"
 	cpaManagementUsageQueueEndpoint          = "/v8/management/observability/usage/queue"
 	cpaManagementAPICallEndpoint             = "/v8/management/requests/api-call"
 	cpaManagementResetQuotaEndpoint          = "/v8/management/routing/cooldown/reset"
@@ -34,7 +33,7 @@ const (
 
 const (
 	// cpaManagementInteractionsAPIKeyEndpoint 只读取 Gemini Interactions metadata，不参与 usage 拉取。
-	cpaManagementInteractionsAPIKeyEndpoint = "/v0/management/interactions-api-key"
+	cpaManagementInteractionsAPIKeyEndpoint = "/v8/management/config/api-keys/interactions"
 	// cpaManagementXAIAPIKeyEndpoint 只读取 xAI API Key metadata，不改变现有 xAI OAuth 或 quota 路径。
-	cpaManagementXAIAPIKeyEndpoint = "/v0/management/xai-api-key"
+	cpaManagementXAIAPIKeyEndpoint = "/v8/management/config/api-keys/xai"
 )
