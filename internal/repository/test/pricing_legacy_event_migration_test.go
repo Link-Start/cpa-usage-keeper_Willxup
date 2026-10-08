@@ -70,7 +70,7 @@ func openPublishedPricingEventFixture(t *testing.T) publishedPricingEventFixture
 			cached_tokens INTEGER, cache_read_tokens INTEGER, cache_creation_tokens INTEGER,
 			total_tokens INTEGER, created_at TEXT, updated_at TEXT
 		)`,
-		`CREATE TABLE usage_aggregation_checkpoints (name TEXT PRIMARY KEY, last_aggregated_usage_event_id INTEGER, created_at TEXT, updated_at TEXT)`,
+		`CREATE TABLE usage_aggregation_checkpoints (name TEXT PRIMARY KEY, last_aggregated_usage_event_id INTEGER, stats_updated_at TEXT, created_at TEXT, updated_at TEXT)`,
 		`CREATE TABLE model_price_settings (
 			id INTEGER PRIMARY KEY, model TEXT, pricing_style TEXT, prompt_price_per1_m REAL,
 			completion_price_per1_m REAL, cache_read_price_per1_m REAL,
@@ -302,14 +302,14 @@ func TestLegacyPricingMigrationRepairsSchemaFlagAfterVersionCommit(t *testing.T)
 		t.Fatalf("补标或阶段恢复错误：state=%+v err=%v", resumed, err)
 	}
 	assertStoredPricingEvent(t, fixture.writer, "usage_events", 1, 0.00078, true)
-	// 后续 CMT14 已开始的阶段不能被重复 M4 降级成 events_backfilled。
-	if err := fixture.writer.Model(&entities.PricingMigrationState{}).Where("id = ?", 1).Update("phase", "overview_backfilling").Error; err != nil {
+	// 后续聚合重建已开始的阶段不能被重复 M4 降级成 events_backfilled。
+	if err := fixture.writer.Model(&entities.PricingMigrationState{}).Where("id = ?", 1).Update("phase", "overview_rebuilding").Error; err != nil {
 		t.Fatal(err)
 	}
 	if _, err := repository.MigrateLegacyPricingEvents(ctx, fixture.writer, fixture.reader, filepath.Join(t.TempDir(), "not-used-again"), time.Now()); err != nil {
 		t.Fatalf("后续阶段重复入口：%v", err)
 	}
-	if err := fixture.writer.Where("id = ?", 1).Take(&resumed).Error; err != nil || resumed.Phase != "overview_backfilling" {
+	if err := fixture.writer.Where("id = ?", 1).Take(&resumed).Error; err != nil || resumed.Phase != "overview_rebuilding" {
 		t.Fatalf("重复 M4 倒退后续阶段：state=%+v err=%v", resumed, err)
 	}
 }
