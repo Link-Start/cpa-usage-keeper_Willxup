@@ -18,7 +18,7 @@ import (
 	"gorm.io/gorm"
 )
 
-func TestPricingLegacyConversionChecksOriginalAndReplayedGroups(t *testing.T) {
+func TestPricingLegacyConversionChecksOriginalEventFacts(t *testing.T) {
 	db, backup, baseline := pricingLegacyConversionFixture(t)
 	ctx := context.Background()
 	if err := repository.VerifyPublishedPricingMigration(ctx, backup, db, baseline); err != nil {
@@ -43,13 +43,13 @@ func TestPricingLegacyConversionChecksOriginalAndReplayedGroups(t *testing.T) {
 	}
 }
 
-func TestPricingLegacyConversionRejectsLostReplayedGroup(t *testing.T) {
+func TestPricingLegacyConversionDefersOverviewRebuild(t *testing.T) {
 	db, backup, baseline := pricingLegacyConversionFixture(t)
 	if err := db.Exec("UPDATE usage_overview_hourly_stats SET request_count = request_count + 1 WHERE model = 'model-a'").Error; err != nil {
 		t.Fatal(err)
 	}
-	if err := repository.VerifyPublishedPricingMigration(context.Background(), backup, db, baseline); err == nil || !strings.Contains(err.Error(), "request_count") {
-		t.Fatalf("changed replayed group escaped M2: %v", err)
+	if err := repository.VerifyPublishedPricingMigration(context.Background(), backup, db, baseline); err != nil {
+		t.Fatalf("old aggregate must not block event conversion: %v", err)
 	}
 }
 

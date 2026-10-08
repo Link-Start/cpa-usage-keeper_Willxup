@@ -10,6 +10,9 @@ import (
 	"strings"
 
 	"cpa-usage-keeper/internal/entities"
+	"cpa-usage-keeper/internal/overview"
+	"cpa-usage-keeper/internal/timeutil"
+	"github.com/mattn/go-sqlite3"
 	"gorm.io/gorm"
 )
 
@@ -36,8 +39,8 @@ func VerifyLegacyPricingData(ctx context.Context, reader *gorm.DB, baseline Pric
 	if state.InitKind != PricingInitKindLegacy || !state.SchemaComplete || state.BackupPath == nil || *state.BackupPath == "" || state.BaselineJSON == nil || state.CursorsJSON == nil {
 		return fmt.Errorf("pricing M6 has no protected complete schema or fixed cursors")
 	}
-	if state.Phase != "overview_backfilling" || state.DataComplete {
-		return fmt.Errorf("pricing M6 requires completed overview backfill before data completion")
+	if state.Phase != "overview_rebuilding" || state.DataComplete {
+		return fmt.Errorf("pricing M6 requires completed overview rebuild before data completion")
 	}
 	stored, err := decodePricingLegacyBaseline(*state.BaselineJSON)
 	if err != nil {
@@ -78,12 +81,46 @@ func VerifyLegacyPricingData(ctx context.Context, reader *gorm.DB, baseline Pric
 			return err
 		}
 	}
-	for _, table := range []string{"usage_overview_hourly_stats", "usage_overview_daily_stats"} {
-		if err := verifyPricingLegacyCostGroups(ctx, reader, table, fixed.OverviewCursor); err != nil {
-			return err
+	if err := reader.WithContext(ctx).Connection(func(db *gorm.DB) error {
+		// SQLite 分组使用 Go 的存储时间解析与 Overview 分桶，避免 SQL 日期函数丢失项目时区或纳秒精度。
+		// 函数与查询固定在同一只读连接；不注册全局 driver，也不改写原始时间。
+		conn, ok := db.Statement.ConnPool.(*sql.Conn)
+		if !ok {
+			return fmt.Errorf("pricing M6 requires a pinned SQL connection")
 		}
+		if err := conn.Raw(func(raw any) error {
+			sqliteConn, ok := raw.(*sqlite3.SQLiteConn)
+			if !ok {
+				return fmt.Errorf("pricing M6 requires a SQLite connection")
+			}
+			return sqliteConn.RegisterFunc("pricing_overview_bucket", func(value string, daily bool) (string, error) {
+				timestamp, err := timeutil.ParseStorageTime(value)
+				if err != nil {
+					return "", err
+				}
+				hour, day := overview.BucketKeysForEvent(entities.UsageEvent{Timestamp: timestamp})
+				bucket := hour.BucketStart
+				if daily {
+					bucket = day.BucketStart
+				}
+				return strconv.FormatInt(bucket.Unix(), 10), nil
+			}, true)
+		}); err != nil {
+			return fmt.Errorf("register pricing M6 bucket function: %w", err)
+		}
+		for _, table := range []string{"usage_overview_hourly_stats", "usage_overview_daily_stats"} {
+			if err := verifyPricingOverviewCounts(ctx, db, liveSchema, table, fixed.OverviewCursor); err != nil {
+				return fmt.Errorf("verify rebuilt %s: %w", table, err)
+			}
+			if err := verifyPricingLegacyCostGroups(ctx, db, table, fixed.OverviewCursor); err != nil {
+				return err
+			}
+		}
+		return nil
+	}); err != nil {
+		return err
 	}
-	// M1 已完成 quick_check 与备份原分组校验；此处复用同一只读文件，不再建镜像或重算价格。
+	// M1 已完成 quick_check 并固定备份；此处复用同一只读文件，不再建镜像或重算价格。
 	backupDB, closeBackup, err := openPricingBackupReadOnly(*state.BackupPath)
 	if err != nil {
 		return err
@@ -150,7 +187,7 @@ type pricingLegacyCostGroup struct {
 	side        int64
 }
 
-// verifyPricingLegacyCostGroups 用一条 SQLite 分组查询对齐热/冷事件与旧桶，Go 仅保留当前一组。
+// verifyPricingLegacyCostGroups 用一条 SQLite 分组查询对齐热/冷事件与重建桶，Go 仅保留当前一组。
 func verifyPricingLegacyCostGroups(ctx context.Context, reader *gorm.DB, table string, cursor int64) error {
 	query := pricingLegacyCostGroupsSQL(table)
 	rows, err := reader.WithContext(ctx).Raw(query, cursor, cursor).Rows()
@@ -160,7 +197,7 @@ func verifyPricingLegacyCostGroups(ctx context.Context, reader *gorm.DB, table s
 	defer rows.Close()
 	var pending *pricingLegacyCostGroup
 	for rows.Next() {
-		group := pricingLegacyCostGroup{key: make([]string, len(pricingM2Dimensions)+1)}
+		group := pricingLegacyCostGroup{key: make([]string, len(pricingOverviewDimensions)+1)}
 		dest := make([]any, 0, len(group.key)+4)
 		for i := range group.key {
 			dest = append(dest, &group.key[i])
@@ -206,15 +243,15 @@ func pricingLegacyCloseCost(a, b float64) bool {
 	return math.Abs(a-b) <= pricingLegacyCostAbsoluteTolerance+pricingLegacyCostRelativeTolerance*math.Max(math.Abs(a), math.Abs(b))
 }
 
-// pricingLegacyCostGroupsSQL 将固定 C 内冷热事件及旧小时/日桶投影为同一键序列，数据库分组后供流式逐组比较。
+// pricingLegacyCostGroupsSQL 将固定 C 内冷热事件及重建小时/日桶投影为同一键序列，数据库分组后供流式逐组比较。
 func pricingLegacyCostGroupsSQL(table string) string {
 	keys := []string{"bucket_key"}
-	selects := []string{pricingM2BucketExpr("timestamp", table) + " AS bucket_key"}
-	statSelects := []string{pricingM2BucketExpr("bucket_start", table) + " AS bucket_key"}
-	for _, field := range pricingM2Dimensions {
+	selects := []string{pricingOverviewBucketExpr("timestamp", table) + " AS bucket_key"}
+	statSelects := []string{pricingOverviewBucketExpr("bucket_start", table) + " AS bucket_key"}
+	for _, field := range pricingOverviewDimensions {
 		keys = append(keys, field)
-		selects = append(selects, pricingM2DimensionExpr(field)+" AS "+field)
-		statSelects = append(statSelects, pricingM2DimensionExpr(field)+" AS "+field)
+		selects = append(selects, pricingOverviewDimensionExpr(field)+" AS "+field)
+		statSelects = append(statSelects, pricingOverviewDimensionExpr(field)+" AS "+field)
 	}
 	selects = append(selects, "cost_usd", "CASE WHEN cost_available = 0 THEN 1 ELSE 0 END AS unavailable")
 	sources := []string{}
@@ -229,4 +266,191 @@ func pricingLegacyCostGroupsSQL(table string) string {
 		"expected AS (SELECT " + strings.Join(keys, ", ") + ", SUM(cost_usd) AS cost_usd, SUM(unavailable) AS unavailable_count, 1 AS physical, 0 AS side FROM covered GROUP BY " + strings.Join(keys, ", ") + "), " +
 		"stored AS (SELECT " + strings.Join(statSelects, ", ") + ", SUM(cost_usd) AS cost_usd, SUM(unavailable_cost_count) AS unavailable_count, COUNT(*) AS physical, 1 AS side FROM " + table + " GROUP BY " + strings.Join(positions, ", ") + ") " +
 		"SELECT * FROM expected UNION ALL SELECT * FROM stored ORDER BY " + strings.Join(positions, ", ") + ", " + strconv.Itoa(len(keys)+4)
+}
+
+var pricingOverviewDimensions = []string{
+	"api_group_key", "model", "auth_index", "model_alias",
+	"service_tier", "response_service_tier", "reasoning_effort", "endpoint", "executor_type",
+}
+
+var pricingOverviewCounts = []string{
+	"request_count", "success_count", "failure_count", "input_tokens", "output_tokens",
+	"reasoning_tokens", "cached_tokens", "cache_read_tokens", "cache_creation_tokens", "total_tokens",
+}
+
+type pricingOverviewGroupRow struct {
+	Key    []string
+	Counts []int64
+}
+
+// verifyPricingOverviewCounts 在 M5 重建后按固定水位核对现存事件与每个小时/日分组的请求和 Token。
+func verifyPricingOverviewCounts(ctx context.Context, db *gorm.DB, schema PricingLegacyBaseline, table string, cursor int64) error {
+	if !hasPricingBaselineTable(schema, table) {
+		if cursor != 0 {
+			return fmt.Errorf("%s missing with nonzero cursor %d", table, cursor)
+		}
+		return nil
+	}
+	if !hasPricingBaselineColumn(schema, table, "bucket_start") || !hasPricingBaselineColumn(schema, table, "request_count") {
+		return fmt.Errorf("%s lacks grouping or count columns", table)
+	}
+	if !hasPricingBaselineTable(schema, "usage_events") {
+		return fmt.Errorf("usage_events missing for %s verification", table)
+	}
+	dims := []string{}
+	for _, field := range pricingOverviewDimensions {
+		if hasPricingBaselineColumn(schema, table, field) {
+			dims = append(dims, field)
+		}
+	}
+	counts := []string{}
+	for _, field := range pricingOverviewCounts {
+		if hasPricingBaselineColumn(schema, table, field) {
+			counts = append(counts, field)
+		}
+	}
+	// 重建后的汇总列必须对应现存明细字段，不能用零值掩盖结构缺失。
+	sources := []string{}
+	for _, source := range []string{"usage_events", "usage_events_archive"} {
+		if !hasPricingBaselineTable(schema, source) {
+			continue
+		}
+		var covered int64
+		if err := db.WithContext(ctx).Table(source).Where("id <= ?", cursor).Count(&covered).Error; err != nil {
+			return fmt.Errorf("count %s at cursor %d: %w", source, cursor, err)
+		}
+		if covered == 0 {
+			continue
+		}
+		sources = append(sources, source)
+		for _, field := range dims {
+			if !hasPricingBaselineColumn(schema, source, field) {
+				return fmt.Errorf("%s.%s cannot prove %s", source, field, table)
+			}
+		}
+		for _, field := range counts {
+			if field == "request_count" || field == "success_count" || field == "failure_count" {
+				if field != "request_count" && !hasPricingBaselineColumn(schema, source, "failed") {
+					return fmt.Errorf("%s.failed cannot prove %s", source, table)
+				}
+				continue
+			}
+			if !hasPricingBaselineColumn(schema, source, field) {
+				return fmt.Errorf("%s.%s cannot prove %s", source, field, table)
+			}
+		}
+	}
+	if len(sources) == 0 {
+		var rows int64
+		if err := db.WithContext(ctx).Table(table).Count(&rows).Error; err != nil {
+			return err
+		}
+		if rows != 0 {
+			return fmt.Errorf("%s has %d rows without cursor-covered events", table, rows)
+		}
+		return nil
+	}
+	eventQuery := pricingOverviewEventGroupsSQL(table, dims, counts, sources)
+	statQuery := pricingOverviewStatGroupsSQL(table, dims, counts)
+	args := make([]any, len(sources))
+	for i := range args {
+		args[i] = cursor
+	}
+	query := "WITH event_groups AS (" + eventQuery + "), stored_groups AS (" + statQuery + "), " +
+		"missing AS (SELECT * FROM event_groups EXCEPT SELECT * FROM stored_groups), " +
+		"extra AS (SELECT * FROM stored_groups EXCEPT SELECT * FROM event_groups) " +
+		"SELECT 'event' AS side, * FROM missing UNION ALL SELECT 'stored' AS side, * FROM extra LIMIT 1"
+	rows, err := db.WithContext(ctx).Raw(query, args...).Rows()
+	if err != nil {
+		return fmt.Errorf("compare %s event and stored groups: %w", table, err)
+	}
+	defer rows.Close()
+	if !rows.Next() {
+		return rows.Err()
+	}
+	var side string
+	group := pricingOverviewGroupRow{Key: make([]string, len(dims)+1), Counts: make([]int64, len(counts)+1)}
+	dest := []any{&side}
+	for i := range group.Key {
+		dest = append(dest, &group.Key[i])
+	}
+	for i := range group.Counts {
+		dest = append(dest, &group.Counts[i])
+	}
+	if err := rows.Scan(dest...); err != nil {
+		return fmt.Errorf("scan %s group difference: %w", table, err)
+	}
+	return fmt.Errorf("%s %s group %v differs in fields %v: %v", table, side, group.Key, counts, group.Counts)
+}
+
+func pricingOverviewBucketExpr(column, table string) string {
+	daily := "0"
+	if strings.Contains(table, "daily") {
+		daily = "1"
+	}
+	return "pricing_overview_bucket(CAST(" + column + " AS TEXT), " + daily + ")"
+}
+
+func pricingOverviewDimensionExpr(field string) string {
+	value := "TRIM(COALESCE(" + field + ", ''))"
+	if field == "api_group_key" || field == "model" {
+		return "CASE WHEN " + value + " = '' THEN 'unknown' ELSE " + value + " END"
+	}
+	return value
+}
+
+func pricingOverviewEventGroupsSQL(table string, dims, counts, sources []string) string {
+	selects := []string{pricingOverviewBucketExpr("timestamp", table) + " AS bucket_key"}
+	for _, field := range dims {
+		selects = append(selects, pricingOverviewDimensionExpr(field)+" AS "+field)
+	}
+	selects = append(selects, "COALESCE(failed, 0) AS failed")
+	for _, field := range counts {
+		if field == "request_count" || field == "success_count" || field == "failure_count" {
+			continue
+		}
+		selects = append(selects, "COALESCE("+field+", 0) AS "+field)
+	}
+	source := func(name string) string {
+		return "SELECT " + strings.Join(selects, ", ") + " FROM " + name + " WHERE id <= ?"
+	}
+	parts := make([]string, 0, len(sources))
+	for _, name := range sources {
+		parts = append(parts, source(name))
+	}
+	union := strings.Join(parts, " UNION ALL ")
+	keys := []string{"bucket_key"}
+	keys = append(keys, dims...)
+	aggregates := []string{}
+	for _, field := range counts {
+		switch field {
+		case "request_count":
+			aggregates = append(aggregates, "COUNT(*)")
+		case "success_count":
+			aggregates = append(aggregates, "SUM(CASE WHEN failed = 0 THEN 1 ELSE 0 END)")
+		case "failure_count":
+			aggregates = append(aggregates, "SUM(CASE WHEN failed <> 0 THEN 1 ELSE 0 END)")
+		default:
+			aggregates = append(aggregates, "SUM("+field+")")
+		}
+	}
+	aggregates = append(aggregates, "1 AS row_count")
+	return "SELECT " + strings.Join(append(keys, aggregates...), ", ") + " FROM (" + union + ") GROUP BY " + strings.Join(keys, ", ")
+}
+
+func pricingOverviewStatGroupsSQL(table string, dims, counts []string) string {
+	keys := []string{pricingOverviewBucketExpr("bucket_start", table) + " AS bucket_key"}
+	for _, field := range dims {
+		keys = append(keys, pricingOverviewDimensionExpr(field)+" AS "+field)
+	}
+	aggregates := []string{}
+	for _, field := range counts {
+		aggregates = append(aggregates, "SUM("+field+")")
+	}
+	aggregates = append(aggregates, "COUNT(*)")
+	positions := []string{}
+	for i := range keys {
+		positions = append(positions, strconv.Itoa(i+1))
+	}
+	return "SELECT " + strings.Join(append(keys, aggregates...), ", ") + " FROM " + table + " GROUP BY " + strings.Join(positions, ", ")
 }

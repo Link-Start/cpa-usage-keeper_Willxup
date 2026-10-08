@@ -4,32 +4,24 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"math"
 	"reflect"
+	"time"
 
 	"cpa-usage-keeper/internal/entities"
 	"cpa-usage-keeper/internal/overview"
-	"cpa-usage-keeper/internal/timeutil"
+	"cpa-usage-keeper/internal/repository/overviewstore"
 	"gorm.io/gorm"
 	"gorm.io/plugin/dbresolver"
 )
 
 const (
-	pricingMigrationPhaseOverviewBackfilling = "overview_backfilling"
-	pricingMigrationPhaseDataComplete        = "data_complete"
-	pricingMigrationOverviewPageSize         = 1000
+	pricingMigrationPhaseOverviewRebuilding = "overview_rebuilding"
+	pricingMigrationPhaseDataComplete       = "data_complete"
+	pricingMigrationOverviewPageSize        = 1000
 )
 
-const pricingMigrationOverviewKey = "bucket_start = ? AND api_group_key = ? AND model = ? AND auth_index = ? AND model_alias = ? AND service_tier = ? AND response_service_tier = ? AND reasoning_effort = ? AND endpoint = ? AND executor_type = ?"
-
-type pricingMigrationFeeBucket struct {
-	args        []any
-	cost        float64
-	unavailable int64
-}
-
-// CompleteLegacyPricingData 在 M4 明细费用完成后，只回填固定 C 内旧 Overview 桶费用。
-// 每页冷热事件的小时、日费用和恢复游标同事务；全部核对成功后仅标 data_complete，业务 ready 留给启动阶段。
+// CompleteLegacyPricingData 在 M4 明细费用完成后，从固定 C 内现存冷热事件重建完整 Overview。
+// 每页冷热事件的小时、日统计和恢复游标同事务；全部核对成功后仅标 data_complete，业务 ready 留给启动阶段。
 func CompleteLegacyPricingData(ctx context.Context, writer, reader *gorm.DB, baseline PricingLegacyBaseline) error {
 	if writer == nil || reader == nil {
 		return fmt.Errorf("pricing overview migration database is missing")
@@ -37,7 +29,7 @@ func CompleteLegacyPricingData(ctx context.Context, writer, reader *gorm.DB, bas
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	stored, cursors, cursorJSON, done, err := beginLegacyPricingOverview(ctx, writer, reader, baseline)
+	stored, cursors, cursorJSON, done, err := beginLegacyPricingOverview(ctx, writer, baseline)
 	if err != nil || done {
 		return err
 	}
@@ -77,7 +69,7 @@ func CompleteLegacyPricingData(ctx context.Context, writer, reader *gorm.DB, bas
 				return fmt.Errorf("encode pricing overview cursor: %w", err)
 			}
 			if err := applyLegacyPricingOverviewPage(ctx, writer, events, cursorJSON, string(nextBytes)); err != nil {
-				return fmt.Errorf("backfill %s overview after %d: %w", target.table, after, err)
+				return fmt.Errorf("rebuild %s overview after %d: %w", target.table, after, err)
 			}
 			cursors, cursorJSON = next, string(nextBytes)
 		}
@@ -88,7 +80,7 @@ func CompleteLegacyPricingData(ctx context.Context, writer, reader *gorm.DB, bas
 	}
 	return writer.Clauses(dbresolver.Write).WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		result := tx.Model(&entities.PricingMigrationState{}).
-			Where("id = ? AND init_kind = ? AND phase = ? AND schema_complete = ? AND data_complete = ? AND cursors_json = ?", 1, PricingInitKindLegacy, pricingMigrationPhaseOverviewBackfilling, true, false, cursorJSON).
+			Where("id = ? AND init_kind = ? AND phase = ? AND schema_complete = ? AND data_complete = ? AND cursors_json = ?", 1, PricingInitKindLegacy, pricingMigrationPhaseOverviewRebuilding, true, false, cursorJSON).
 			Updates(map[string]any{"phase": pricingMigrationPhaseDataComplete, "data_complete": true})
 		if result.Error != nil {
 			return fmt.Errorf("mark pricing data complete: %w", result.Error)
@@ -101,8 +93,8 @@ func CompleteLegacyPricingData(ctx context.Context, writer, reader *gorm.DB, bas
 }
 
 // beginLegacyPricingOverview 用持久 fixed、M4 游标和 phase 判定恢复点。
-// 首次进入只在 reader 证明旧桶费用全为 NULL 后以短 writer 事务记录新游标；已有费用无游标不能静默再加。
-func beginLegacyPricingOverview(ctx context.Context, writer, reader *gorm.DB, baseline PricingLegacyBaseline) (PricingLegacyBaseline, PricingMigrationEventCursors, string, bool, error) {
+// 首次进入在同一事务清空旧桶并记录重建游标；恢复时保留已提交桶，不重清、不重复累计。
+func beginLegacyPricingOverview(ctx context.Context, writer *gorm.DB, baseline PricingLegacyBaseline) (PricingLegacyBaseline, PricingMigrationEventCursors, string, bool, error) {
 	var state entities.PricingMigrationState
 	if err := writer.Clauses(dbresolver.Write).WithContext(ctx).Where("id = ?", 1).Take(&state).Error; err != nil {
 		return PricingLegacyBaseline{}, PricingMigrationEventCursors{}, "", false, fmt.Errorf("load pricing overview state: %w", err)
@@ -130,7 +122,7 @@ func beginLegacyPricingOverview(ctx context.Context, writer, reader *gorm.DB, ba
 		}
 		return stored, cursors, *state.CursorsJSON, true, nil
 	}
-	if state.Phase == pricingMigrationPhaseOverviewBackfilling {
+	if state.Phase == pricingMigrationPhaseOverviewRebuilding {
 		if cursors.Overview == nil {
 			return PricingLegacyBaseline{}, PricingMigrationEventCursors{}, "", false, fmt.Errorf("pricing overview phase has no cursor")
 		}
@@ -142,16 +134,6 @@ func beginLegacyPricingOverview(ctx context.Context, writer, reader *gorm.DB, ba
 	if state.Phase != pricingMigrationPhaseEventsBackfilled || cursors.Overview != nil {
 		return PricingLegacyBaseline{}, PricingMigrationEventCursors{}, "", false, fmt.Errorf("pricing overview initial phase/cursor is inconsistent")
 	}
-	for _, table := range []string{"usage_overview_hourly_stats", "usage_overview_daily_stats"} {
-		var dirty int64
-		if err := reader.Clauses(dbresolver.Read).WithContext(ctx).Table(table).
-			Select("COUNT(*)").Where("cost_usd IS NOT NULL OR unavailable_cost_count IS NOT NULL").Scan(&dirty).Error; err != nil {
-			return PricingLegacyBaseline{}, PricingMigrationEventCursors{}, "", false, fmt.Errorf("check %s initial fee state: %w", table, err)
-		}
-		if dirty != 0 {
-			return PricingLegacyBaseline{}, PricingMigrationEventCursors{}, "", false, fmt.Errorf("%s has amount without pricing overview cursor", table)
-		}
-	}
 	cursors.Overview = &PricingMigrationOverviewCursors{}
 	nextBytes, err := json.Marshal(cursors)
 	if err != nil {
@@ -160,12 +142,18 @@ func beginLegacyPricingOverview(ctx context.Context, writer, reader *gorm.DB, ba
 	if err := writer.Clauses(dbresolver.Write).WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		result := tx.Model(&entities.PricingMigrationState{}).
 			Where("id = ? AND phase = ? AND data_complete = ? AND cursors_json = ?", 1, pricingMigrationPhaseEventsBackfilled, false, *state.CursorsJSON).
-			Updates(map[string]any{"phase": pricingMigrationPhaseOverviewBackfilling, "cursors_json": string(nextBytes)})
+			Updates(map[string]any{"phase": pricingMigrationPhaseOverviewRebuilding, "cursors_json": string(nextBytes)})
 		if result.Error != nil {
 			return result.Error
 		}
 		if result.RowsAffected != 1 {
 			return fmt.Errorf("pricing overview state changed before start")
+		}
+		// 阶段/游标与清空原子提交；任一删除失败，旧桶与初始阶段一起回滚。
+		for _, table := range []string{"usage_overview_hourly_stats", "usage_overview_daily_stats"} {
+			if err := tx.Table(table).Where("1 = 1").Delete(nil).Error; err != nil {
+				return fmt.Errorf("clear %s for pricing rebuild: %w", table, err)
+			}
 		}
 		return nil
 	}); err != nil {
@@ -203,8 +191,8 @@ func loadLegacyPricingOverviewPage(ctx context.Context, reader *gorm.DB, table s
 	return events, nil
 }
 
-// applyLegacyPricingOverviewPage 只累计已存费用和不可用量，不触碰请求、Token、时间或普通 checkpoint。
-// 调用方以同一事务持有 hourly、daily 和本页游标；任一桶缺失或写入失败，整页回滚。
+// applyLegacyPricingOverviewPage 复用正式聚合公式写入请求、Token 和已存费用，不改普通 checkpoint。
+// hourly、daily 与本页恢复游标同事务提交；任一步失败整页回滚。
 func applyLegacyPricingOverviewPage(ctx context.Context, writer *gorm.DB, events []entities.UsageEvent, oldCursor, nextCursor string) error {
 	var hourly []entities.UsageOverviewHourlyStat
 	var daily []entities.UsageOverviewDailyStat
@@ -216,26 +204,11 @@ func applyLegacyPricingOverviewPage(ctx context.Context, writer *gorm.DB, events
 		}
 	}
 	return writer.Clauses(dbresolver.Write).WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		for _, row := range hourly {
-			bucket := pricingMigrationFeeBucket{
-				args: []any{timeutil.FormatStorageTime(row.BucketStart), row.APIGroupKey, row.Model, row.AuthIndex, row.ModelAlias, row.ServiceTier, row.ResponseServiceTier, row.ReasoningEffort, row.Endpoint, row.ExecutorType},
-				cost: *row.CostUSD, unavailable: *row.UnavailableCostCount,
-			}
-			if err := addLegacyPricingOverviewFee(tx, "usage_overview_hourly_stats", bucket); err != nil {
-				return err
-			}
-		}
-		for _, row := range daily {
-			bucket := pricingMigrationFeeBucket{
-				args: []any{timeutil.FormatStorageTime(row.BucketStart), row.APIGroupKey, row.Model, row.AuthIndex, row.ModelAlias, row.ServiceTier, row.ResponseServiceTier, row.ReasoningEffort, row.Endpoint, row.ExecutorType},
-				cost: *row.CostUSD, unavailable: *row.UnavailableCostCount,
-			}
-			if err := addLegacyPricingOverviewFee(tx, "usage_overview_daily_stats", bucket); err != nil {
-				return err
-			}
+		if err := overviewstore.ApplyRows(tx, hourly, daily, time.Now()); err != nil {
+			return err
 		}
 		result := tx.Model(&entities.PricingMigrationState{}).
-			Where("id = ? AND phase = ? AND cursors_json = ?", 1, pricingMigrationPhaseOverviewBackfilling, oldCursor).
+			Where("id = ? AND phase = ? AND cursors_json = ?", 1, pricingMigrationPhaseOverviewRebuilding, oldCursor).
 			Update("cursors_json", nextCursor)
 		if result.Error != nil {
 			return fmt.Errorf("advance pricing overview cursor: %w", result.Error)
@@ -245,26 +218,4 @@ func applyLegacyPricingOverviewPage(ctx context.Context, writer *gorm.DB, events
 		}
 		return nil
 	})
-}
-
-// addLegacyPricingOverviewFee 仅在首次升级阶段把 NULL 旧桶视为尚未累加的起点。
-// 完整键必须已有行，且金额相加后仍有限；普通增量聚合继续拒绝 NULL 桶。
-func addLegacyPricingOverviewFee(tx *gorm.DB, table string, bucket pricingMigrationFeeBucket) error {
-	if math.IsNaN(bucket.cost) || math.IsInf(bucket.cost, 0) || bucket.unavailable < 0 {
-		return fmt.Errorf("%s overview page fee is invalid", table)
-	}
-	result := tx.Table(table).Where(pricingMigrationOverviewKey, bucket.args...).Where(
-		"((cost_usd IS NULL AND unavailable_cost_count IS NULL) OR (cost_usd IS NOT NULL AND unavailable_cost_count IS NOT NULL)) AND COALESCE(cost_usd, 0) + ? BETWEEN ? AND ? AND COALESCE(unavailable_cost_count, 0) <= ?",
-		bucket.cost, -math.MaxFloat64, math.MaxFloat64, math.MaxInt64-bucket.unavailable,
-	).UpdateColumns(map[string]any{
-		"cost_usd":               gorm.Expr("COALESCE(cost_usd, 0) + ?", bucket.cost),
-		"unavailable_cost_count": gorm.Expr("COALESCE(unavailable_cost_count, 0) + ?", bucket.unavailable),
-	})
-	if result.Error != nil {
-		return fmt.Errorf("write %s overview fee: %w", table, result.Error)
-	}
-	if result.RowsAffected != 1 {
-		return fmt.Errorf("%s expected fee bucket is missing or invalid: %v", table, bucket.args)
-	}
-	return nil
 }

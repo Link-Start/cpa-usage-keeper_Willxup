@@ -26,7 +26,7 @@ var pricingLegacyEventConversions = map[string]bool{
 
 // VerifyPublishedPricingMigration 在 M2 末尾只读核对旧版本的转换结果。
 // 调用方先经 ProtectPricingLegacyMigration 验证原备份及基线；这里不重复扫描备份总量。
-// 原表字段按 ID 核对；M1 已核对旧分组，这里核对新水位及重建分组。
+// 原表字段按 ID 核对并验证水位转换；Overview 将在 M5 重建，不以旧桶作为迁移前提。
 func VerifyPublishedPricingMigration(ctx context.Context, backupDB, liveDB *gorm.DB, original PricingLegacyBaseline) error {
 	if backupDB == nil || liveDB == nil {
 		return fmt.Errorf("pricing M2 verification database is missing")
@@ -39,7 +39,7 @@ func VerifyPublishedPricingMigration(ctx context.Context, backupDB, liveDB *gorm
 			return err
 		}
 	}
-	// M1 已在破坏性旧迁移前证明原分组；这里只证明转换后新 C 内全部明细与新分组对应。
+	// 旧聚合可能包含已清理事件；此阶段仅验证已发布迁移的水位合同。
 	liveSchema, err := pricingM2Schema(ctx, liveDB)
 	if err != nil {
 		return err
@@ -57,12 +57,6 @@ func VerifyPublishedPricingMigration(ctx context.Context, backupDB, liveDB *gorm
 		}
 	} else if liveCursor != original.Overview.Cursor {
 		return fmt.Errorf("converted overview cursor changed from %d to %d without five-dimension replay", original.Overview.Cursor, liveCursor)
-	}
-	for _, period := range []string{"hourly", "daily"} {
-		table := "usage_overview_" + period + "_stats"
-		if err := verifyPricingM2Rollup(ctx, liveDB, liveSchema, table, liveCursor); err != nil {
-			return fmt.Errorf("verify converted %s: %w", table, err)
-		}
 	}
 	return nil
 }
@@ -689,198 +683,4 @@ func pricingM2OriginalIdentity(ctx context.Context, db *gorm.DB, b PricingLegacy
 		return false, "", query.Error
 	}
 	return query.RowsAffected > 0, row.Provider.String, nil
-}
-
-var pricingM2Dimensions = []string{
-	"api_group_key", "model", "auth_index", "model_alias",
-	"service_tier", "response_service_tier", "reasoning_effort", "endpoint", "executor_type",
-}
-
-var pricingM2Counts = []string{
-	"request_count", "success_count", "failure_count", "input_tokens", "output_tokens",
-	"reasoning_tokens", "cached_tokens", "cache_read_tokens", "cache_creation_tokens", "total_tokens",
-}
-
-type pricingM2GroupRow struct {
-	Key    []string
-	Counts []int64
-}
-
-// verifyPricingM2Rollup 在给定实际 schema 与水位下核对每个历史分组的请求和 Token，供 M1 原组及 M2 新组共用。
-func verifyPricingM2Rollup(ctx context.Context, db *gorm.DB, schema PricingLegacyBaseline, table string, cursor int64) error {
-	if !hasPricingBaselineTable(schema, table) {
-		if cursor != 0 {
-			return fmt.Errorf("%s missing with nonzero cursor %d", table, cursor)
-		}
-		return nil
-	}
-	if !hasPricingBaselineColumn(schema, table, "bucket_start") || !hasPricingBaselineColumn(schema, table, "request_count") {
-		return fmt.Errorf("%s lacks grouping or count columns", table)
-	}
-	if !hasPricingBaselineTable(schema, "usage_events") {
-		return fmt.Errorf("usage_events missing for %s verification", table)
-	}
-	dims := []string{}
-	for _, field := range pricingM2Dimensions {
-		if hasPricingBaselineColumn(schema, table, field) {
-			dims = append(dims, field)
-		}
-	}
-	counts := []string{}
-	for _, field := range pricingM2Counts {
-		if hasPricingBaselineColumn(schema, table, field) {
-			counts = append(counts, field)
-		}
-	}
-	// 原库汇总列若没有对应原始明细列，不能用零值假装迁移前分组完整。
-	sources := []string{}
-	for _, source := range []string{"usage_events", "usage_events_archive"} {
-		if !hasPricingBaselineTable(schema, source) {
-			continue
-		}
-		var covered int64
-		if err := db.WithContext(ctx).Table(source).Where("id <= ?", cursor).Count(&covered).Error; err != nil {
-			return fmt.Errorf("count %s at cursor %d: %w", source, cursor, err)
-		}
-		if covered == 0 {
-			continue
-		}
-		sources = append(sources, source)
-		for _, field := range dims {
-			if !hasPricingBaselineColumn(schema, source, field) {
-				return fmt.Errorf("%s.%s cannot prove %s", source, field, table)
-			}
-		}
-		for _, field := range counts {
-			if field == "request_count" || field == "success_count" || field == "failure_count" {
-				if field != "request_count" && !hasPricingBaselineColumn(schema, source, "failed") {
-					return fmt.Errorf("%s.failed cannot prove %s", source, table)
-				}
-				continue
-			}
-			if !hasPricingBaselineColumn(schema, source, field) {
-				return fmt.Errorf("%s.%s cannot prove %s", source, field, table)
-			}
-		}
-	}
-	if len(sources) == 0 {
-		var rows int64
-		if err := db.WithContext(ctx).Table(table).Count(&rows).Error; err != nil {
-			return err
-		}
-		if rows != 0 {
-			return fmt.Errorf("%s has %d rows without cursor-covered events", table, rows)
-		}
-		return nil
-	}
-	eventQuery := pricingM2EventGroupsSQL(table, dims, counts, sources)
-	statQuery := pricingM2StatGroupsSQL(table, dims, counts)
-	args := make([]any, len(sources))
-	for i := range args {
-		args[i] = cursor
-	}
-	query := "WITH event_groups AS (" + eventQuery + "), stored_groups AS (" + statQuery + "), " +
-		"missing AS (SELECT * FROM event_groups EXCEPT SELECT * FROM stored_groups), " +
-		"extra AS (SELECT * FROM stored_groups EXCEPT SELECT * FROM event_groups) " +
-		"SELECT 'event' AS side, * FROM missing UNION ALL SELECT 'stored' AS side, * FROM extra LIMIT 1"
-	rows, err := db.WithContext(ctx).Raw(query, args...).Rows()
-	if err != nil {
-		return fmt.Errorf("compare %s event and stored groups: %w", table, err)
-	}
-	defer rows.Close()
-	if !rows.Next() {
-		return rows.Err()
-	}
-	var side string
-	group := pricingM2GroupRow{Key: make([]string, len(dims)+1), Counts: make([]int64, len(counts)+1)}
-	dest := []any{&side}
-	for i := range group.Key {
-		dest = append(dest, &group.Key[i])
-	}
-	for i := range group.Counts {
-		dest = append(dest, &group.Counts[i])
-	}
-	if err := rows.Scan(dest...); err != nil {
-		return fmt.Errorf("scan %s group difference: %w", table, err)
-	}
-	return fmt.Errorf("%s %s group %v differs in fields %v: %v", table, side, group.Key, counts, group.Counts)
-}
-
-func pricingM2BucketExpr(column, table string) string {
-	value := "CAST(" + column + " AS TEXT)"
-	if strings.Contains(table, "daily") {
-		return "substr(" + value + ", 1, 10)"
-	}
-	// 旧 Overview 在 20260512 时间正规化之后才建表；有 offset 的旧值按绝对整小时分组。
-	// 先剥小数秒并保留 Z／原 offset，避免不同 SQLite 版本将 .999999999 舍入到下一小时。
-	second := "substr(" + value + ", 1, instr(" + value + ", '.') - 1)"
-	withoutFraction := "CASE WHEN instr(" + value + ", '.') = 0 THEN " + value +
-		" WHEN substr(" + value + ", -1) = 'Z' THEN " + second + " || 'Z'" +
-		" WHEN substr(" + value + ", -6, 1) IN ('+', '-') THEN " + second + " || substr(" + value + ", -6)" +
-		" ELSE " + second + " END"
-	return "CAST(CAST(strftime('%s', " + withoutFraction + ") AS INTEGER) / 3600 AS TEXT)"
-}
-
-func pricingM2DimensionExpr(field string) string {
-	value := "TRIM(COALESCE(" + field + ", ''))"
-	if field == "api_group_key" || field == "model" {
-		return "CASE WHEN " + value + " = '' THEN 'unknown' ELSE " + value + " END"
-	}
-	return value
-}
-
-func pricingM2EventGroupsSQL(table string, dims, counts, sources []string) string {
-	selects := []string{pricingM2BucketExpr("timestamp", table) + " AS bucket_key"}
-	for _, field := range dims {
-		selects = append(selects, pricingM2DimensionExpr(field)+" AS "+field)
-	}
-	selects = append(selects, "COALESCE(failed, 0) AS failed")
-	for _, field := range counts {
-		if field == "request_count" || field == "success_count" || field == "failure_count" {
-			continue
-		}
-		selects = append(selects, "COALESCE("+field+", 0) AS "+field)
-	}
-	source := func(name string) string {
-		return "SELECT " + strings.Join(selects, ", ") + " FROM " + name + " WHERE id <= ?"
-	}
-	parts := make([]string, 0, len(sources))
-	for _, name := range sources {
-		parts = append(parts, source(name))
-	}
-	union := strings.Join(parts, " UNION ALL ")
-	keys := []string{"bucket_key"}
-	keys = append(keys, dims...)
-	aggregates := []string{}
-	for _, field := range counts {
-		switch field {
-		case "request_count":
-			aggregates = append(aggregates, "COUNT(*)")
-		case "success_count":
-			aggregates = append(aggregates, "SUM(CASE WHEN failed = 0 THEN 1 ELSE 0 END)")
-		case "failure_count":
-			aggregates = append(aggregates, "SUM(CASE WHEN failed <> 0 THEN 1 ELSE 0 END)")
-		default:
-			aggregates = append(aggregates, "SUM("+field+")")
-		}
-	}
-	aggregates = append(aggregates, "1 AS row_count")
-	return "SELECT " + strings.Join(append(keys, aggregates...), ", ") + " FROM (" + union + ") GROUP BY " + strings.Join(keys, ", ")
-}
-
-func pricingM2StatGroupsSQL(table string, dims, counts []string) string {
-	keys := []string{pricingM2BucketExpr("bucket_start", table) + " AS bucket_key"}
-	for _, field := range dims {
-		keys = append(keys, pricingM2DimensionExpr(field)+" AS "+field)
-	}
-	aggregates := []string{}
-	for _, field := range counts {
-		aggregates = append(aggregates, "SUM("+field+")")
-	}
-	aggregates = append(aggregates, "COUNT(*)")
-	positions := []string{}
-	for i := range keys {
-		positions = append(positions, strconv.Itoa(i+1))
-	}
-	return "SELECT " + strings.Join(append(keys, aggregates...), ", ") + " FROM " + table + " GROUP BY " + strings.Join(positions, ", ")
 }

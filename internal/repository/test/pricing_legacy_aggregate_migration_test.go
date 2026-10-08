@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"math"
 	"path/filepath"
-	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -17,7 +16,7 @@ import (
 	"cpa-usage-keeper/internal/timeutil"
 )
 
-// CMT13 夹具的空 API group 用于验证旧列；费用汇总按最终唯一键使用真实归一化值。
+// 旧物理表夹具保留原始事件字段；重建使用归一化分组。
 func openPublishedPricingOverviewFixture(t *testing.T) publishedPricingEventFixture {
 	t.Helper()
 	fixture := openPublishedPricingEventFixture(t)
@@ -45,7 +44,7 @@ func alignPublishedPricingOverviewBuckets(t *testing.T, fixture publishedPricing
 	}
 }
 
-func TestLegacyPricingOverviewBackfillLeavesCBehindHForNormalAggregation(t *testing.T) {
+func TestLegacyPricingOverviewRebuildLeavesCBehindHForNormalAggregation(t *testing.T) {
 	fixture := openPublishedPricingOverviewFixture(t)
 	ctx := context.Background()
 	baseline, err := repository.MigrateLegacyPricingEvents(ctx, fixture.writer, fixture.reader, fixture.backupDir, time.Now())
@@ -55,18 +54,11 @@ func TestLegacyPricingOverviewBackfillLeavesCBehindHForNormalAggregation(t *test
 	if baseline.Fixed.OverviewCursor != 1 || baseline.Fixed.HotMaxID != 3 || baseline.Fixed.ArchiveMaxID != 0 {
 		t.Fatalf("固定 C/H 不符: %+v", baseline.Fixed)
 	}
-	originalFacts := map[string]map[string]any{}
-	for _, table := range []string{"usage_overview_hourly_stats", "usage_overview_daily_stats"} {
-		originalFacts[table] = legacyOverviewFactRow(t, fixture, table, 1)
-	}
 	if err := repository.CompleteLegacyPricingData(ctx, fixture.writer, fixture.reader, baseline); err != nil {
 		t.Fatal(err)
 	}
 	for _, table := range []string{"usage_overview_hourly_stats", "usage_overview_daily_stats"} {
-		assertLegacyOverviewFee(t, fixture, table, 1, 0.00078, 0, 1, 120)
-		if after := legacyOverviewFactRow(t, fixture, table, 1); !reflect.DeepEqual(originalFacts[table], after) {
-			t.Fatalf("%s M5 改动了已有桶非费用列: before=%+v after=%+v", table, originalFacts[table], after)
-		}
+		assertLegacyOverviewFee(t, fixture, table, "model-a", 0.00078, 0, 1, 120)
 		var count int64
 		if err := fixture.writer.Table(table).Count(&count).Error; err != nil || count != 1 {
 			t.Fatalf("%s 把 C 后事件提前计入: count=%d err=%v", table, count, err)
@@ -80,17 +72,16 @@ func TestLegacyPricingOverviewBackfillLeavesCBehindHForNormalAggregation(t *test
 	if err := fixture.writer.Table("usage_aggregation_checkpoints").Where("name = ?", "overview").Select("last_aggregated_usage_event_id").Scan(&checkpoint).Error; err != nil || checkpoint != 1 {
 		t.Fatalf("Overview 水位被 M5 改写: %d %v", checkpoint, err)
 	}
-}
-
-func legacyOverviewFactRow(t *testing.T, fixture publishedPricingEventFixture, table string, id int64) map[string]any {
-	t.Helper()
-	var row map[string]any
-	if err := fixture.writer.Table(table).Where("id = ?", id).Take(&row).Error; err != nil {
-		t.Fatal(err)
+	// 启动追赶沿原水位处理剩余已计价事件；重复追赶不能双计。
+	for range 2 {
+		if err := repository.AggregateUsageOverviewStats(ctx, fixture.writer, time.Now()); err != nil {
+			t.Fatal(err)
+		}
+		for _, table := range []string{"usage_overview_hourly_stats", "usage_overview_daily_stats"} {
+			assertLegacyOverviewFee(t, fixture, table, "model-a", 0.00078, 0, 1, 120)
+			assertLegacyOverviewFee(t, fixture, table, "missing-model", 0, 1, 1, 100)
+		}
 	}
-	delete(row, "cost_usd")
-	delete(row, "unavailable_cost_count")
-	return row
 }
 
 func TestLegacyPricingOverviewCompletesEmptyPublishedDatabase(t *testing.T) {
@@ -119,7 +110,7 @@ func TestLegacyPricingOverviewCompletesEmptyPublishedDatabase(t *testing.T) {
 	}
 }
 
-func TestLegacyPricingOverviewRejectsExistingAmountWithoutCursor(t *testing.T) {
+func TestLegacyPricingOverviewReplacesOldBucketsAtRebuildStart(t *testing.T) {
 	fixture := openPublishedPricingOverviewFixture(t)
 	baseline, err := repository.MigrateLegacyPricingEvents(context.Background(), fixture.writer, fixture.reader, fixture.backupDir, time.Now())
 	if err != nil {
@@ -128,18 +119,15 @@ func TestLegacyPricingOverviewRejectsExistingAmountWithoutCursor(t *testing.T) {
 	if err := fixture.writer.Exec("UPDATE usage_overview_hourly_stats SET cost_usd = 7, unavailable_cost_count = 0 WHERE id = 1").Error; err != nil {
 		t.Fatal(err)
 	}
-	err = repository.CompleteLegacyPricingData(context.Background(), fixture.writer, fixture.reader, baseline)
-	if err == nil {
-		t.Fatal("无汇总游标的已有金额被重复累加")
+	if err := repository.CompleteLegacyPricingData(context.Background(), fixture.writer, fixture.reader, baseline); err != nil {
+		t.Fatal(err)
 	}
-	var state entities.PricingMigrationState
-	if err := fixture.writer.Where("id = ?", 1).Take(&state).Error; err != nil || state.DataComplete || state.Phase != "events_backfilled" {
-		t.Fatalf("拒绝后不应进入 M5: %+v %v", state, err)
+	for _, table := range []string{"usage_overview_hourly_stats", "usage_overview_daily_stats"} {
+		assertLegacyOverviewFee(t, fixture, table, "model-a", 0.00078, 0, 1, 120)
 	}
-	assertLegacyOverviewFee(t, fixture, "usage_overview_hourly_stats", 1, 7, 0, 1, 120)
 }
 
-func TestLegacyPricingOverviewBackfillHotColdSameBucketAndIDGap(t *testing.T) {
+func TestLegacyPricingOverviewRebuildHotColdSameBucketAndIDGap(t *testing.T) {
 	fixture := openPublishedPricingOverviewFixture(t)
 	for _, statement := range []string{
 		"UPDATE usage_events SET id = 5 WHERE id = 3",
@@ -163,8 +151,8 @@ func TestLegacyPricingOverviewBackfillHotColdSameBucketAndIDGap(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, table := range []string{"usage_overview_hourly_stats", "usage_overview_daily_stats"} {
-		assertLegacyOverviewFee(t, fixture, table, 1, 0.0012, 0, 2, 180)
-		assertLegacyOverviewFee(t, fixture, table, 3, 0, 1, 1, 100)
+		assertLegacyOverviewFee(t, fixture, table, "model-a", 0.0012, 0, 2, 180)
+		assertLegacyOverviewFee(t, fixture, table, "missing-model", 0, 1, 1, 100)
 	}
 }
 
@@ -189,7 +177,7 @@ func TestLegacyPricingOverviewAdvancesPastEmptyHotIDRange(t *testing.T) {
 		t.Fatalf("空热前缀不应被误认缺明细: %v", err)
 	}
 	for _, table := range []string{"usage_overview_hourly_stats", "usage_overview_daily_stats"} {
-		assertLegacyOverviewFee(t, fixture, table, 1, 0.00078, 0, 1, 120)
+		assertLegacyOverviewFee(t, fixture, table, "model-a", 0.00078, 0, 1, 120)
 	}
 	var state entities.PricingMigrationState
 	if err := fixture.writer.Where("id = ?", 1).Take(&state).Error; err != nil || state.CursorsJSON == nil {
@@ -235,7 +223,7 @@ func TestLegacyPricingOverviewPageFailureResumesWithoutDoubleAdd(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := fixture.writer.Exec(`CREATE TRIGGER fail_second_overview_fee_page BEFORE UPDATE OF cost_usd ON usage_overview_hourly_stats WHEN OLD.cost_usd IS NOT NULL BEGIN SELECT RAISE(ABORT, 'forced second fee page failure'); END`).Error; err != nil {
+	if err := fixture.writer.Exec(`CREATE TRIGGER fail_second_overview_rebuild_page BEFORE UPDATE OF cost_usd ON usage_overview_hourly_stats WHEN OLD.cost_usd IS NOT NULL BEGIN SELECT RAISE(ABORT, 'forced second rebuild page failure'); END`).Error; err != nil {
 		t.Fatal(err)
 	}
 	if err := repository.CompleteLegacyPricingData(ctx, fixture.writer, fixture.reader, baseline); err == nil {
@@ -260,7 +248,7 @@ func TestLegacyPricingOverviewPageFailureResumesWithoutDoubleAdd(t *testing.T) {
 	if err := fixture.writer.Where("id = ?", 1).Take(&afterM4).Error; err != nil || afterM4.CursorsJSON == nil || *afterM4.CursorsJSON != *failed.CursorsJSON {
 		t.Fatalf("M4 重入覆写汇总游标: %+v %v", afterM4, err)
 	}
-	if err := fixture.writer.Exec("DROP TRIGGER fail_second_overview_fee_page").Error; err != nil {
+	if err := fixture.writer.Exec("DROP TRIGGER fail_second_overview_rebuild_page").Error; err != nil {
 		t.Fatal(err)
 	}
 	closePublishedPricingPools(fixture.reader, fixture.writer)
@@ -274,7 +262,7 @@ func TestLegacyPricingOverviewPageFailureResumesWithoutDoubleAdd(t *testing.T) {
 	}
 	var cost sql.NullFloat64
 	var unavailable sql.NullInt64
-	if err := reopened.Table("usage_overview_hourly_stats").Select("cost_usd, unavailable_cost_count").Where("id = ?", 1).Row().Scan(&cost, &unavailable); err != nil || !cost.Valid || !unavailable.Valid {
+	if err := reopened.Table("usage_overview_hourly_stats").Select("cost_usd, unavailable_cost_count").Where("model = ?", "model-a").Row().Scan(&cost, &unavailable); err != nil || !cost.Valid || !unavailable.Valid {
 		t.Fatalf("续跑费用未提交: %+v %+v %v", cost, unavailable, err)
 	}
 	var expected float64
@@ -290,35 +278,25 @@ func TestLegacyPricingOverviewPageFailureResumesWithoutDoubleAdd(t *testing.T) {
 	}
 }
 
-func TestLegacyPricingOverviewMissingBucketAndCorruptCostBlockCompletion(t *testing.T) {
-	for _, damage := range []string{"missing_bucket", "missing_cost"} {
-		t.Run(damage, func(t *testing.T) {
-			fixture := openPublishedPricingOverviewFixture(t)
-			baseline, err := repository.MigrateLegacyPricingEvents(context.Background(), fixture.writer, fixture.reader, fixture.backupDir, time.Now())
-			if err != nil {
-				t.Fatal(err)
-			}
-			switch damage {
-			case "missing_bucket":
-				err = fixture.writer.Exec("DELETE FROM usage_overview_daily_stats WHERE id = 1").Error
-			case "missing_cost":
-				err = fixture.writer.Exec("UPDATE usage_events SET cost_usd = NULL WHERE id = 1").Error
-			}
-			if err != nil {
-				t.Fatal(err)
-			}
-			if err := repository.CompleteLegacyPricingData(context.Background(), fixture.writer, fixture.reader, baseline); err == nil {
-				t.Fatal("损坏数据被标记完成")
-			}
-			var state entities.PricingMigrationState
-			if err := fixture.writer.Where("id = ?", 1).Take(&state).Error; err != nil || state.DataComplete {
-				t.Fatalf("错误标记 data_complete: %+v %v", state, err)
-			}
-		})
+func TestLegacyPricingOverviewCorruptCostBlocksCompletion(t *testing.T) {
+	fixture := openPublishedPricingOverviewFixture(t)
+	baseline, err := repository.MigrateLegacyPricingEvents(context.Background(), fixture.writer, fixture.reader, fixture.backupDir, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := fixture.writer.Exec("UPDATE usage_events SET cost_usd = NULL WHERE id = 1").Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := repository.CompleteLegacyPricingData(context.Background(), fixture.writer, fixture.reader, baseline); err == nil {
+		t.Fatal("invalid event cost was accepted")
+	}
+	var state entities.PricingMigrationState
+	if err := fixture.writer.Where("id = ?", 1).Take(&state).Error; err != nil || state.DataComplete {
+		t.Fatalf("invalid completion: %+v %v", state, err)
 	}
 }
 
-func TestLegacyPricingOverviewDoesNotConcealUntrackedCursorOrAmount(t *testing.T) {
+func TestLegacyPricingOverviewRejectsMissingRebuildCursor(t *testing.T) {
 	fixture := openPublishedPricingOverviewFixture(t)
 	baseline, err := repository.MigrateLegacyPricingEvents(context.Background(), fixture.writer, fixture.reader, fixture.backupDir, time.Now())
 	if err != nil {
@@ -328,8 +306,8 @@ func TestLegacyPricingOverviewDoesNotConcealUntrackedCursorOrAmount(t *testing.T
 	if err := fixture.writer.Where("id = ?", 1).Take(&state).Error; err != nil {
 		t.Fatal(err)
 	}
-	// 阶段被错误推进而未同时留下汇总游标时，不得把已有费用当成新页初态。
-	if err := fixture.writer.Model(&entities.PricingMigrationState{}).Where("id = ?", 1).Update("phase", "overview_backfilling").Error; err != nil {
+	// 阶段被错误推进而未同时留下重建游标时，不得重清或猜测恢复位置。
+	if err := fixture.writer.Model(&entities.PricingMigrationState{}).Where("id = ?", 1).Update("phase", "overview_rebuilding").Error; err != nil {
 		t.Fatal(err)
 	}
 	err = repository.CompleteLegacyPricingData(context.Background(), fixture.writer, fixture.reader, baseline)
@@ -341,15 +319,68 @@ func TestLegacyPricingOverviewDoesNotConcealUntrackedCursorOrAmount(t *testing.T
 	}
 }
 
-func assertLegacyOverviewFee(t *testing.T, fixture publishedPricingEventFixture, table string, id int64, wantCost float64, wantUnavailable, wantCount, wantTokens int64) {
+func assertLegacyOverviewFee(t *testing.T, fixture publishedPricingEventFixture, table string, model string, wantCost float64, wantUnavailable, wantCount, wantTokens int64) {
 	t.Helper()
 	var cost sql.NullFloat64
 	var unavailable sql.NullInt64
 	var count, tokens int64
-	if err := fixture.writer.Table(table).Select("cost_usd, unavailable_cost_count, request_count, total_tokens").Where("id = ?", id).Row().Scan(&cost, &unavailable, &count, &tokens); err != nil {
+	if err := fixture.writer.Table(table).Select("cost_usd, unavailable_cost_count, request_count, total_tokens").Where("model = ?", model).Row().Scan(&cost, &unavailable, &count, &tokens); err != nil {
 		t.Fatal(err)
 	}
 	if !cost.Valid || !unavailable.Valid || math.IsNaN(cost.Float64) || math.IsInf(cost.Float64, 0) || math.Abs(cost.Float64-wantCost) > 1e-12 || unavailable.Int64 != wantUnavailable || count != wantCount || tokens != wantTokens {
-		t.Fatalf("%s/%d 费用与旧事实不符: cost=%+v unavailable=%+v count=%d tokens=%d", table, id, cost, unavailable, count, tokens)
+		t.Fatalf("%s/%s 重建结果不符: cost=%+v unavailable=%+v count=%d tokens=%d", table, model, cost, unavailable, count, tokens)
+	}
+}
+
+// 原始时间可携带不同 offset；重建及 M6 必须使用同一项目时区，且保留原始事实。
+func TestLegacyPricingOverviewRebuildTimezoneBoundaries(t *testing.T) {
+	for _, tc := range []struct{ name, zone, timestamp, day string }{
+		{"utc_to_shanghai_next_day", "Asia/Shanghai", "2026-09-01T23:30:00Z", "2026-09-02"},
+		{"offset_to_utc_previous_day", "UTC", "2026-09-02T00:30:00+08:00", "2026-09-01"},
+		{"new_york_summer", "America/New_York", "2026-07-02T03:30:00Z", "2026-07-01"},
+		{"new_york_winter", "America/New_York", "2026-01-02T04:30:00Z", "2026-01-01"},
+		{"dst_fall_back", "America/New_York", "2026-11-01T06:30:00Z", "2026-11-01"},
+		{"fractional_last_second", "Asia/Shanghai", "2026-09-01T15:59:59.999999999Z", "2026-09-01"},
+		{"legacy_local", "Asia/Kathmandu", "2026-09-02 00:30:00", "2026-09-02"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			location, err := time.LoadLocation(tc.zone)
+			if err != nil {
+				t.Fatal(err)
+			}
+			previous := time.Local
+			time.Local = location
+			t.Cleanup(func() { time.Local = previous })
+			fixture := openPublishedPricingOverviewFixture(t)
+			if err := fixture.writer.Exec("UPDATE usage_events SET timestamp = ? WHERE id = 1", tc.timestamp).Error; err != nil {
+				t.Fatal(err)
+			}
+			if err := fixture.writer.Exec("INSERT INTO usage_events_archive (id,event_key,model,auth_index,timestamp,input_tokens,output_tokens,cache_read_tokens,cache_creation_tokens,total_tokens,failed) VALUES (2,'cold-zone','model-a','hot-a',?,50,10,0,0,60,0)", tc.timestamp).Error; err != nil {
+				t.Fatal(err)
+			}
+			if err := fixture.writer.Exec("UPDATE usage_aggregation_checkpoints SET last_aggregated_usage_event_id = 2 WHERE name = 'overview'").Error; err != nil {
+				t.Fatal(err)
+			}
+			baseline, err := repository.MigrateLegacyPricingEvents(context.Background(), fixture.writer, fixture.reader, fixture.backupDir, time.Now())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := repository.CompleteLegacyPricingData(context.Background(), fixture.writer, fixture.reader, baseline); err != nil {
+				t.Fatalf("timezone-consistent rebuild should complete: %v", err)
+			}
+			var daily entities.UsageOverviewDailyStat
+			if err := fixture.reader.Take(&daily).Error; err != nil {
+				t.Fatal(err)
+			}
+			if daily.BucketStart.In(location).Format("2006-01-02") != tc.day || daily.RequestCount != 2 {
+				t.Fatalf("unexpected daily bucket: %+v", daily)
+			}
+			for _, table := range []string{"usage_events", "usage_events_archive"} {
+				var timestamp string
+				if err := fixture.reader.Table(table).Select("timestamp").Where("id <= 2").Scan(&timestamp).Error; err != nil || timestamp != tc.timestamp {
+					t.Fatalf("%s original time changed: %q %v", table, timestamp, err)
+				}
+			}
+		})
 	}
 }

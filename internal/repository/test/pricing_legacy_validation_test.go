@@ -68,6 +68,8 @@ func TestVerifyLegacyPricingDataRejectsChangedFactsAndCosts(t *testing.T) {
 		statement string
 		want      string
 	}{
+		{"missing rebuilt group", "DELETE FROM usage_overview_daily_stats WHERE id = 1", "differs"},
+		{"wrong rebuilt requests", "UPDATE usage_overview_hourly_stats SET request_count = request_count + 1 WHERE id = 1", "request_count"},
 		{"hot NULL fee", "UPDATE usage_events SET cost_usd = NULL WHERE id = 1", "cost_usd"},
 		{"cold NULL fee", "UPDATE usage_events_archive SET cost_usd = NULL WHERE id = 2", "cost_usd"},
 		{"NULL availability", "UPDATE usage_events SET cost_available = NULL WHERE id = 3", "cost_available"},
@@ -219,7 +221,7 @@ func pricingLegacyValidationFixture(t *testing.T, options pricingLegacyFixtureOp
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := fixture.writer.Model(&entities.PricingMigrationState{}).Where("id = 1").Updates(map[string]any{"cursors_json": string(encoded), "phase": "overview_backfilling"}).Error; err != nil {
+	if err := fixture.writer.Model(&entities.PricingMigrationState{}).Where("id = 1").Updates(map[string]any{"cursors_json": string(encoded), "phase": "overview_rebuilding"}).Error; err != nil {
 		t.Fatal(err)
 	}
 	return fixture, baseline

@@ -29,7 +29,7 @@ var pricingMigrationEventColumns = []string{
 	"input_tokens", "output_tokens", "cache_read_tokens", "cache_creation_tokens",
 }
 
-// PricingMigrationEventCursors 保存冷热明细及后续汇总费用已提交的最后 ID；ID 空洞不作数量解释。
+// PricingMigrationEventCursors 保存冷热明细及后续聚合重建已提交的最后 ID；ID 空洞不作数量解释。
 type PricingMigrationEventCursors struct {
 	SchemaVersion  int                              `json:"schema_version"`
 	HotAfterID     int64                            `json:"hot_after_id"`
@@ -37,7 +37,7 @@ type PricingMigrationEventCursors struct {
 	Overview       *PricingMigrationOverviewCursors `json:"overview,omitempty"`
 }
 
-// PricingMigrationOverviewCursors 仅在 M5 持久进入回填阶段后存在，区分旧 NULL 初态和已提交的部分金额。
+// PricingMigrationOverviewCursors 仅在 M5 持久进入重建阶段后存在，区分尚未清空旧桶和已提交的重建页。
 type PricingMigrationOverviewCursors struct {
 	HotAfterID     int64 `json:"hot_after_id"`
 	ArchiveAfterID int64 `json:"archive_after_id"`
@@ -49,9 +49,9 @@ type pricingMigrationEventCost struct {
 	available bool
 }
 
-// MigrateLegacyPricingEvents 按 M1→M4 恢复首次旧库升级，不启动正常事件处理或汇总回填。
+// MigrateLegacyPricingEvents 按 M1→M4 恢复首次旧库升级，不启动正常事件处理或聚合重建。
 // M1 唯一备份先于任何旧 migration；M2 原转换需通过备份对账；M3 先固定 C/H/旧价再增列；M4 逐页提交费用和游标。
-// 本阶段只标记 schema 已完成，data_complete 由后续汇总费用和全量核对阶段决定。
+// 本阶段只标记 schema 已完成，data_complete 由后续聚合重建和全量核对阶段决定。
 func MigrateLegacyPricingEvents(ctx context.Context, writer, reader *gorm.DB, backupDir string, now time.Time) (PricingLegacyBaseline, error) {
 	if writer == nil || reader == nil {
 		return PricingLegacyBaseline{}, fmt.Errorf("pricing migration database is missing")
@@ -316,7 +316,7 @@ func backfillLegacyPricingEvents(ctx context.Context, writer, reader *gorm.DB, b
 			return fmt.Errorf("pricing event cursors changed before completion")
 		}
 		if state.Phase != pricingMigrationPhaseSchemaComplete {
-			// CMT14 及后续阶段的状态只允许向前，重复 M4 不得退回事件回填阶段。
+			// 聚合重建及后续阶段的状态只允许向前，重复 M4 不得退回事件回填阶段。
 			return nil
 		}
 		return tx.Model(&entities.PricingMigrationState{}).Where("id = ?", 1).Update("phase", pricingMigrationPhaseEventsBackfilled).Error

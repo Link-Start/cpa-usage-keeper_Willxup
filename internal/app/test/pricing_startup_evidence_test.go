@@ -180,7 +180,7 @@ func TestPricingFailedOverviewMigrationKeepsShellAndResumesOnRestart(t *testing.
 	}
 	if err := seed.Exec(`CREATE TRIGGER fail_pricing_overview_start
 		BEFORE UPDATE OF phase ON pricing_migration_state
-		WHEN NEW.phase = 'overview_backfilling'
+		WHEN NEW.phase = 'overview_rebuilding'
 		BEGIN SELECT RAISE(ABORT, 'test overview transition'); END`).Error; err != nil {
 		t.Fatal(err)
 	}

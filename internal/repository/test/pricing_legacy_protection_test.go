@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
@@ -71,7 +70,7 @@ func openLegacyProtectionFixture(t *testing.T) (*gorm.DB, *gorm.DB, string) {
 func TestPricingLegacyProtectionBindsVerifiedBackupAndReusesItAfterFailure(t *testing.T) {
 	db, reader, backupDir := openLegacyProtectionFixture(t)
 	ctx := context.Background()
-	// 旧 failed 可空；历史聚合把 NULL 当作非失败，费用保护不得误判为缺明细。
+	// 备份保留旧事件原始 nullable 字段，不在保护阶段重写。
 	if err := db.Exec("UPDATE usage_events SET failed = NULL WHERE id = 1").Error; err != nil {
 		t.Fatal(err)
 	}
@@ -81,9 +80,6 @@ func TestPricingLegacyProtectionBindsVerifiedBackupAndReusesItAfterFailure(t *te
 	}
 	if first.SchemaVersion != 1 || first.Overview.Cursor != 5 || first.Hot.Count != 4 || first.Hot.MaxID != 8 || first.Archive.Count != 1 || first.InboxMaxID != 2 {
 		t.Fatalf("unexpected original evidence: %+v", first)
-	}
-	if first.Overview.Hourly["request_count"] != 4 || first.Overview.Daily["total_tokens"] != 110 || first.Hot.Covered["request_count"] != 3 || first.Archive.Covered["request_count"] != 1 {
-		t.Fatalf("unexpected overview coverage: %+v", first.Overview)
 	}
 	if len(first.ModelPriceSettings) != 1 || len(first.ModelPriceRules) != 1 || len(first.SchemaMigrations) != 1 {
 		t.Fatalf("original prices or schema missing: %+v", first)
@@ -127,7 +123,7 @@ func TestPricingLegacyProtectionBindsVerifiedBackupAndReusesItAfterFailure(t *te
 		}
 	})
 	again, err := repository.ProtectPricingLegacyMigration(ctx, reopened, reopenedReader, filepath.Join(t.TempDir(), "different"), time.Now())
-	if err != nil || again.InboxMaxID != 2 || again.Overview.Hourly["request_count"] != 4 {
+	if err != nil || again.InboxMaxID != 2 || again.Hot.Count != 4 {
 		t.Fatalf("did not reuse original verified backup: %+v %v", again, err)
 	}
 	var reused entities.PricingMigrationState
@@ -160,7 +156,7 @@ func TestPricingLegacyProtectionRechecksOnlyOriginalEvidenceAfterFixedBaseline(t
 	}
 }
 
-func TestPricingLegacyProtectionAcceptsCursorPastMaxIDWhenCoverageIsComplete(t *testing.T) {
+func TestPricingLegacyProtectionAcceptsCursorPastRetainedMaxID(t *testing.T) {
 	db, reader, backupDir := openLegacyProtectionFixture(t)
 	for _, statement := range []string{
 		"UPDATE usage_overview_aggregation_checkpoints SET last_aggregated_usage_event_id = 20",
@@ -177,37 +173,19 @@ func TestPricingLegacyProtectionAcceptsCursorPastMaxIDWhenCoverageIsComplete(t *
 	}
 }
 
-func TestPricingLegacyProtectionRejectsShiftedOldGroupsBeforeMigration(t *testing.T) {
+func TestPricingLegacyProtectionBacksUpOldGroupsWithoutRequiringCoverage(t *testing.T) {
 	for _, table := range []string{"usage_overview_hourly_stats", "usage_overview_daily_stats"} {
 		t.Run(table, func(t *testing.T) {
 			db, reader, backupDir := openLegacyProtectionFixture(t)
-			// 数量和 Token 总量仍然一致，只有旧桶归属错误；旧迁移清表前必须挡住。
-			shifted := "2026-09-02T00:00:00Z"
-			if err := db.Table(table).Where("id = ?", 1).Update("bucket_start", shifted).Error; err != nil {
+			if err := db.Table(table).Where("id = ?", 1).Update("bucket_start", "2026-09-02T00:00:00Z").Error; err != nil {
 				t.Fatal(err)
 			}
-			_, err := repository.MigrateLegacyPricingEvents(context.Background(), db, reader, backupDir, time.Now())
-			if err == nil || !strings.Contains(err.Error(), table) {
-				t.Fatalf("旧 %s 分组错位应在迁移前被拒绝: %v", table, err)
-			}
-			var row struct {
-				BucketStart  string
-				RequestCount int64
-				TotalTokens  int64
-			}
-			if err := db.Table(table).Select("bucket_start, request_count, total_tokens").Where("id = ?", 1).Take(&row).Error; err != nil {
+			if _, err := repository.ProtectPricingLegacyMigration(context.Background(), db, reader, backupDir, time.Now()); err != nil {
 				t.Fatal(err)
-			}
-			if row.BucketStart != shifted || row.RequestCount != 4 || row.TotalTokens != 110 {
-				t.Fatalf("失败前的旧统计被改写: %+v", row)
-			}
-			var applied int64
-			if err := db.Table("schema_migrations").Where("version = ?", "20260723_usage_overview_five_dimensions").Count(&applied).Error; err != nil || applied != 0 {
-				t.Fatalf("旧五维迁移不应执行: count=%d err=%v", applied, err)
 			}
 			var state entities.PricingMigrationState
-			if err := db.Where("id = ?", 1).Take(&state).Error; err != nil || state.BackupPath != nil || state.BaselineJSON != nil {
-				t.Fatalf("分组错位后错误记录为受保护: %+v %v", state, err)
+			if err := db.Where("id = ?", 1).Take(&state).Error; err != nil || state.BackupPath == nil || state.BaselineJSON == nil {
+				t.Fatalf("backup not recorded: %+v %v", state, err)
 			}
 		})
 	}
@@ -218,8 +196,6 @@ func TestPricingLegacyProtectionReadsEarlierSchemaWithoutArchiveOrRules(t *testi
 	for _, statement := range []string{
 		"DROP TABLE usage_events_archive",
 		"DROP TABLE model_price_rules",
-		"UPDATE usage_overview_hourly_stats SET request_count = 3, success_count = 2, total_tokens = 90, input_tokens = 73",
-		"UPDATE usage_overview_daily_stats SET request_count = 3, success_count = 2, total_tokens = 90, input_tokens = 73",
 	} {
 		if err := db.Exec(statement).Error; err != nil {
 			t.Fatal(err)
@@ -231,34 +207,34 @@ func TestPricingLegacyProtectionReadsEarlierSchemaWithoutArchiveOrRules(t *testi
 	}
 }
 
-func TestPricingLegacyProtectionDoesNotRequireColumnsFromOnlyUnaggregatedRows(t *testing.T) {
+// M1 只记录旧表实际 schema 和现存 ID 边界，不根据聚合列推断明细表必须具备哪些列。
+func TestPricingLegacyProtectionCapturesRetainedBoundsFromEarlierSchema(t *testing.T) {
 	db, reader, backupDir := openLegacyProtectionFixture(t)
-	for _, statement := range []string{
-		"DELETE FROM usage_events_archive WHERE id = 2",
-		"INSERT INTO usage_events_archive (id,timestamp,total_tokens,input_tokens,failed) VALUES (9,'2026-09-02T10:00:00Z',9,7,0)",
-		"ALTER TABLE usage_events_archive DROP COLUMN input_tokens",
-		"UPDATE usage_overview_hourly_stats SET request_count = 3, success_count = 2, total_tokens = 90, input_tokens = 73",
-		"UPDATE usage_overview_daily_stats SET request_count = 3, success_count = 2, total_tokens = 90, input_tokens = 73",
-	} {
-		if err := db.Exec(statement).Error; err != nil {
-			t.Fatal(err)
-		}
+	if err := db.Exec("ALTER TABLE usage_events_archive DROP COLUMN input_tokens").Error; err != nil {
+		t.Fatal(err)
 	}
 	baseline, err := repository.ProtectPricingLegacyMigration(context.Background(), db, reader, backupDir, time.Now())
-	if err != nil || baseline.Archive.Covered["request_count"] != 0 || baseline.Archive.Count != 1 {
-		t.Fatalf("unaggregated archive row blocked old coverage: %+v %v", baseline, err)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if baseline.Archive.Count != 1 || baseline.Archive.MinID != 2 || baseline.Archive.MaxID != 2 || baseline.Overview.Cursor != 5 {
+		t.Fatalf("unexpected retained archive bounds: %+v", baseline)
+	}
+	for _, column := range baseline.SchemaColumns["usage_events_archive"] {
+		if column == "input_tokens" {
+			t.Fatal("baseline invented a column absent from the backup")
+		}
 	}
 }
 
-func TestPricingLegacyProtectionRejectsOverlapAndMissingDetail(t *testing.T) {
+func TestPricingLegacyProtectionRejectsInvalidEventOrCursorBounds(t *testing.T) {
 	for _, scenario := range []struct {
 		name string
 		stmt string
 	}{
 		{"overlap", `INSERT INTO usage_events_archive (id,timestamp,total_tokens,input_tokens,failed) VALUES (3,'2026-08-01T10:00:00Z',1,1,0)`},
-		{"missing_detail", `DELETE FROM usage_events WHERE id = 3`},
-		{"checkpoint_past_detail", `UPDATE usage_overview_aggregation_checkpoints SET last_aggregated_usage_event_id = 99`},
-		{"missing_covered_column", `ALTER TABLE usage_events_archive DROP COLUMN input_tokens`},
+		{"negative_checkpoint", `UPDATE usage_overview_aggregation_checkpoints SET last_aggregated_usage_event_id = -1`},
+		{"missing_event_id", `ALTER TABLE usage_events_archive RENAME COLUMN id TO old_id`},
 	} {
 		t.Run(scenario.name, func(t *testing.T) {
 			db, reader, backupDir := openLegacyProtectionFixture(t)

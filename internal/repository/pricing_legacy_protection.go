@@ -21,25 +21,17 @@ import (
 
 const pricingLegacyBaselineSchemaVersion = 1
 
-var pricingCoverageFields = []string{
-	"success_count", "failure_count", "input_tokens", "output_tokens", "reasoning_tokens",
-	"cached_tokens", "cache_read_tokens", "cache_creation_tokens", "total_tokens",
-}
-
-// PricingLegacyEventEvidence 是备份时热/冷明细的 ID 范围及 Overview 水位内覆盖量。
+// PricingLegacyEventEvidence 是备份时仍存在的热/冷明细数量与 ID 范围。
 type PricingLegacyEventEvidence struct {
-	Count   int64            `json:"count"`
-	MinID   int64            `json:"min_id"`
-	MaxID   int64            `json:"max_id"`
-	Covered map[string]int64 `json:"covered"`
+	Count int64 `json:"count"`
+	MinID int64 `json:"min_id"`
+	MaxID int64 `json:"max_id"`
 }
 
-// PricingLegacyOverviewEvidence 记录旧水位和小时/日已有统计的总量；分组在 M1 从备份另行核对。
+// PricingLegacyOverviewEvidence 记录原聚合水位；旧统计保存在备份内，M5 按现存明细重建。
 type PricingLegacyOverviewEvidence struct {
-	CheckpointTable string           `json:"checkpoint_table"`
-	Cursor          int64            `json:"cursor"`
-	Hourly          map[string]int64 `json:"hourly"`
-	Daily           map[string]int64 `json:"daily"`
+	CheckpointTable string `json:"checkpoint_table"`
+	Cursor          int64  `json:"cursor"`
 }
 
 // PricingLegacyBaseline 只保存可复算的小型元数据；逐事件原文及旧分组行留在唯一备份文件。
@@ -66,7 +58,7 @@ type PricingMigrationFixedBaseline struct {
 }
 
 // ProtectPricingLegacyMigration 在任何旧业务 migration 之前固定一份可验证的原库备份。
-// 只从备份读取原 schema、价格、明细覆盖和 inbox 边界；最后同事务提交路径与基线才允许后续阶段使用。
+// 只从备份读取原 schema、价格、现存明细范围和 inbox 边界；最后同事务提交路径与基线才允许后续阶段使用。
 // 接收器仍可向 live inbox 写入，reader 由调用方提供，不占用唯一 writer 连接做长时间复制。
 func ProtectPricingLegacyMigration(ctx context.Context, writer, reader *gorm.DB, backupDir string, now time.Time) (PricingLegacyBaseline, error) {
 	if writer == nil || reader == nil {
@@ -193,7 +185,7 @@ func openPricingBackupReadOnly(path string) (*gorm.DB, func(), error) {
 	return db, closeDB, nil
 }
 
-// collectPricingLegacyBaseline 从已验证备份收集小型元数据，并在破坏性旧迁移前核对原分组。
+// collectPricingLegacyBaseline 从已验证备份收集现存明细与配置的边界，不要求旧聚合能由保留明细解释。
 // 逐事件与旧桶行只留在备份文件，不复制到控制行。
 func collectPricingLegacyBaseline(ctx context.Context, db *gorm.DB) (PricingLegacyBaseline, error) {
 	baseline := PricingLegacyBaseline{SchemaVersion: pricingLegacyBaselineSchemaVersion, SchemaMigrations: []string{}, SchemaColumns: map[string][]string{}, ModelPriceSettings: []map[string]any{}, ModelPriceRules: []map[string]any{}}
@@ -250,11 +242,11 @@ func collectPricingLegacyBaseline(ctx context.Context, db *gorm.DB) (PricingLega
 		return baseline, err
 	}
 	baseline.Overview.Cursor, baseline.Overview.CheckpointTable = cursor, checkpointTable
-	baseline.Hot, err = pricingLegacyEventEvidence(ctx, db, baseline, "usage_events", cursor)
+	baseline.Hot, err = pricingLegacyEventEvidence(ctx, db, baseline, "usage_events")
 	if err != nil {
 		return baseline, err
 	}
-	baseline.Archive, err = pricingLegacyEventEvidence(ctx, db, baseline, "usage_events_archive", cursor)
+	baseline.Archive, err = pricingLegacyEventEvidence(ctx, db, baseline, "usage_events_archive")
 	if err != nil {
 		return baseline, err
 	}
@@ -265,24 +257,6 @@ func collectPricingLegacyBaseline(ctx context.Context, db *gorm.DB) (PricingLega
 		}
 		if overlap > 0 {
 			return baseline, fmt.Errorf("hot/archive event IDs overlap")
-		}
-	}
-	baseline.Overview.Hourly, err = pricingLegacyStatEvidence(ctx, db, baseline, "usage_overview_hourly_stats")
-	if err != nil {
-		return baseline, err
-	}
-	baseline.Overview.Daily, err = pricingLegacyStatEvidence(ctx, db, baseline, "usage_overview_daily_stats")
-	if err != nil {
-		return baseline, err
-	}
-	if err := verifyPricingLegacyCoverage(baseline); err != nil {
-		return baseline, err
-	}
-	// 总量相同仍可能把请求移到错误小时/自然日；旧五维迁移清表前必须确认原桶可由明细解释。
-	for _, period := range []string{"hourly", "daily"} {
-		table := "usage_overview_" + period + "_stats"
-		if err := verifyPricingM2Rollup(ctx, db, baseline, table, baseline.Overview.Cursor); err != nil {
-			return baseline, fmt.Errorf("verify original %s before migration: %w", table, err)
 		}
 	}
 	return baseline, nil
@@ -332,12 +306,15 @@ func pricingLegacyOverviewCursor(ctx context.Context, db *gorm.DB, b PricingLega
 			}
 		}
 	}
+	if cursor < 0 {
+		return 0, "", fmt.Errorf("negative original overview cursor")
+	}
 	return cursor, source, nil
 }
 
-// pricingLegacyEventEvidence 统计水位内真实明细总量；ID 空洞不被误判为明细丢失。
-func pricingLegacyEventEvidence(ctx context.Context, db *gorm.DB, b PricingLegacyBaseline, table string, cursor int64) (PricingLegacyEventEvidence, error) {
-	evidence := PricingLegacyEventEvidence{Covered: map[string]int64{}}
+// pricingLegacyEventEvidence 统计备份内现存明细范围；不依据 ID 空洞或旧聚合推断丢失。
+func pricingLegacyEventEvidence(ctx context.Context, db *gorm.DB, b PricingLegacyBaseline, table string) (PricingLegacyEventEvidence, error) {
+	evidence := PricingLegacyEventEvidence{}
 	if !hasPricingBaselineTable(b, table) {
 		return evidence, nil
 	}
@@ -349,126 +326,5 @@ func pricingLegacyEventEvidence(ctx context.Context, db *gorm.DB, b PricingLegac
 		return evidence, fmt.Errorf("read %s range: %w", table, err)
 	}
 	evidence.Count, evidence.MinID, evidence.MaxID = bounds.Count, bounds.MinID, bounds.MaxID
-	selects := []string{"COUNT(*) AS request_count"}
-	for _, field := range pricingCoverageFields {
-		switch field {
-		case "success_count", "failure_count":
-			if hasPricingBaselineColumn(b, table, "failed") {
-				if field == "success_count" {
-					selects = append(selects, "COALESCE(SUM(CASE WHEN COALESCE(failed, 0) = 0 THEN 1 ELSE 0 END), 0) AS success_count")
-				} else {
-					selects = append(selects, "COALESCE(SUM(CASE WHEN failed <> 0 THEN 1 ELSE 0 END), 0) AS failure_count")
-				}
-			}
-		default:
-			if hasPricingBaselineColumn(b, table, field) {
-				selects = append(selects, "COALESCE(SUM("+field+"), 0) AS "+field)
-			}
-		}
-	}
-	covered, err := pricingLegacyIntegerTotals(ctx, db, table, selects, &cursor)
-	if err != nil {
-		return evidence, fmt.Errorf("decode %s overview coverage: %w", table, err)
-	}
-	evidence.Covered = covered
 	return evidence, nil
-}
-
-// pricingLegacyStatEvidence 读取旧小时/日既有统计，不用当前费用列或实体零值伪造结果。
-func pricingLegacyStatEvidence(ctx context.Context, db *gorm.DB, b PricingLegacyBaseline, table string) (map[string]int64, error) {
-	evidence := map[string]int64{"row_count": 0, "request_count": 0}
-	if !hasPricingBaselineTable(b, table) {
-		return evidence, nil
-	}
-	if !hasPricingBaselineColumn(b, table, "request_count") {
-		return nil, fmt.Errorf("%s.request_count is missing", table)
-	}
-	selects := []string{"COUNT(*) AS row_count", "COALESCE(SUM(request_count), 0) AS request_count"}
-	for _, field := range pricingCoverageFields {
-		if hasPricingBaselineColumn(b, table, field) {
-			selects = append(selects, "COALESCE(SUM("+field+"), 0) AS "+field)
-		}
-	}
-	return pricingLegacyIntegerTotals(ctx, db, table, selects, nil)
-}
-
-// pricingLegacyIntegerTotals 在一次 SQL 聚合中将每列直接扫描到 int64，不经 float64 转换计数。
-func pricingLegacyIntegerTotals(ctx context.Context, db *gorm.DB, table string, selects []string, cursor *int64) (map[string]int64, error) {
-	query := db.WithContext(ctx).Table(table).Select(strings.Join(selects, ", "))
-	if cursor != nil {
-		query = query.Where("id <= ?", *cursor)
-	}
-	rows, err := query.Rows()
-	if err != nil {
-		return nil, fmt.Errorf("read %s integer totals: %w", table, err)
-	}
-	defer rows.Close()
-	columns, err := rows.Columns()
-	if err != nil {
-		return nil, fmt.Errorf("read %s total columns: %w", table, err)
-	}
-	if !rows.Next() {
-		return nil, fmt.Errorf("%s integer totals returned no row", table)
-	}
-	values := make([]int64, len(columns))
-	dest := make([]any, len(columns))
-	for index := range dest {
-		dest[index] = &values[index]
-	}
-	if err := rows.Scan(dest...); err != nil {
-		return nil, fmt.Errorf("scan %s integer totals: %w", table, err)
-	}
-	result := make(map[string]int64, len(columns))
-	for index, name := range columns {
-		result[name] = values[index]
-	}
-	return result, rows.Err()
-}
-
-// verifyPricingLegacyCoverage 比较旧水位已覆盖的计数/Token；旧维度分组由调用方随后核对。
-func verifyPricingLegacyCoverage(b PricingLegacyBaseline) error {
-	if b.Overview.Cursor < 0 {
-		return fmt.Errorf("negative original overview cursor")
-	}
-	covered := map[string]int64{}
-	for field, amount := range b.Hot.Covered {
-		covered[field] += amount
-	}
-	for field, amount := range b.Archive.Covered {
-		covered[field] += amount
-	}
-	for _, stats := range []map[string]int64{b.Overview.Hourly, b.Overview.Daily} {
-		if stats["row_count"] > 0 {
-			if _, ok := stats["total_tokens"]; !ok {
-				return fmt.Errorf("overview stats lack total_tokens coverage")
-			}
-		}
-		if stats["request_count"] != covered["request_count"] {
-			return fmt.Errorf("overview request count lacks matching event detail")
-		}
-		for _, field := range pricingCoverageFields {
-			if value, ok := stats[field]; ok {
-				missingColumn := field
-				if field == "success_count" || field == "failure_count" {
-					missingColumn = "failed"
-				}
-				if _, available := b.Hot.Covered[field]; b.Hot.Covered["request_count"] > 0 && !available {
-					return fmt.Errorf("usage_events.%s is missing for overview coverage", missingColumn)
-				}
-				if _, available := b.Archive.Covered[field]; b.Archive.Covered["request_count"] > 0 && !available {
-					return fmt.Errorf("usage_events_archive.%s is missing for overview coverage", missingColumn)
-				}
-				if value != covered[field] {
-					return fmt.Errorf("overview %s lacks matching event detail", field)
-				}
-			}
-		}
-	}
-	if b.Overview.CheckpointTable == "" && (b.Overview.Hourly["row_count"] > 0 || b.Overview.Daily["row_count"] > 0) {
-		return fmt.Errorf("overview stats exist without a checkpoint")
-	}
-	if b.Overview.Cursor > 0 && (b.Overview.Hourly["row_count"] == 0 || b.Overview.Daily["row_count"] == 0) {
-		return fmt.Errorf("overview checkpoint has no complete hourly/daily stats")
-	}
-	return nil
 }
