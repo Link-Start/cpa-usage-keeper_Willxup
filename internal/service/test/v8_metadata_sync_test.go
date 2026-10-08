@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -212,5 +214,79 @@ func TestV8MetadataSyncPersistsReturnedNumericTextAndClientKeys(t *testing.T) {
 	}
 	if !seen["9007199254740993"] || !seen["00123"] {
 		t.Fatalf("client key text changed: %#v", keys)
+	}
+}
+
+func TestV8MetadataSyncPreservesWholeSourceWhenKeyHasNoAuthIndex(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		authField string
+	}{
+		{"missing", ""},
+		{"null", `,"auth_index":null`},
+		{"empty", `,"auth_index":""`},
+		{"blank", `,"auth_index":" \t "`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			db := openMetadataTestDatabase(t, "missing-auth-index.db")
+			var refresh atomic.Bool
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				switch r.URL.Path {
+				case "/v8/management/credentials":
+					fmt.Fprint(w, `{"files":[]}`)
+				case "/v8/management/config/api-keys/codex", "/v8/management/config/api-keys/openai-compatibility":
+					source := "codex"
+					if r.URL.Path == "/v8/management/config/api-keys/openai-compatibility" {
+						source = "openai"
+					}
+					if !refresh.Load() {
+						fmt.Fprintf(w, `[{"name":"original","keys":[{"api-key":"old-key","auth_index":%q},{"api-key":"old-key","auth_index":%q}]}]`, source+"-kept", source+"-omitted")
+					} else {
+						fmt.Fprintf(w, `[{"name":"changed","keys":[{"api-key":"changed-key","auth_index":%q},{"api-key":"do-not-expose-api-key"%s}]}]`, source+"-kept", tc.authField)
+					}
+				case "/v8/management/config/api-keys/xai":
+					key := "old-key"
+					if refresh.Load() {
+						key = "updated-xai-key"
+					}
+					fmt.Fprintf(w, `[{"keys":[{"api-key":%q,"auth_index":"xai-auth"}]}]`, key)
+				case "/v8/management/config/api-keys/claude":
+					if !refresh.Load() {
+						fmt.Fprint(w, `[{"keys":[{"api-key":"old-key","auth_index":"claude-auth"}]}]`)
+					} else {
+						fmt.Fprint(w, `[]`)
+					}
+				case "/v8/management/config/access/api-keys", "/v8/management/config/api-keys/gemini", "/v8/management/config/api-keys/interactions", "/v8/management/config/api-keys/vertex", "/v8/management/config/api-keys/meta":
+					fmt.Fprint(w, `[]`)
+				default:
+					http.NotFound(w, r)
+				}
+			}))
+			defer server.Close()
+			// 真实响应先建立旧身份；混合合法与缺标识条目后，失败来源不得更新或删除任何旧行。
+			syncer := service.NewSyncServiceWithClient(db, server.URL, cpa.NewClient(server.URL, "management-secret", time.Second, false))
+			if err := syncer.SyncMetadata(context.Background()); err != nil {
+				t.Fatal(err)
+			}
+			before := loadMetadataIdentityMap(t, db)
+			refresh.Store(true)
+			if err := syncer.SyncMetadata(context.Background()); err == nil || !strings.Contains(err.Error(), "auth_index") || strings.Contains(err.Error(), "do-not-expose-api-key") {
+				t.Errorf("refresh warning = %v", err)
+			}
+			after := loadMetadataIdentityMap(t, db)
+			for _, authIndex := range []string{"codex-kept", "codex-omitted", "openai-kept", "openai-omitted"} {
+				key := metadataIdentityKey(entities.UsageIdentityAuthTypeAIProvider, authIndex)
+				row, ok := after[key]
+				if !ok || !reflect.DeepEqual(before[key], row) {
+					t.Errorf("%s row changed: deleted = %v, lookup unchanged = %v", authIndex, row.IsDeleted, before[key].LookupKey == row.LookupKey)
+				}
+			}
+			xai := after[metadataIdentityKey(entities.UsageIdentityAuthTypeAIProvider, "xai-auth")]
+			claude := after[metadataIdentityKey(entities.UsageIdentityAuthTypeAIProvider, "claude-auth")]
+			if xai.IsDeleted || xai.LookupKey != "updated-xai-key" || !claude.IsDeleted {
+				t.Error("successful sources did not update or delete their own identities")
+			}
+		})
 	}
 }

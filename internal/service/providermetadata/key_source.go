@@ -42,9 +42,13 @@ func fetchProviderKeySource(ctx context.Context, fetcher Fetcher, item source, e
 	credentials := make([]Credential, 0, len(result.Payload))
 	// 保持 CPA payload entry 顺序，不按展示字段重新排序。
 	for _, config := range result.Payload {
+		// 非空 Key 缺运行时标识时丢弃整个来源，避免部分更新后误删旧身份。
+		if strings.TrimSpace(config.APIKey) != "" && strings.TrimSpace(config.AuthIndex) == "" {
+			return sourceResult{warning: fmt.Errorf("%s contains an API key without auth_index", item.warningName)}
+		}
 		// credential 只从当前 source 常量和当前 entry 的单向字段映射生成。
 		credential, ok := providerKeyCredential(item, config)
-		// 缺 API Key 或 auth_index 的 entry 被过滤，但来源仍保持 fetched。
+		// 空 Key 或其他必填字段不完整的条目仍过滤；非空 Key 的标识已在上面校验。
 		if !ok {
 			continue
 		}

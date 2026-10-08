@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"reflect"
 	"slices"
+	"strings"
 	"testing"
 
 	"cpa-usage-keeper/internal/cpa/dto/providerconfig"
@@ -82,11 +83,11 @@ func TestFetchNormalizesEightSourcesInRegistryOrder(t *testing.T) {
 	disabled := false
 	note := "primary codex"
 	fetcher := successfulProviderFetcher()
-	// Codex 同时放入精确 auth-index 重复项和缺 auth-index 无效项。
+	// Codex 同时放入精确 auth-index 重复项和空 Key 过滤项。
 	fetcher.codexResult.Payload = []providerconfig.ProviderKeyConfig{
 		{APIKey: "codex-key", Prefix: "codex-prefix", Name: "Codex Team", BaseURL: "https://codex.example/v1", AuthIndex: "codex-auth", Priority: &priority, Disabled: &disabled, Note: &note},
 		{APIKey: "codex-duplicate", Prefix: "duplicate-prefix", Name: "Duplicate", BaseURL: "https://duplicate.example/v1", AuthIndex: "codex-auth"},
-		{APIKey: "codex-invalid", Name: "Invalid"},
+		{APIKey: " \t", Name: "Invalid"},
 	}
 	fetcher.xaiResult.Payload = []providerconfig.ProviderKeyConfig{{APIKey: "xai-key", Prefix: "xai-prefix", BaseURL: "https://api.x.ai/v1", AuthIndex: "xai-auth"}}
 	fetcher.geminiResult.Payload = []providerconfig.ProviderKeyConfig{{APIKey: "gemini-key", Prefix: "gemini-prefix", BaseURL: "https://gemini.example/v1", AuthIndex: "gemini-auth"}}
@@ -125,7 +126,7 @@ func TestFetchPropagatesOpenAIProviderFieldsToEveryValidEntry(t *testing.T) {
 	note := "shared provider"
 	fetcher := successfulProviderFetcher()
 	// OpenAI provider 故意缺 name，两个有效 entry 应共同使用默认名 openai。
-	fetcher.openAIResult.Payload = []providerconfig.OpenAICompatibilityConfig{{Prefix: "shared-prefix", BaseURL: "https://shared.example/v1", Priority: &priority, Disabled: &disabled, Note: &note, APIKeyEntries: []providerconfig.OpenAIApiKeyEntry{{APIKey: "first-key", AuthIndex: "first-auth"}, {APIKey: "second-key", AuthIndex: "second-auth"}, {APIKey: "missing-auth"}}}}
+	fetcher.openAIResult.Payload = []providerconfig.OpenAICompatibilityConfig{{Prefix: "shared-prefix", BaseURL: "https://shared.example/v1", Priority: &priority, Disabled: &disabled, Note: &note, APIKeyEntries: []providerconfig.OpenAIApiKeyEntry{{APIKey: "first-key", AuthIndex: "first-auth"}, {APIKey: "second-key", AuthIndex: "second-auth"}, {APIKey: " \t"}}}}
 
 	snapshot, err := providermetadata.Fetch(context.Background(), fetcher)
 	if err != nil {
@@ -144,6 +145,44 @@ func TestFetchPropagatesOpenAIProviderFieldsToEveryValidEntry(t *testing.T) {
 		credential := snapshot.Credentials[index]
 		if credential.LookupKey != want.key || credential.AuthIndex != want.authIndex || credential.ProviderType != "openai" || credential.DisplayName != "openai" || credential.Prefix != "shared-prefix" || credential.BaseURL != "https://shared.example/v1" || credential.Priority != &priority || credential.Disabled != &disabled || credential.Note != &note {
 			t.Fatalf("credential[%d] = %#v", index, credential)
+		}
+	}
+}
+
+func TestFetchRejectsWholeSourceWhenNonEmptyKeyHasNoAuthIndex(t *testing.T) {
+	for _, source := range registrySourceOrder {
+		for _, authIndex := range []string{"", " \t"} {
+			name := "missing"
+			if authIndex != "" {
+				name = "blank"
+			}
+			t.Run(source+"/"+name, func(t *testing.T) {
+				fetcher := successfulProviderFetcher()
+				standardResults := map[string]*response.ProviderKeyConfigResult{
+					"codex": fetcher.codexResult, "xai": fetcher.xaiResult, "gemini": fetcher.geminiResult,
+					"gemini-interactions": fetcher.interactionsResult, "claude": fetcher.claudeResult,
+					"vertex": fetcher.vertexResult, "meta": fetcher.metaResult,
+				}
+				// 合法条目先出现，随后缺标识的条目必须让整个来源失败，不能返回部分凭证。
+				if source == "openai" {
+					fetcher.openAIResult.Payload = []providerconfig.OpenAICompatibilityConfig{
+						{APIKeyEntries: []providerconfig.OpenAIApiKeyEntry{{APIKey: "valid-key", AuthIndex: "valid-auth"}}},
+						{APIKeyEntries: []providerconfig.OpenAIApiKeyEntry{{APIKey: " do-not-expose-api-key ", AuthIndex: authIndex}}},
+					}
+				} else {
+					standardResults[source].Payload = []providerconfig.ProviderKeyConfig{
+						{APIKey: "valid-key", AuthIndex: "valid-auth"},
+						{APIKey: " do-not-expose-api-key ", AuthIndex: authIndex},
+					}
+				}
+				snapshot, err := providermetadata.Fetch(context.Background(), fetcher)
+				if err == nil || !strings.Contains(err.Error(), "auth_index") || strings.Contains(err.Error(), "do-not-expose-api-key") {
+					t.Errorf("warning = %v", err)
+				}
+				if slices.Contains(snapshot.FetchedProviderTypes, source) || len(snapshot.FetchedProviderTypes) != 7 || len(snapshot.Credentials) != 0 {
+					t.Errorf("source %s fetched = %v, fetched count = %d, credentials = %d", source, slices.Contains(snapshot.FetchedProviderTypes, source), len(snapshot.FetchedProviderTypes), len(snapshot.Credentials))
+				}
+			})
 		}
 	}
 }
@@ -198,10 +237,10 @@ func TestFetchClassifiesFailuresAndSuccessfulEmptySources(t *testing.T) {
 		}
 	})
 
-	t.Run("successful empty and invalid entries", func(t *testing.T) {
+	t.Run("successful empty and blank keys", func(t *testing.T) {
 		fetcher := successfulProviderFetcher()
-		fetcher.geminiResult.Payload = []providerconfig.ProviderKeyConfig{{APIKey: "missing-auth"}, {AuthIndex: "missing-key"}}
-		fetcher.metaResult.Payload = []providerconfig.ProviderKeyConfig{{APIKey: "meta-missing-auth"}, {AuthIndex: "meta-missing-key"}}
+		fetcher.geminiResult.Payload = []providerconfig.ProviderKeyConfig{{APIKey: " \t"}, {AuthIndex: "missing-key"}}
+		fetcher.metaResult.Payload = []providerconfig.ProviderKeyConfig{{APIKey: " \t"}, {AuthIndex: "meta-missing-key"}}
 
 		snapshot, err := providermetadata.Fetch(context.Background(), fetcher)
 		if err != nil {

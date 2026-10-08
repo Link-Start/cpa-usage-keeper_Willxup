@@ -110,7 +110,7 @@ func TestProviderMetadataSyncKeepsFailedSourcesAndStalesOnlySuccessfulTypes(t *t
 	fetcher.standardResults["vertex"] = &response.ProviderKeyConfigResult{StatusCode: 200, Payload: []providerconfig.ProviderKeyConfig{{APIKey: "invalid-without-auth-index"}}}
 	syncer := newMetadataTestSyncer(db, fetcher, func() time.Time { return now })
 	err := syncer.SyncMetadata(context.Background())
-	if err == nil || !strings.Contains(err.Error(), "fetch gemini api keys: gemini unavailable") || !strings.Contains(err.Error(), "codex api keys response is nil") {
+	if err == nil || !strings.Contains(err.Error(), "fetch gemini api keys: gemini unavailable") || !strings.Contains(err.Error(), "codex api keys response is nil") || !strings.Contains(err.Error(), "vertex api keys contains an API key without auth_index") || strings.Contains(err.Error(), "invalid-without-auth-index") {
 		t.Fatalf("provider boundary warning = %v", err)
 	}
 	identities := loadMetadataIdentityMap(t, db)
@@ -131,8 +131,8 @@ func TestProviderMetadataSyncKeepsFailedSourcesAndStalesOnlySuccessfulTypes(t *t
 		t.Fatalf("empty Claude identity = %+v", claudeRow)
 	}
 	vertexRow := identities[metadataIdentityKey(entities.UsageIdentityAuthTypeAIProvider, "old-vertex")]
-	if !vertexRow.IsDeleted || vertexRow.DeletedAt == nil || !vertexRow.DeletedAt.Equal(now) || !vertexRow.UpdatedAt.Equal(now) {
-		t.Fatalf("invalid Vertex identity = %+v", vertexRow)
+	if vertexRow.IsDeleted || vertexRow.DeletedAt != nil || !vertexRow.UpdatedAt.Equal(oldTime) {
+		t.Fatalf("incomplete Vertex source changed identity deleted = %v", vertexRow.IsDeleted)
 	}
 }
 
