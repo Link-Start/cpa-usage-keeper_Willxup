@@ -30,20 +30,20 @@ const failedCache: UsageQuotaCacheResponse = { items: [{ auth_index: id, status:
 const recoveredCache: UsageQuotaCacheResponse = { items: [{ auth_index: id, status: 'completed', quota: newQuota }] }
 
 let latest: { cache: ReturnType<typeof useQuotaCache>; tasks: ReturnType<typeof useQuotaRefreshTasks> }
-function Harness() {
-  const cache = useQuotaCache({ enabled: true, authIndexes: [id] })
-  const tasks = useQuotaRefreshTasks({ enabled: true, currentAuthIndexes: [id], quotaStateByAuthIndex: cache.quotaStateByAuthIndex, applyRefreshUpdates: cache.applyRefreshUpdates })
+function Harness({ authIndexes = [id] }: { authIndexes?: string[] }) {
+  const cache = useQuotaCache({ enabled: true, authIndexes })
+  const tasks = useQuotaRefreshTasks({ enabled: true, currentAuthIndexes: authIndexes, quotaStateByAuthIndex: cache.quotaStateByAuthIndex, applyRefreshUpdates: cache.applyRefreshUpdates })
   const states = buildCredentialQuotaStateMap(cache.quotaStateByAuthIndex)
-  const identity: UsageIdentity = {
-    id, identity: id, name: 'Codex', type: 'codex', provider: 'codex', auth_type: 1,
+  const identities: UsageIdentity[] = authIndexes.map((authIndex) => ({
+    id: authIndex, identity: authIndex, name: 'Codex', type: 'codex', provider: 'codex', auth_type: 1,
     auth_type_name: 'oauth', prefix: '', disabled: false, is_deleted: false,
     total_requests: 0, success_count: 0, failure_count: 0, input_tokens: 0,
     output_tokens: 0, reasoning_tokens: 0, cache_read_tokens: 0, total_tokens: 0,
     last_aggregated_usage_event_id: '', created_at: '', updated_at: '',
-  }
-  const row = buildAuthFileCredentialRows([identity], new Map(Object.entries(cache.quotaResponseByAuthIndex)), states)[0]
+  }))
+  const rows = buildAuthFileCredentialRows(identities, new Map(Object.entries(cache.quotaResponseByAuthIndex)), states)
   useEffect(() => { latest = { cache, tasks } }, [cache, tasks])
-  return <AuthFileQuotaPanel row={row} quotaUsageMode="remaining" />
+  return <>{rows.map((row) => <AuthFileQuotaPanel key={row.identity.id} row={row} quotaUsageMode="remaining" />)}</>
 }
 
 let root: Root
@@ -234,4 +234,108 @@ it('does not restore a transient manual error after a full remount', async () =>
   await act(async () => root.render(<Harness />))
   expect(latest.cache.quotaStateByAuthIndex[id]?.error).toBeUndefined()
   expect(latest.cache.quotaResponseByAuthIndex[id]).toBeUndefined()
+})
+
+it.each([{ authIndexes: ['other-auth'] }, { authIndexes: [] }])('drops a cache-only error when the query leaves for $authIndexes, even if return cache loading fails', async ({ authIndexes }) => {
+  vi.mocked(fetchUsageQuotaCache).mockResolvedValue(failedCache)
+  await act(async () => root.render(<Harness />))
+  expectFailure()
+  vi.mocked(fetchUsageQuotaCache).mockRejectedValue(new Error('Cache read failed'))
+  await act(async () => root.render(<Harness authIndexes={authIndexes} />))
+  expect(latest.cache.quotaStateByAuthIndex[id]).toBeUndefined()
+  await act(async () => root.render(<Harness />))
+  expect(latest.cache.quotaStateByAuthIndex[id]).toBeUndefined()
+  expect(container.textContent).not.toContain('Your session has ended')
+  vi.mocked(fetchUsageQuotaCache).mockResolvedValue(recoveredCache)
+  await act(async () => latest.cache.refreshQuotaCache())
+  expect(container.textContent).toContain('20%')
+})
+
+it('keeps cache errors for credentials still in the query when other credentials leave', async () => {
+  const otherId = 'other-auth'
+  vi.mocked(fetchUsageQuotaCache).mockResolvedValue({ items: [
+    ...failedCache.items,
+    { auth_index: otherId, status: 'failed', error: 'HTTP 403: permission denied' },
+  ] })
+  await act(async () => root.render(<Harness authIndexes={[id, otherId]} />))
+  vi.mocked(fetchUsageQuotaCache).mockRejectedValue(new Error('Cache read failed'))
+  await act(async () => root.render(<Harness authIndexes={[otherId]} />))
+  expect(latest.cache.quotaStateByAuthIndex[id]).toBeUndefined()
+  expect(latest.cache.quotaStateByAuthIndex[otherId].error).toBe('HTTP 403: permission denied')
+  expect(container.textContent).toContain('permission denied')
+})
+
+it('does not clear cache errors when the query is only reordered', async () => {
+  vi.mocked(fetchUsageQuotaCache).mockResolvedValue(failedCache)
+  await act(async () => root.render(<Harness authIndexes={[id, 'other-auth']} />))
+  expectFailure()
+  vi.mocked(fetchUsageQuotaCache).mockRejectedValue(new Error('Cache read failed'))
+  await act(async () => root.render(<Harness authIndexes={['other-auth', id]} />))
+  expectFailure()
+})
+
+it('preserves a manual failure across pages, empty queries and cache misses until success', async () => {
+  await act(async () => root.render(<Harness />))
+  vi.mocked(fetchUsageQuotaRefreshTask).mockResolvedValue({ authIndex: id, status: 'failed', error: 'HTTP 500: temporary failure' })
+  await act(async () => latest.tasks.refreshQuotaForAuthIndex(id))
+  vi.mocked(fetchUsageQuotaCache).mockResolvedValue({ items: [] })
+  await act(async () => root.render(<Harness authIndexes={['other-auth']} />))
+  expect(latest.cache.quotaStateByAuthIndex[id].error).toBe('HTTP 500: temporary failure')
+  await act(async () => root.render(<Harness authIndexes={[]} />))
+  expect(latest.cache.quotaStateByAuthIndex[id].error).toBe('HTTP 500: temporary failure')
+  await act(async () => root.render(<Harness />))
+  expect(container.textContent).toContain('temporary failure')
+  expect(latest.cache.quotaResponseByAuthIndex[id]).toBeUndefined()
+  vi.mocked(fetchUsageQuotaCache).mockResolvedValue(recoveredCache)
+  await act(async () => latest.cache.refreshQuotaCache())
+  expect(container.textContent).toContain('20%')
+  expect(container.textContent).not.toContain('temporary failure')
+})
+
+it.each(['queued', 'running'] as const)('preserves a %s manual task across pages and lets it finish off-page', async (status) => {
+  await act(async () => root.render(<Harness />))
+  vi.mocked(fetchUsageQuotaRefreshTask).mockResolvedValue({ authIndex: id, status })
+  await act(async () => latest.tasks.refreshQuotaForAuthIndex(id))
+  expect(latest.cache.quotaStateByAuthIndex[id].refreshStatus).toBe(status)
+  vi.mocked(fetchUsageQuotaCache).mockResolvedValue({ items: [] })
+  await act(async () => root.render(<Harness authIndexes={['other-auth']} />))
+  await act(async () => root.render(<Harness authIndexes={[]} />))
+  expect(latest.cache.quotaStateByAuthIndex[id].refreshStatus).toBe(status)
+  await act(async () => root.render(<Harness />))
+  expect(latest.cache.quotaStateByAuthIndex[id].refreshStatus).toBe(status)
+  await act(async () => latest.tasks.refreshQuotaForAuthIndex(id))
+  expect(refreshUsageQuotas).toHaveBeenCalledOnce()
+  await act(async () => root.render(<Harness authIndexes={[]} />))
+  vi.mocked(fetchUsageQuotaRefreshTask).mockResolvedValue({ authIndex: id, status: 'completed', quota: newQuota })
+  await act(async () => vi.advanceTimersByTimeAsync(5_000))
+  expect(latest.cache.quotaStateByAuthIndex[id].refreshStatus).toBe('completed')
+  expect(latest.cache.quotaResponseByAuthIndex[id]).toEqual(newQuota)
+  vi.mocked(fetchUsageQuotaCache).mockRejectedValue(new Error('Cache read failed'))
+  await act(async () => root.render(<Harness />))
+  expect(container.textContent).toContain('20%')
+})
+
+it('keeps successful quota snapshots when their cache state leaves the query', async () => {
+  await act(async () => root.render(<Harness />))
+  expect(container.textContent).toContain('75%')
+  vi.mocked(fetchUsageQuotaCache).mockRejectedValue(new Error('Cache read failed'))
+  await act(async () => root.render(<Harness authIndexes={[]} />))
+  expect(latest.cache.quotaResponseByAuthIndex[id]).toEqual(quota)
+  await act(async () => root.render(<Harness />))
+  expect(container.textContent).toContain('75%')
+})
+
+it('ignores a late cache response from a departed page instead of restoring its old error', async () => {
+  vi.mocked(fetchUsageQuotaCache).mockResolvedValue(failedCache)
+  await act(async () => root.render(<Harness />))
+  let resolveCache!: (value: UsageQuotaCacheResponse) => void
+  vi.mocked(fetchUsageQuotaCache).mockImplementationOnce(() => new Promise((resolve) => { resolveCache = resolve }))
+  let pending!: Promise<void>
+  await act(async () => { pending = latest.cache.refreshQuotaCache() })
+  vi.mocked(fetchUsageQuotaCache).mockRejectedValue(new Error('Cache read failed'))
+  await act(async () => root.render(<Harness authIndexes={['other-auth']} />))
+  await act(async () => { resolveCache(failedCache); await pending })
+  await act(async () => root.render(<Harness />))
+  expect(latest.cache.quotaStateByAuthIndex[id]).toBeUndefined()
+  expect(container.textContent).not.toContain('Your session has ended')
 })

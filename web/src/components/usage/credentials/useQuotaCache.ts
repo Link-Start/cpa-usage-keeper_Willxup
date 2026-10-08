@@ -40,8 +40,30 @@ export function useQuotaCache({ enabled, authIndexes, onAuthRequired }: UseQuota
 
   const authIndexesKey = buildQuotaCacheAuthIndexesKey(authIndexes)
   const stableAuthIndexes = useMemo(() => JSON.parse(authIndexesKey) as string[], [authIndexesKey])
+  const previousAuthIndexesRef = useRef(stableAuthIndexes)
 
   const refreshQuotaCache = useCallback(async () => {
+    if (previousAuthIndexesRef.current !== stableAuthIndexes) {
+      const activeAuthIndexes = new Set(stableAuthIndexes)
+      const departedAuthIndexes = previousAuthIndexesRef.current.filter((authIndex) => !activeAuthIndexes.has(authIndex))
+      previousAuthIndexesRef.current = stableAuthIndexes
+      // 离页只清理缓存来源的状态；手动错误、进行中的任务和成功额度快照继续保留。
+      if (departedAuthIndexes.length > 0) {
+        setSnapshot((current) => {
+          let states = current.states
+          for (const authIndex of departedAuthIndexes) {
+            if (states[authIndex]?.source !== 'cache') {
+              continue
+            }
+            if (states === current.states) {
+              states = { ...current.states }
+            }
+            delete states[authIndex]
+          }
+          return states === current.states ? current : { ...current, states }
+        })
+      }
+    }
     if (!enabled) {
       requestControllerRef.current?.abort()
       requestControllerRef.current = null
@@ -96,12 +118,10 @@ export function useQuotaCache({ enabled, authIndexes, onAuthRequired }: UseQuota
   }, [enabled, onAuthRequired, stableAuthIndexes])
 
   useEffect(() => {
+    void refreshQuotaCache()
     if (!enabled) {
-      requestControllerRef.current?.abort()
-      requestControllerRef.current = null
       return
     }
-    void refreshQuotaCache()
     const intervalID = window.setInterval(refreshQuotaCache, QUOTA_CACHE_REFRESH_INTERVAL_MS)
     return () => {
       window.clearInterval(intervalID)
