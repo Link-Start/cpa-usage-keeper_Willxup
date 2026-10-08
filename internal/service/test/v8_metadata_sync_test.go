@@ -41,14 +41,18 @@ func TestV8MetadataSyncFlattensFirstMatchAndSeparatesConfigAbsenceFromFailure(t 
 				w.WriteHeader(http.StatusBadGateway)
 				fmt.Fprint(w, `{"error":"unavailable"}`)
 			default:
+				w.Header().Set("X-CPA-VERSION", "dev")
 				w.WriteHeader(http.StatusNotFound)
 				fmt.Fprint(w, `{"error":"not_found"}`)
 			}
 		case "/v8/management/config/api-keys/meta":
 			fmt.Fprint(w, `[{"base-url":"  ","keys":[{"api-key":"meta","auth_index":"meta-auth"}]}]`)
-		default:
+		case "/v8/management/config/api-keys/xai", "/v8/management/config/api-keys/gemini", "/v8/management/config/api-keys/interactions", "/v8/management/config/api-keys/claude", "/v8/management/config/api-keys/vertex", "/v8/management/config/api-keys/openai-compatibility":
+			w.Header().Set("X-CPA-VERSION", "dev")
 			w.WriteHeader(http.StatusNotFound)
 			fmt.Fprint(w, `{"error":"not_found"}`)
+		default:
+			http.NotFound(w, r)
 		}
 	}))
 	defer server.Close()
@@ -95,6 +99,74 @@ func TestV8MetadataSyncFlattensFirstMatchAndSeparatesConfigAbsenceFromFailure(t 
 	}
 }
 
+func TestV8MetadataSyncRequiresCPAHeaderBeforeDeletingAbsentProviderIdentities(t *testing.T) {
+	cases := []struct {
+		name        string
+		status      int
+		version     string
+		body        string
+		wantDeleted bool
+	}{
+		{"gateway not_found", http.StatusNotFound, "", `{"error":"not_found"}`, false},
+		{"blank CPA header", http.StatusNotFound, " \t", `{"error":"not_found"}`, false},
+		{"CPA default dev", http.StatusNotFound, "dev", `{"error":"not_found"}`, true},
+		{"empty array", http.StatusOK, "", `[]`, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			db := openMetadataTestDatabase(t, "provider-absence.db")
+			var refresh atomic.Bool
+			var providerCalls atomic.Int32
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				switch r.URL.Path {
+				case "/v8/management/credentials":
+					fmt.Fprint(w, `{"files":[]}`)
+				case "/v8/management/config/access/api-keys", "/v8/management/config/api-keys/xai", "/v8/management/config/api-keys/gemini", "/v8/management/config/api-keys/interactions", "/v8/management/config/api-keys/claude", "/v8/management/config/api-keys/vertex", "/v8/management/config/api-keys/meta":
+					fmt.Fprint(w, `[]`)
+				case "/v8/management/config/api-keys/codex", "/v8/management/config/api-keys/openai-compatibility":
+					providerCalls.Add(1)
+					if !refresh.Load() {
+						authIndex := "codex-auth"
+						if r.URL.Path == "/v8/management/config/api-keys/openai-compatibility" {
+							authIndex = "openai-auth"
+						}
+						fmt.Fprintf(w, `[{"name":"provider","keys":[{"api-key":"seed-key","auth_index":%q}]}]`, authIndex)
+						return
+					}
+					if tc.version != "" {
+						w.Header().Set("X-CPA-VERSION", tc.version)
+					}
+					w.WriteHeader(tc.status)
+					fmt.Fprint(w, tc.body)
+				default:
+					http.NotFound(w, r)
+				}
+			}))
+			defer server.Close()
+			// 先经真实客户端写入两种来源，再观察缺省判定是否影响 SQLite 中的身份。
+			syncer := service.NewSyncServiceWithClient(db, server.URL, cpa.NewClient(server.URL, "management-secret", time.Second, false))
+			if err := syncer.SyncMetadata(context.Background()); err != nil {
+				t.Fatal(err)
+			}
+			refresh.Store(true)
+			if err := syncer.SyncMetadata(context.Background()); (err != nil) == tc.wantDeleted {
+				t.Errorf("refresh error = %v, want deleted = %v", err, tc.wantDeleted)
+			}
+			identities := loadMetadataIdentityMap(t, db)
+			for _, authIndex := range []string{"codex-auth", "openai-auth"} {
+				row, ok := identities[metadataIdentityKey(entities.UsageIdentityAuthTypeAIProvider, authIndex)]
+				if !ok || row.IsDeleted != tc.wantDeleted || row.LookupKey != "seed-key" {
+					t.Errorf("%s identity deleted = %v, found = %v, want deleted = %v", authIndex, row.IsDeleted, ok, tc.wantDeleted)
+				}
+			}
+			if calls := providerCalls.Load(); calls != 4 {
+				t.Fatalf("provider requests = %d, want 4", calls)
+			}
+		})
+	}
+}
+
 func TestV8MetadataSyncPersistsReturnedNumericTextAndClientKeys(t *testing.T) {
 	db := openMetadataTestDatabase(t, "v8-numeric-text.db")
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -108,9 +180,12 @@ func TestV8MetadataSyncPersistsReturnedNumericTextAndClientKeys(t *testing.T) {
 			fmt.Fprint(w, `[{"name":123,"prefix":123,"excluded-models":[42],"keys":[{"api-key":9007199254740993,"auth_index":"numeric-native","prefix":null,"excluded-models":null}]}]`)
 		case "/v8/management/config/api-keys/openai-compatibility":
 			fmt.Fprint(w, `[{"name":9007199254740993,"prefix":789,"keys":[{"api-key":9007199254740993,"auth_index":"numeric-openai"}]}]`)
-		default:
+		case "/v8/management/config/api-keys/xai", "/v8/management/config/api-keys/gemini", "/v8/management/config/api-keys/interactions", "/v8/management/config/api-keys/claude", "/v8/management/config/api-keys/vertex", "/v8/management/config/api-keys/meta":
+			w.Header().Set("X-CPA-VERSION", "dev")
 			w.WriteHeader(http.StatusNotFound)
 			fmt.Fprint(w, `{"error":"not_found"}`)
+		default:
+			http.NotFound(w, r)
 		}
 	}))
 	defer server.Close()

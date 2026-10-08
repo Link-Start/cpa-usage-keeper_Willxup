@@ -60,21 +60,29 @@ func TestProviderConfigurationClassifiesMissingEmptyAndFailure(t *testing.T) {
 		name      string
 		status    int
 		body      string
+		version   string
 		wantError bool
 	}{
-		{"empty", http.StatusOK, `[]`, false},
-		{"missing config", http.StatusNotFound, `{"error":"not_found"}`, false},
-		{"proxy 404", http.StatusNotFound, `<html>not found</html>`, true},
-		{"other JSON 404", http.StatusNotFound, `{"error":"no_route","secret":"do-not-expose"}`, true},
-		{"unauthorized", http.StatusUnauthorized, `{"error":"denied"}`, true},
-		{"malformed JSON", http.StatusOK, `[{`, true},
-		{"invalid structure", http.StatusOK, `[{"keys":{}}]`, true},
-		{"blank", http.StatusOK, " \n", true},
+		{"empty", http.StatusOK, `[]`, "", false},
+		{"missing config dev", http.StatusNotFound, `{"error":"not_found"}`, "dev", false},
+		{"missing config release", http.StatusNotFound, `{"error":"not_found"}`, "v9.0.0", false},
+		{"gateway not_found", http.StatusNotFound, `{"error":"not_found"}`, "", true},
+		{"blank CPA header", http.StatusNotFound, `{"error":"not_found"}`, " \t", true},
+		{"proxy 404", http.StatusNotFound, `<html>not found</html>`, "", true},
+		{"CPA HTML 404", http.StatusNotFound, `<html>not found</html>`, "dev", true},
+		{"other JSON 404", http.StatusNotFound, `{"error":"no_route","secret":"do-not-expose"}`, "dev", true},
+		{"unauthorized", http.StatusUnauthorized, `{"error":"denied"}`, "dev", true},
+		{"malformed JSON", http.StatusOK, `[{`, "", true},
+		{"invalid structure", http.StatusOK, `[{"keys":{}}]`, "", true},
+		{"blank", http.StatusOK, " \n", "", true},
 	}
 	for _, source := range []string{"xai", "openai"} {
 		for _, tc := range cases {
 			t.Run(source+"/"+tc.name, func(t *testing.T) {
 				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+					if tc.version != "" {
+						w.Header().Set("X-CPA-VERSION", tc.version)
+					}
 					w.WriteHeader(tc.status)
 					_, _ = w.Write([]byte(tc.body))
 				}))

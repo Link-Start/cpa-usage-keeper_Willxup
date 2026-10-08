@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"mime"
@@ -57,6 +58,17 @@ type authFilesDeleteRequest struct {
 	Names []string `json:"names"`
 }
 
+// httpStatusError 只随本次失败响应携带 CPA 标识，不缓存到客户端或输出到错误文本。
+type httpStatusError struct {
+	kind       string
+	statusCode int
+	cpaVersion string
+}
+
+func (e *httpStatusError) Error() string {
+	return fmt.Sprintf("%s request returned status %d", e.kind, e.statusCode)
+}
+
 func (c *Client) doJSONRequest(ctx context.Context, path string, target any, kind string, configure func(*http.Request)) (int, []byte, error) {
 	return c.doJSONRequestWithBody(ctx, http.MethodGet, path, nil, target, kind, configure)
 }
@@ -89,7 +101,9 @@ func (c *Client) doJSONRequestWithBody(ctx context.Context, method string, path 
 	}
 
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
-		return resp.StatusCode, responseBody, fmt.Errorf("%s request returned status %d", kind, resp.StatusCode)
+		return resp.StatusCode, responseBody, &httpStatusError{
+			kind: kind, statusCode: resp.StatusCode, cpaVersion: resp.Header.Get("X-CPA-VERSION"),
+		}
 	}
 	if target == nil || isBlankJSONResponseBody(responseBody) {
 		return resp.StatusCode, responseBody, nil
@@ -519,10 +533,14 @@ func (c *Client) FetchVertexAPIKeys(ctx context.Context) (*response.ProviderKeyC
 	return c.fetchProviderKeyConfig(ctx, cpaManagementVertexAPIKeyEndpoint, "vertex api keys")
 }
 
-// configurationNotFound 只识别配置子路径缺省的明确 not_found。
-// 网关或路由返回的普通 404 仍是失败，不能误当成空来源而将本地身份标记失效。
-func configurationNotFound(statusCode int, body []byte) bool {
+// configurationNotFound 只接受同次 CPA 响应明确返回的配置缺省。
+// 标识头只验证非空，允许 dev；缺头的网关 404 仍失败，由同步层保留本地身份。
+func configurationNotFound(statusCode int, body []byte, requestErr error) bool {
 	if statusCode != http.StatusNotFound {
+		return false
+	}
+	var statusErr *httpStatusError
+	if !errors.As(requestErr, &statusErr) || strings.TrimSpace(statusErr.cpaVersion) == "" {
 		return false
 	}
 	var payload struct {
@@ -537,7 +555,7 @@ func (c *Client) fetchProviderKeyConfig(ctx context.Context, path string, kind s
 	result := &response.ProviderKeyConfigResult{}
 	statusCode, body, err := c.doManagementJSONRequest(ctx, path, nil, kind)
 	result.StatusCode, result.Body = statusCode, body
-	if configurationNotFound(statusCode, body) {
+	if configurationNotFound(statusCode, body, err) {
 		result.Document = &providerconfig.Document{}
 		result.Payload = []providerconfig.ProviderKeyConfig{}
 		return result, nil
@@ -567,7 +585,7 @@ func (c *Client) FetchOpenAICompatibility(ctx context.Context) (*response.OpenAI
 	result := &response.OpenAICompatibilityResult{}
 	statusCode, body, err := c.doManagementJSONRequest(ctx, cpaManagementOpenAICompatibilityEndpoint, nil, "openai compatibility")
 	result.StatusCode, result.Body = statusCode, body
-	if configurationNotFound(statusCode, body) {
+	if configurationNotFound(statusCode, body, err) {
 		result.Document = &providerconfig.Document{}
 		result.Payload = []providerconfig.OpenAICompatibilityConfig{}
 		return result, nil
