@@ -331,3 +331,56 @@ func assertLegacyOverviewFee(t *testing.T, fixture publishedPricingEventFixture,
 		t.Fatalf("%s/%s 重建结果不符: cost=%+v unavailable=%+v count=%d tokens=%d", table, model, cost, unavailable, count, tokens)
 	}
 }
+
+// 原始时间可携带不同 offset；重建及 M6 必须使用同一项目时区，且保留原始事实。
+func TestLegacyPricingOverviewRebuildTimezoneBoundaries(t *testing.T) {
+	for _, tc := range []struct{ name, zone, timestamp, day string }{
+		{"utc_to_shanghai_next_day", "Asia/Shanghai", "2026-09-01T23:30:00Z", "2026-09-02"},
+		{"offset_to_utc_previous_day", "UTC", "2026-09-02T00:30:00+08:00", "2026-09-01"},
+		{"new_york_summer", "America/New_York", "2026-07-02T03:30:00Z", "2026-07-01"},
+		{"new_york_winter", "America/New_York", "2026-01-02T04:30:00Z", "2026-01-01"},
+		{"dst_fall_back", "America/New_York", "2026-11-01T06:30:00Z", "2026-11-01"},
+		{"fractional_last_second", "Asia/Shanghai", "2026-09-01T15:59:59.999999999Z", "2026-09-01"},
+		{"legacy_local", "Asia/Kathmandu", "2026-09-02 00:30:00", "2026-09-02"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			location, err := time.LoadLocation(tc.zone)
+			if err != nil {
+				t.Fatal(err)
+			}
+			previous := time.Local
+			time.Local = location
+			t.Cleanup(func() { time.Local = previous })
+			fixture := openPublishedPricingOverviewFixture(t)
+			if err := fixture.writer.Exec("UPDATE usage_events SET timestamp = ? WHERE id = 1", tc.timestamp).Error; err != nil {
+				t.Fatal(err)
+			}
+			if err := fixture.writer.Exec("INSERT INTO usage_events_archive (id,event_key,model,auth_index,timestamp,input_tokens,output_tokens,cache_read_tokens,cache_creation_tokens,total_tokens,failed) VALUES (2,'cold-zone','model-a','hot-a',?,50,10,0,0,60,0)", tc.timestamp).Error; err != nil {
+				t.Fatal(err)
+			}
+			if err := fixture.writer.Exec("UPDATE usage_aggregation_checkpoints SET last_aggregated_usage_event_id = 2 WHERE name = 'overview'").Error; err != nil {
+				t.Fatal(err)
+			}
+			baseline, err := repository.MigrateLegacyPricingEvents(context.Background(), fixture.writer, fixture.reader, fixture.backupDir, time.Now())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := repository.CompleteLegacyPricingData(context.Background(), fixture.writer, fixture.reader, baseline); err != nil {
+				t.Fatalf("timezone-consistent rebuild should complete: %v", err)
+			}
+			var daily entities.UsageOverviewDailyStat
+			if err := fixture.reader.Take(&daily).Error; err != nil {
+				t.Fatal(err)
+			}
+			if daily.BucketStart.In(location).Format("2006-01-02") != tc.day || daily.RequestCount != 2 {
+				t.Fatalf("unexpected daily bucket: %+v", daily)
+			}
+			for _, table := range []string{"usage_events", "usage_events_archive"} {
+				var timestamp string
+				if err := fixture.reader.Table(table).Select("timestamp").Where("id <= 2").Scan(&timestamp).Error; err != nil || timestamp != tc.timestamp {
+					t.Fatalf("%s original time changed: %q %v", table, timestamp, err)
+				}
+			}
+		})
+	}
+}

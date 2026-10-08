@@ -10,6 +10,9 @@ import (
 	"strings"
 
 	"cpa-usage-keeper/internal/entities"
+	"cpa-usage-keeper/internal/overview"
+	"cpa-usage-keeper/internal/timeutil"
+	"github.com/mattn/go-sqlite3"
 	"gorm.io/gorm"
 )
 
@@ -78,13 +81,44 @@ func VerifyLegacyPricingData(ctx context.Context, reader *gorm.DB, baseline Pric
 			return err
 		}
 	}
-	for _, table := range []string{"usage_overview_hourly_stats", "usage_overview_daily_stats"} {
-		if err := verifyPricingOverviewCounts(ctx, reader, liveSchema, table, fixed.OverviewCursor); err != nil {
-			return fmt.Errorf("verify rebuilt %s: %w", table, err)
+	if err := reader.WithContext(ctx).Connection(func(db *gorm.DB) error {
+		// SQLite 分组使用 Go 的存储时间解析与 Overview 分桶，避免 SQL 日期函数丢失项目时区或纳秒精度。
+		// 函数与查询固定在同一只读连接；不注册全局 driver，也不改写原始时间。
+		conn, ok := db.Statement.ConnPool.(*sql.Conn)
+		if !ok {
+			return fmt.Errorf("pricing M6 requires a pinned SQL connection")
 		}
-		if err := verifyPricingLegacyCostGroups(ctx, reader, table, fixed.OverviewCursor); err != nil {
-			return err
+		if err := conn.Raw(func(raw any) error {
+			sqliteConn, ok := raw.(*sqlite3.SQLiteConn)
+			if !ok {
+				return fmt.Errorf("pricing M6 requires a SQLite connection")
+			}
+			return sqliteConn.RegisterFunc("pricing_overview_bucket", func(value string, daily bool) (string, error) {
+				timestamp, err := timeutil.ParseStorageTime(value)
+				if err != nil {
+					return "", err
+				}
+				hour, day := overview.BucketKeysForEvent(entities.UsageEvent{Timestamp: timestamp})
+				bucket := hour.BucketStart
+				if daily {
+					bucket = day.BucketStart
+				}
+				return strconv.FormatInt(bucket.Unix(), 10), nil
+			}, true)
+		}); err != nil {
+			return fmt.Errorf("register pricing M6 bucket function: %w", err)
 		}
+		for _, table := range []string{"usage_overview_hourly_stats", "usage_overview_daily_stats"} {
+			if err := verifyPricingOverviewCounts(ctx, db, liveSchema, table, fixed.OverviewCursor); err != nil {
+				return fmt.Errorf("verify rebuilt %s: %w", table, err)
+			}
+			if err := verifyPricingLegacyCostGroups(ctx, db, table, fixed.OverviewCursor); err != nil {
+				return err
+			}
+		}
+		return nil
+	}); err != nil {
+		return err
 	}
 	// M1 已完成 quick_check 并固定备份；此处复用同一只读文件，不再建镜像或重算价格。
 	backupDB, closeBackup, err := openPricingBackupReadOnly(*state.BackupPath)
@@ -350,18 +384,11 @@ func verifyPricingOverviewCounts(ctx context.Context, db *gorm.DB, schema Pricin
 }
 
 func pricingOverviewBucketExpr(column, table string) string {
-	value := "CAST(" + column + " AS TEXT)"
+	daily := "0"
 	if strings.Contains(table, "daily") {
-		return "substr(" + value + ", 1, 10)"
+		daily = "1"
 	}
-	// 旧 Overview 在 20260512 时间正规化之后才建表；有 offset 的旧值按绝对整小时分组。
-	// 先剥小数秒并保留 Z／原 offset，避免不同 SQLite 版本将 .999999999 舍入到下一小时。
-	second := "substr(" + value + ", 1, instr(" + value + ", '.') - 1)"
-	withoutFraction := "CASE WHEN instr(" + value + ", '.') = 0 THEN " + value +
-		" WHEN substr(" + value + ", -1) = 'Z' THEN " + second + " || 'Z'" +
-		" WHEN substr(" + value + ", -6, 1) IN ('+', '-') THEN " + second + " || substr(" + value + ", -6)" +
-		" ELSE " + second + " END"
-	return "CAST(CAST(strftime('%s', " + withoutFraction + ") AS INTEGER) / 3600 AS TEXT)"
+	return "pricing_overview_bucket(CAST(" + column + " AS TEXT), " + daily + ")"
 }
 
 func pricingOverviewDimensionExpr(field string) string {
