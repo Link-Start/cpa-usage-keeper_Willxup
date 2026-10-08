@@ -25,7 +25,7 @@ type UsageOverviewHourlyStat struct {
 	CacheReadTokens     int64     `gorm:"not null;default:0"`
 	CacheCreationTokens int64     `gorm:"not null;default:0"`
 	TotalTokens         int64     `gorm:"not null;default:0"`
-	// 旧桶在费用回填前为 NULL，零费用桶由完成阶段写成明确的零。
+	// 结构升级后旧桶可为 NULL；首次迁移按现存事件重建，正常聚合必须写入明确金额与不可用计数。
 	CostUSD              *float64  `gorm:"column:cost_usd;type:real"`
 	UnavailableCostCount *int64    `gorm:"column:unavailable_cost_count"`
 	CreatedAt            time.Time `gorm:"serializer:storageTime;not null"`

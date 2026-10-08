@@ -168,7 +168,7 @@ func TestPricingCompletedStartupRunsPendingSchemaVersion(t *testing.T) {
 	}
 }
 
-// TestPricingLegacyStartupProtectsAndBackfillsOldPhysicalColumns 验证旧库先备份，再按固定价格回填明细及既有桶。
+// TestPricingLegacyStartupProtectsAndBackfillsOldPhysicalColumns 验证旧库先备份，再按固定价格回填明细并重建水位内聚合。
 func TestPricingLegacyStartupProtectsAndBackfillsOldPhysicalColumns(t *testing.T) {
 	cfg := testAppConfig(t)
 	seed := seedPublishedPricingRuntime(t, cfg)
