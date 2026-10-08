@@ -106,8 +106,8 @@
 
 ## 快速开始
 
-> 使用前请确认 CPA 已开启使用统计。v8 配置中的 `observability.usage.usage-statistics-enabled` 应设为 `true`；旧版配置使用顶层 `usage-statistics-enabled`。
->
+> Keeper 支持 CPA v8.0.12+。
+
 > 同一 CPA 接入多个 usage 采集服务时，请确保均使用订阅模式，否则可能导致收数中断或数据不完整。
 
 Docker Compose 是推荐部署方式：首次部署可同时运行 CPA + Keeper，已有 CPA 时则使用 Keeper-only Compose。
@@ -232,7 +232,7 @@ curl -fL https://raw.githubusercontent.com/Willxup/cpa-usage-keeper/main/deploy/
 
 **2. 填写 CPA 和 Keeper 配置**
 
-官方模板采用 v8 配置结构。按下表编辑 `cpa/config.yaml` 中的已有配置项，保留 YAML 层级与缩进；表中的点号表示嵌套路径，不是要新增的 YAML 键名：
+按下表编辑 `cpa/config.yaml` 中的已有配置项，保留 YAML 层级与缩进；表中的点号表示嵌套路径，不是要新增的 YAML 键名：
 
 | 配置项 | 设置说明 |
 | --- | --- |
@@ -241,7 +241,7 @@ curl -fL https://raw.githubusercontent.com/Willxup/cpa-usage-keeper/main/deploy/
 | `observability.usage.usage-statistics-enabled` | 改为 `true`，开启使用统计。 |
 | `access.api-keys` | 将示例密钥替换为自己的客户端调用密钥；这不是 CPA 管理密钥或 Keeper 登录密码。 |
 
-保留 `server.host` 为空字符串、`server.port` 为 `8317`、`oauth.auth-dir` 为 `"~/.cli-proxy-api"`，以匹配模板中的容器网络及目录挂载。不要在 v8 模板中追加同名含义的旧版配置项。
+保留 `server.host` 为空字符串、`server.port` 为 `8317`、`oauth.auth-dir` 为 `"~/.cli-proxy-api"`，以匹配模板中的容器网络及目录挂载。
 
 编辑下载的 `docker-compose.yml`，在 Keeper 的 `environment` 中填写两项：
 
@@ -290,7 +290,7 @@ LOGIN_PASSWORD=
 
 启动容器前请设置私有的 `LOGIN_PASSWORD`。
 
-无论 CPA 位于 Docker 宿主机还是其他主机，都需允许远程管理，并监听 Keeper 容器可访问的地址；只监听 `127.0.0.1` 时容器无法连接。v8 配置设置 `management.allow-remote: true`，并检查 `server.host`；旧版对应 `remote-management.allow-remote` 和顶层 `host`。
+无论 CPA 位于 Docker 宿主机还是其他主机，都需允许远程管理，并监听 Keeper 容器可访问的地址；只监听 `127.0.0.1` 时容器无法连接。设置 `management.allow-remote: true`，并检查 `server.host`。
 
 其它网络环境请将 `CPA_BASE_URL` 改为容器可访问的 CPA 地址。只有 Redis/RESP 地址与自动推导的地址不同时，才需要设置 `REDIS_QUEUE_ADDR`。
 
@@ -321,7 +321,7 @@ docker compose up -d cpa-usage-keeper
 
 #### 启动后没有数据？
 
-- 确认 CPA 使用统计已开启：v8 配置的 `observability.usage.usage-statistics-enabled` 为 `true`；旧版为顶层 `usage-statistics-enabled`。
+- 确认 CPA 使用统计已开启：`observability.usage.usage-statistics-enabled` 为 `true`。
 - 确认 Keeper 能访问 `CPA_BASE_URL`，且 `CPA_MANAGEMENT_KEY` 与 CPA 管理密钥一致。
 - 确认 CPA 已产生新的模型请求；仍没有数据时，用上面的日志命令检查连接或认证错误。
 
