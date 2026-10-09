@@ -1,14 +1,16 @@
 // @vitest-environment happy-dom
 
-import { act, useEffect, useState } from 'react'
+import { act, useEffect } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { ApiError, fetchUsageQuotaRefreshTask, refreshUsageQuotas } from '@/lib/api'
+import { ApiError, fetchUsageQuotaCache, fetchUsageQuotaRefreshTask, refreshUsageQuotas } from '@/lib/api'
 import type { UsageQuotaCheckResponse, UsageQuotaRefreshResponse, UsageQuotaRefreshTaskResponse } from '@/lib/types'
 import { useQuotaRefreshTasks } from '../useQuotaRefreshTasks'
+import { useQuotaCache } from '../useQuotaCache'
 
 vi.mock('@/lib/api', async (importOriginal) => ({
   ...await importOriginal<typeof import('@/lib/api')>(),
+  fetchUsageQuotaCache: vi.fn(),
   fetchUsageQuotaRefreshTask: vi.fn(),
   refreshUsageQuotas: vi.fn(),
 }))
@@ -16,9 +18,12 @@ vi.mock('@/lib/api', async (importOriginal) => ({
 let latest: ReturnType<typeof useQuotaRefreshTasks> | null = null
 let quotaCache: Record<string, UsageQuotaCheckResponse> = {}
 function Harness({ enabled = true, onAuthRequired }: { enabled?: boolean; onAuthRequired?: () => void }) {
-  const [cache, setCache] = useState<Record<string, UsageQuotaCheckResponse>>({})
-  const result = useQuotaRefreshTasks({ enabled, currentAuthIndexes: ['auth-1'], setQuotaResponseByAuthIndex: setCache, onAuthRequired })
-  useEffect(() => { latest = result; quotaCache = cache }, [result, cache])
+  const cache = useQuotaCache({ enabled, authIndexes: ['auth-1'], onAuthRequired })
+  const result = useQuotaRefreshTasks({ enabled, currentAuthIndexes: ['auth-1'], quotaStateByAuthIndex: cache.quotaStateByAuthIndex, applyRefreshUpdates: cache.applyRefreshUpdates, onAuthRequired })
+  useEffect(() => {
+    latest = { ...result, resetQuotaRefreshTasks: () => { cache.resetQuotaCache(); result.resetQuotaRefreshTasks() } }
+    quotaCache = cache.quotaResponseByAuthIndex
+  }, [result, cache])
   return null
 }
 
@@ -31,6 +36,7 @@ describe('quota refresh task ownership', () => {
   beforeEach(() => {
     globalThis.IS_REACT_ACT_ENVIRONMENT = true
     vi.useFakeTimers()
+    vi.mocked(fetchUsageQuotaCache).mockReset().mockResolvedValue({ items: [] })
     vi.mocked(refreshUsageQuotas).mockReset()
     vi.mocked(fetchUsageQuotaRefreshTask).mockReset()
     container = document.createElement('div')

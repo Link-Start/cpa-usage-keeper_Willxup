@@ -66,6 +66,8 @@ func TestArchiveExpiredUsageEventsPreservesOriginalRowAndHotSequence(t *testing.
 	statusCode := 429
 	clientIP := "203.0.113.10"
 	parentSessionID := "session-root"
+	executionID, traceID, nodeKind := "execution-a", "trace-a", "compaction"
+	isFork, isCompaction := false, true
 	ttft := int64(321)
 	costUSD := 1.2345
 	costAvailable := true
@@ -79,6 +81,7 @@ func TestArchiveExpiredUsageEventsPreservesOriginalRowAndHotSequence(t *testing.
 			Source: "auth-a", AuthIndex: "auth-a", Failed: true, StatusCode: &statusCode, Generate: &generate, Stream: &stream, LatencyMS: 999, TTFTMS: &ttft,
 			InputTokens: 10, OutputTokens: 20, ReasoningTokens: 5, CachedTokens: 4, CacheReadTokens: 3, CacheCreationTokens: 2, TotalTokens: 35,
 			CostUSD: &costUSD, CostAvailable: &costAvailable,
+			ExecutionID: &executionID, TraceID: &traceID, NodeKind: &nodeKind, IsFork: &isFork, IsCompaction: &isCompaction,
 		},
 		{EventKey: "unavailable-zero", Model: "unpriced", Timestamp: now.AddDate(0, 0, -92), CostUSD: &zeroCost, CostAvailable: &unavailable},
 		{EventKey: "recent", Model: "gpt-5", Timestamp: now.Add(-time.Hour), TotalTokens: 1},
