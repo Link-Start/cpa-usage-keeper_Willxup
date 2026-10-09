@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ApiError, fetchUsageQuotaRefreshTask, refreshUsageQuotas } from '@/lib/api'
 import i18n from '@/i18n'
 import type { UsageQuotaCheckResponse, UsageQuotaRefreshResponse } from '@/lib/types'
@@ -17,7 +17,8 @@ export interface PendingRefreshTask {
 interface UseQuotaRefreshTasksOptions {
   enabled: boolean
   currentAuthIndexes: string[]
-  setQuotaResponseByAuthIndex: Dispatch<SetStateAction<Record<string, UsageQuotaCheckResponse>>>
+  quotaStateByAuthIndex: Record<string, QuotaState>
+  applyRefreshUpdates: (states: Record<string, QuotaState>, quotas?: Record<string, UsageQuotaCheckResponse>) => void
   onAuthRequired?: () => void
 }
 
@@ -30,8 +31,7 @@ export interface QuotaRefreshTasksState {
   resetQuotaRefreshTasks: () => void
 }
 
-export function useQuotaRefreshTasks({ enabled, currentAuthIndexes, setQuotaResponseByAuthIndex, onAuthRequired }: UseQuotaRefreshTasksOptions): QuotaRefreshTasksState {
-  const [quotaStateByAuthIndex, setQuotaStateByAuthIndex] = useState<Record<string, QuotaState>>({})
+export function useQuotaRefreshTasks({ enabled, currentAuthIndexes, quotaStateByAuthIndex, applyRefreshUpdates, onAuthRequired }: UseQuotaRefreshTasksOptions): QuotaRefreshTasksState {
   const [pendingRefreshTasks, setPendingRefreshTasks] = useState<PendingRefreshTask[]>([])
   const [batchRefreshSubmitting, setBatchRefreshSubmitting] = useState(false)
   const [quotaRefreshError, setQuotaRefreshError] = useState('')
@@ -42,7 +42,6 @@ export function useQuotaRefreshTasks({ enabled, currentAuthIndexes, setQuotaResp
     requestGenerationRef.current += 1
     pollControllerRef.current?.abort()
     pollControllerRef.current = null
-    setQuotaStateByAuthIndex({})
     setPendingRefreshTasks([])
     setBatchRefreshSubmitting(false)
     setQuotaRefreshError('')
@@ -52,12 +51,6 @@ export function useQuotaRefreshTasks({ enabled, currentAuthIndexes, setQuotaResp
     () => batchRefreshSubmitting || pendingRefreshTasks.some((task) => task.source === 'batch'),
     [batchRefreshSubmitting, pendingRefreshTasks],
   )
-
-  useEffect(() => {
-    if (!enabled) {
-      resetQuotaRefreshTasks()
-    }
-  }, [enabled, resetQuotaRefreshTasks])
 
   useEffect(() => () => {
     // 组件卸载后仅退休旧提交响应，不取消服务端已受理的额度刷新任务。
@@ -110,13 +103,7 @@ export function useQuotaRefreshTasks({ enabled, currentAuthIndexes, setQuotaResp
             stateUpdates[task.authIndex] = errorUpdate.stateUpdate
           } else {
             // 404 表示任务已从后端消失，清除队列和旧额度，不伪造失败或完成。
-            setQuotaStateByAuthIndex((current) => omitQuotaStates(current, new Set([task.authIndex])))
-            setQuotaResponseByAuthIndex((current) => {
-              if (current[task.authIndex] === undefined) return current
-              const next = { ...current }
-              delete next[task.authIndex]
-              return next
-            })
+            stateUpdates[task.authIndex] = {}
           }
         }
       }))
@@ -124,13 +111,7 @@ export function useQuotaRefreshTasks({ enabled, currentAuthIndexes, setQuotaResp
       if (!isCurrent()) {
         return
       }
-      if (Object.keys(quotaResponseUpdates).length > 0) {
-        // 已完成任务的 quota 直接写入缓存，行视图会自动用最新缓存重算。
-        setQuotaResponseByAuthIndex((current) => ({ ...current, ...quotaResponseUpdates }))
-      }
-      if (Object.keys(stateUpdates).length > 0) {
-        setQuotaStateByAuthIndex((current) => mergeQuotaStates(current, stateUpdates))
-      }
+      applyRefreshUpdates(stateUpdates, quotaResponseUpdates)
       if (settledAuthIndexes.size > 0) {
         setPendingRefreshTasks((current) => current.filter((task) => !settledAuthIndexes.has(task.authIndex)))
       }
@@ -152,7 +133,7 @@ export function useQuotaRefreshTasks({ enabled, currentAuthIndexes, setQuotaResp
         window.clearTimeout(timer)
       }
     }
-  }, [enabled, onAuthRequired, pendingRefreshTasks, setQuotaResponseByAuthIndex])
+  }, [enabled, onAuthRequired, pendingRefreshTasks, applyRefreshUpdates])
 
   const startQuotaRefresh = useCallback(async (authIndexes: string[], source: PendingRefreshTask['source']) => {
     if (authIndexes.length === 0) {
@@ -175,9 +156,7 @@ export function useQuotaRefreshTasks({ enabled, currentAuthIndexes, setQuotaResp
         }
         return Array.from(nextByAuthIndex.values())
       })
-      setQuotaStateByAuthIndex((current) => {
-        return mergeQuotaStates(current, submission.stateUpdates)
-      })
+      applyRefreshUpdates(submission.stateUpdates)
     } catch (nextError) {
       if (requestGenerationRef.current !== generation) return
       if (nextError instanceof ApiError && nextError.status === 401) {
@@ -190,7 +169,7 @@ export function useQuotaRefreshTasks({ enabled, currentAuthIndexes, setQuotaResp
         setBatchRefreshSubmitting(false)
       }
     }
-  }, [onAuthRequired])
+  }, [onAuthRequired, applyRefreshUpdates])
 
   const refreshQuotaForCurrentAuthFilePage = useCallback(async () => {
     // 批量刷新只提交当前页且未在工作的条目，单行刷新中的任务不会重复入队。
@@ -271,34 +250,8 @@ export function buildQuotaRefreshTaskErrorUpdate(authIndex: string, error: unkno
   }
 }
 
-function omitQuotaStates(current: Record<string, QuotaState>, authIndexes: Set<string>): Record<string, QuotaState> {
-  const next = { ...current }
-  for (const authIndex of authIndexes) {
-    delete next[authIndex]
-  }
-  return next
-}
-
 function isQuotaRefreshWorking(state: QuotaState | undefined): boolean {
   return state?.refreshStatus === 'queued' || state?.refreshStatus === 'running'
-}
-
-function mergeQuotaStates(current: Record<string, QuotaState>, updates: Record<string, QuotaState>): Record<string, QuotaState> {
-  let changed = false
-  const next = { ...current }
-  for (const [authIndex, update] of Object.entries(updates)) {
-    const previous = current[authIndex] ?? {}
-    const merged = { ...previous, ...update }
-    if (
-      previous.loading !== merged.loading ||
-      previous.error !== merged.error ||
-      previous.refreshStatus !== merged.refreshStatus
-    ) {
-      next[authIndex] = merged
-      changed = true
-    }
-  }
-  return changed ? next : current
 }
 
 export function quotaRefreshDisplayError(error?: string): string {

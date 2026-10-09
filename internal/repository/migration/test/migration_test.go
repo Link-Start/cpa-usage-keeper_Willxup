@@ -92,6 +92,7 @@ func TestOrderedMigrationsPreservesExecutionOrder(t *testing.T) {
 		"20260919_usage_event_stream_status_code",
 		"20260922_normalize_usage_event_parent_session_null",
 		"20260925_limit_latency_sample_points",
+		"20261008_usage_event_trace_metadata",
 		"20261002_pricing_storage_structure",
 		"20261005_remove_ranking",
 	}

@@ -99,6 +99,8 @@ const (
 	migrationLimitLatencySamplePoints   = "20260925_limit_latency_sample_points"
 	migrationAddPricingStorageStructure = "20261002_pricing_storage_structure"
 	migrationRemoveRanking              = "20261005_remove_ranking"
+	// migrationAddUsageEventTraceMetadata 只保存上游提供的执行与节点元数据，历史行保持 NULL。
+	migrationAddUsageEventTraceMetadata = "20261008_usage_event_trace_metadata"
 )
 
 type schemaMigration struct {
@@ -192,7 +194,7 @@ func RunPricingStorageStructure(db *gorm.DB) error {
 	return runSchemaMigration(db, migrations[boundary])
 }
 
-// pricingStorageMigrationBoundary 只定位固定费用版本；以后新增版本不改变已发布旧迁移的边界。
+// pricingStorageMigrationBoundary 定位固定费用版本；main 的新增迁移必须注册在它之前。
 func pricingStorageMigrationBoundary(migrations []databaseMigration) (int, error) {
 	for index, item := range migrations {
 		if item.version == migrationAddPricingStorageStructure {
@@ -306,6 +308,8 @@ func orderedMigrations() []databaseMigration {
 		{version: migrationAddUsageEventStreamStatusCode, run: addUsageEventStreamStatusCodeMigration},
 		{version: migrationNormalizeUsageEventParentSessionNull, run: normalizeUsageEventParentSessionNullMigration},
 		{version: migrationLimitLatencySamplePoints, run: limitLatencySamplePointsMigration, destructive: true},
+		// main 先发布的迁移必须位于 v2 费用分界之前，已执行的版本由迁移记录跳过。
+		{version: migrationAddUsageEventTraceMetadata, run: addUsageEventTraceMetadataMigration},
 		// 费用结构只在全部已发布旧迁移之后增列，旧数据回填由后续启动阶段控制。
 		{version: migrationAddPricingStorageStructure, run: addPricingStorageStructureMigration},
 		{version: migrationRemoveRanking, run: removeRankingMigration},
